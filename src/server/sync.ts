@@ -15,7 +15,7 @@ type SyncDeps = {
   pageSize?: number;
 };
 
-export async function syncWatchingAnime({ username, client, repository, pageSize = 100 }: SyncDeps): Promise<SyncResult> {
+export async function syncWatchingAnime({ username, client, repository, pageSize = 50 }: SyncDeps): Promise<SyncResult> {
   let offset = 0;
   let total = Number.POSITIVE_INFINITY;
   let subjectsSynced = 0;

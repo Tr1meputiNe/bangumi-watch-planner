@@ -3,13 +3,37 @@ import { syncWatchingAnime } from '../../src/server/sync.js';
 import type { BangumiClient } from '../../src/server/types.js';
 
 describe('syncWatchingAnime', () => {
+  it('uses Bangumi collection page size within the official API limit by default', async () => {
+    const client: BangumiClient = {
+      getMe: vi.fn(),
+      getWatchingAnime: vi.fn(async () => ({
+        total: 0,
+        data: []
+      })),
+      getSubjectEpisodes: vi.fn(),
+      markEpisodesWatched: vi.fn()
+    };
+
+    await syncWatchingAnime({
+      username: 'sai',
+      client,
+      repository: {
+        upsertSubject: async () => undefined,
+        replaceSubjectEpisodes: async () => undefined,
+        setSetting: async () => undefined
+      }
+    });
+
+    expect(client.getWatchingAnime).toHaveBeenCalledWith('sai', 50, 0);
+  });
+
   it('fetches all watching anime pages and stores their episode collections', async () => {
     const client: BangumiClient = {
       getMe: vi.fn(),
       getWatchingAnime: vi
         .fn()
         .mockResolvedValueOnce({
-          total: 101,
+          total: 51,
           data: [
             {
               subject_id: 1,
@@ -26,7 +50,7 @@ describe('syncWatchingAnime', () => {
           ]
         })
         .mockResolvedValueOnce({
-          total: 101,
+          total: 51,
           data: [
             {
               subject_id: 2,
@@ -89,7 +113,7 @@ describe('syncWatchingAnime', () => {
 
     const result = await syncWatchingAnime({
       username: 'sai',
-      pageSize: 100,
+      pageSize: 50,
       client,
       repository: {
         upsertSubject: async (subject) => savedSubjects.push(subject),
@@ -100,8 +124,8 @@ describe('syncWatchingAnime', () => {
 
     expect(result.subjectsSynced).toBe(2);
     expect(result.episodesSynced).toBe(2);
-    expect(client.getWatchingAnime).toHaveBeenNthCalledWith(1, 'sai', 100, 0);
-    expect(client.getWatchingAnime).toHaveBeenNthCalledWith(2, 'sai', 100, 100);
+    expect(client.getWatchingAnime).toHaveBeenNthCalledWith(1, 'sai', 50, 0);
+    expect(client.getWatchingAnime).toHaveBeenNthCalledWith(2, 'sai', 50, 50);
     expect(savedSubjects.map((subject) => subject.id)).toEqual([1, 2]);
     expect(savedEpisodes.map((episode) => episode.id)).toEqual([11, 21]);
   });
