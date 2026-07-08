@@ -90,6 +90,54 @@ describe('App', () => {
     });
   });
 
+  it('refreshes the local API token and retries writes when the server token changed', async () => {
+    let authCalls = 0;
+    let watchedCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        authCalls += 1;
+        return Response.json({
+          authenticated: true,
+          username: 'sai',
+          nickname: 'Sai',
+          lastSyncAt: dashboard.lastSyncAt,
+          apiToken: authCalls === 1 ? 'old-token' : 'new-token'
+        });
+      }
+      if (url === '/api/dashboard') {
+        return Response.json(dashboard);
+      }
+      if (url === '/api/episodes/11/watched' && init?.method === 'POST') {
+        watchedCalls += 1;
+        if (watchedCalls === 1) {
+          return Response.json({ error: 'Invalid local API token' }, { status: 403 });
+        }
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    await screen.findByText('第一集');
+    await userEvent.click(screen.getByRole('button', { name: '标记看过' }));
+
+    await waitFor(() => {
+      expect(watchedCalls).toBe(2);
+    });
+    const watchedRequests = fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/episodes/11/watched');
+    expect(watchedRequests[0][1]).toMatchObject({
+      method: 'POST',
+      headers: { 'x-bwp-token': 'old-token' }
+    });
+    expect(watchedRequests[1][1]).toMatchObject({
+      method: 'POST',
+      headers: { 'x-bwp-token': 'new-token' }
+    });
+  });
+
   it('shows a login action when Bangumi is not connected', async () => {
     vi.stubGlobal(
       'fetch',

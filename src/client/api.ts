@@ -6,7 +6,7 @@ export function setApiToken(value: string | null | undefined): void {
   apiToken = value ?? null;
 }
 
-async function api<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
+async function api<T>(input: RequestInfo | URL, init?: RequestInit, retryOnInvalidToken = true): Promise<T> {
   const headers = new Headers(init?.headers);
   if (apiToken && init?.method && init.method !== 'GET') {
     headers.set('x-bwp-token', apiToken);
@@ -15,12 +15,29 @@ async function api<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> 
   const response = await fetch(input, { ...init, headers: headerEntries.length > 0 ? Object.fromEntries(headerEntries) : undefined });
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: response.statusText }));
+    if (isInvalidLocalToken(response, body) && retryOnInvalidToken && init?.method && init.method !== 'GET') {
+      await refreshApiToken();
+      return api<T>(input, init, false);
+    }
     throw new Error(body.error || response.statusText);
   }
   if (response.status === 204) {
     return undefined as T;
   }
   return (await response.json()) as T;
+}
+
+function isInvalidLocalToken(response: Response, body: { error?: unknown }): boolean {
+  return response.status === 403 && typeof body.error === 'string' && body.error.includes('Invalid local API token');
+}
+
+async function refreshApiToken(): Promise<void> {
+  const response = await fetch('/api/auth/status');
+  if (!response.ok) {
+    return;
+  }
+  const status = (await response.json()) as AuthStatus;
+  setApiToken(status.apiToken);
 }
 
 export function getAuthStatus(): Promise<AuthStatus> {

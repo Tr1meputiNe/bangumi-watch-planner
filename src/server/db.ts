@@ -102,7 +102,18 @@ export function createRepository(dbPath: string): Repository {
     },
 
     async markEpisodeWatched(episodeId) {
-      db.prepare('update episodes set collection_type = 2 where id = ?').run(episodeId);
+      const episode = selectEpisodes(db, 'where id = ?', [episodeId])[0] ?? null;
+      const progress = episode ? Number(episode.ep ?? episode.sort) : NaN;
+      const markWatched = db.transaction(() => {
+        db.prepare('update episodes set collection_type = 2 where id = ?').run(episodeId);
+        if (episode && Number.isFinite(progress) && progress > 0) {
+          db.prepare('update subjects set ep_status = max(ep_status, ?) where id = ?').run(
+            Math.floor(progress),
+            episode.subjectId
+          );
+        }
+      });
+      markWatched();
     },
 
     async dismissEpisode(episodeId, dismissedAt) {
