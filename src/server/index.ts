@@ -69,7 +69,7 @@ startScheduler({
   notificationsEnabled: async () => config.notificationsEnabled
 });
 
-app.listen({ host: '127.0.0.1', port: config.port }).catch((error) => {
+app.listen({ host: config.host, port: config.port }).catch((error) => {
   app.log.error(error);
   process.exitCode = 1;
 });
