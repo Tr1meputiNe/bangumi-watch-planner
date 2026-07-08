@@ -110,6 +110,7 @@ describe('App', () => {
   });
 
   it('lets the user save Bangumi OAuth config inside the app', async () => {
+    let oauthConfigured = false;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -118,8 +119,9 @@ describe('App', () => {
           username: null,
           nickname: null,
           lastSyncAt: null,
-          configured: false,
+          configured: oauthConfigured,
           callbackUrl: 'http://127.0.0.1:3777/auth/callback',
+          oauthClientId: oauthConfigured ? 'client-id' : null,
           apiToken: 'client-token'
         });
       }
@@ -127,6 +129,7 @@ describe('App', () => {
         return Response.json({ pendingEpisodes: [], subjects: [], lastSyncAt: null, lastError: null });
       }
       if (url === '/api/settings/oauth' && init?.method === 'POST') {
+        oauthConfigured = true;
         return new Response(null, { status: 204 });
       }
       throw new Error(`Unexpected request ${url}`);
@@ -152,5 +155,6 @@ describe('App', () => {
         body: JSON.stringify({ clientId: 'client-id', clientSecret: 'client-secret' })
       });
     });
+    expect(await screen.findByRole('link', { name: '连接 Bangumi' })).toHaveAttribute('href', '/auth/login');
   });
 });
