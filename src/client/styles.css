@@ -487,36 +487,47 @@ button.ghost:hover {
   line-height: 1.35;
 }
 
-.watch-progress-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 8px;
+.watch-progress-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
-.watch-progress-form label {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-  color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 800;
+.watch-episode-button {
+  width: 30px;
+  min-width: 30px;
+  min-height: 26px;
+  border-color: #d7e3ee;
+  border-radius: 4px;
+  background: #f5f9fd;
+  color: var(--blue);
+  padding: 0;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 0.76rem;
+  font-weight: 900;
+  box-shadow: inset 0 -1px 0 rgba(47, 118, 183, 0.08);
 }
 
-.watch-progress-form select {
-  width: 100%;
-  min-height: 32px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--surface);
-  color: var(--ink);
-  padding: 0 8px;
-  font: inherit;
-  font-size: 0.84rem;
+.watch-episode-button:hover {
+  border-color: var(--pink);
+  background: #fff4f7;
+  color: var(--pink-dark);
 }
 
-.watch-progress-form button {
-  min-height: 32px;
+.watch-episode-button.is-watched,
+.watch-episode-button.is-watched:hover {
+  border-color: var(--pink);
+  background: var(--pink);
+  color: #ffffff;
+  cursor: default;
+  opacity: 1;
+}
+
+.watch-episode-button.is-unaired {
+  border-color: #e0e5eb;
+  background: #f6f7f9;
+  color: var(--subtle);
+  box-shadow: none;
 }
 
 .settings-panel {
@@ -786,7 +797,6 @@ button.ghost:hover {
   }
 
   .anime-search-form,
-  .watch-progress-form,
   .search-result {
     grid-template-columns: 1fr;
   }

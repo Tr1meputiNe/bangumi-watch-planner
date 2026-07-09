@@ -30,6 +30,23 @@ const dashboard = {
       eps: 12,
       epStatus: 1,
       unwatchedMainEpisodeCount: 1,
+      mainEpisodes: [
+        {
+          id: 11,
+          subjectId: 1,
+          subjectName: 'テスト番組',
+          subjectNameCn: '测试番剧',
+          subjectUrl: 'https://bgm.tv/subject/1',
+          episodeType: 0,
+          sort: 1,
+          ep: 1,
+          name: 'first',
+          nameCn: '第一集',
+          airdate: '2026-07-08',
+          collectionType: 0,
+          dismissedAt: null
+        }
+      ],
       unwatchedMainEpisodes: [
         {
           id: 11,
@@ -210,7 +227,7 @@ describe('App', () => {
     expect(await screen.findByText('3 集未看')).toBeInTheDocument();
   });
 
-  it('can choose which unwatched episode to mark through from the watching list', async () => {
+  it('can mark progress from Bangumi-style episode buttons in the watching list', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -230,6 +247,32 @@ describe('App', () => {
               ...dashboard.subjects[0],
               epStatus: 1,
               unwatchedMainEpisodeCount: 3,
+              mainEpisodes: [
+                {
+                  ...dashboard.subjects[0].unwatchedMainEpisodes[0],
+                  id: 10,
+                  sort: 1,
+                  ep: 1,
+                  nameCn: '第一集',
+                  collectionType: 2
+                },
+                {
+                  ...dashboard.subjects[0].unwatchedMainEpisodes[0],
+                  id: 12,
+                  sort: 2,
+                  ep: 2,
+                  nameCn: '第二集',
+                  collectionType: 0
+                },
+                {
+                  ...dashboard.subjects[0].unwatchedMainEpisodes[0],
+                  id: 13,
+                  sort: 3,
+                  ep: 3,
+                  nameCn: '第三集',
+                  collectionType: 0
+                }
+              ],
               unwatchedMainEpisodes: [
                 dashboard.subjects[0].unwatchedMainEpisodes[0],
                 {
@@ -261,8 +304,11 @@ describe('App', () => {
     render(<App />);
 
     await screen.findByText('3 集未看');
-    await userEvent.selectOptions(screen.getByLabelText('选择测试番剧看到的集数'), '12');
-    await userEvent.click(screen.getByRole('button', { name: '测试番剧 看到' }));
+    expect(screen.queryByLabelText('选择测试番剧看到的集数')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '测试番剧 第 1 集 已看' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '测试番剧 看到第 2 集' })).toHaveTextContent('02');
+
+    await userEvent.click(screen.getByRole('button', { name: '测试番剧 看到第 2 集' }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/subjects/1/watched-through', {

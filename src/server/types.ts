@@ -39,6 +39,7 @@ export type EpisodeRow = {
 
 export type DashboardSubject = SubjectRow & {
   nextEpisode: EpisodeRow | null;
+  mainEpisodes: EpisodeRow[];
   unwatchedMainEpisodeCount: number;
   unwatchedMainEpisodes: EpisodeRow[];
 };

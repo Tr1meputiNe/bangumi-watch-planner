@@ -304,16 +304,7 @@ function SubjectItem({
   const progressText = `${subject.epStatus} / ${subject.eps || '?'}`;
   const progressPercent = subject.eps > 0 ? Math.min(100, Math.round((subject.epStatus / subject.eps) * 100)) : 0;
   const unwatchedCount = subject.unwatchedMainEpisodeCount ?? pendingCount;
-  const episodeOptions = subject.unwatchedMainEpisodes ?? [];
-
-  function submitWatchProgress(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const episodeId = Number(form.get('episodeId'));
-    if (Number.isFinite(episodeId) && episodeId > 0) {
-      onWatchedThrough(episodeId);
-    }
-  }
+  const episodeOptions = subject.mainEpisodes?.length ? subject.mainEpisodes : (subject.unwatchedMainEpisodes ?? []);
 
   return (
     <article className="subject-row">
@@ -338,26 +329,71 @@ function SubjectItem({
         ) : (
           <p>暂无未看的本篇集数</p>
         )}
-        {episodeOptions.length > 0 ? (
-          <form className="watch-progress-form" onSubmit={submitWatchProgress}>
-            <label>
-              <span>看到</span>
-              <select name="episodeId" aria-label={`选择${subjectTitle}看到的集数`} disabled={disabled}>
-                {episodeOptions.map((episode) => (
-                  <option key={episode.id} value={episode.id}>
-                    第 {episode.ep ?? episode.sort} 集 · {displayEpisodeTitle(episode.name, episode.nameCn, episode.sort)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button type="submit" className="secondary" disabled={disabled} aria-label={`${subjectTitle} 看到`}>
-              看到
-            </button>
-          </form>
-        ) : null}
+        {episodeOptions.length > 0 ? <WatchProgressGrid subjectTitle={subjectTitle} episodes={episodeOptions} disabled={disabled} onWatchedThrough={onWatchedThrough} /> : null}
       </div>
     </article>
   );
+}
+
+function WatchProgressGrid({
+  subjectTitle,
+  episodes,
+  disabled,
+  onWatchedThrough
+}: {
+  subjectTitle: string;
+  episodes: EpisodeRow[];
+  disabled: boolean;
+  onWatchedThrough: (episodeId: number) => void;
+}) {
+  return (
+    <div className="watch-progress-grid" aria-label={`${subjectTitle}观看进度`}>
+      {episodes.map((episode) => {
+        const progress = episodeProgress(episode);
+        const watched = episode.collectionType === 2;
+        const aired = hasAired(episode.airdate);
+        return (
+          <button
+            key={episode.id}
+            type="button"
+            className={['watch-episode-button', watched ? 'is-watched' : aired ? 'is-aired' : 'is-unaired'].join(' ')}
+            onClick={() => onWatchedThrough(episode.id)}
+            disabled={disabled || watched}
+            aria-label={watched ? `${subjectTitle} 第 ${progress} 集 已看` : `${subjectTitle} 看到第 ${progress} 集`}
+            title={`${displayEpisodeTitle(episode.name, episode.nameCn, episode.sort)}${episode.airdate ? ` · ${episode.airdate}` : ''}`}
+          >
+            {formatEpisodeProgress(progress)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function episodeProgress(episode: EpisodeRow): number {
+  return Number(episode.ep ?? episode.sort);
+}
+
+function formatEpisodeProgress(progress: number): string {
+  if (!Number.isFinite(progress)) return '?';
+  if (!Number.isInteger(progress)) return String(progress);
+  return String(progress).padStart(2, '0');
+}
+
+function hasAired(airdate: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(airdate)) return false;
+  return airdate <= todayInShanghai();
+}
+
+function todayInShanghai(): string {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 function EpisodeItem({

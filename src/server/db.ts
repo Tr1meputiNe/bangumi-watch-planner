@@ -86,15 +86,21 @@ export function createRepository(dbPath: string): Repository {
            order by coalesce(nullif(name_cn, ''), name) collate nocase`
         )
         .all() as SubjectRow[];
-      const episodes = selectEpisodes(db, 'where collection_type != 2 and episode_type = 0');
+      const mainEpisodes = selectEpisodes(db, 'where episode_type = 0');
       const bySubject = new Map<number, EpisodeRow>();
       const countsBySubject = new Map<number, number>();
-      const episodesBySubject = new Map<number, EpisodeRow[]>();
-      for (const episode of episodes) {
+      const mainEpisodesBySubject = new Map<number, EpisodeRow[]>();
+      const unwatchedEpisodesBySubject = new Map<number, EpisodeRow[]>();
+      for (const episode of mainEpisodes) {
+        const subjectMainEpisodes = mainEpisodesBySubject.get(episode.subjectId) ?? [];
+        subjectMainEpisodes.push(episode);
+        mainEpisodesBySubject.set(episode.subjectId, subjectMainEpisodes);
+        if (episode.collectionType === 2) continue;
+
         countsBySubject.set(episode.subjectId, (countsBySubject.get(episode.subjectId) ?? 0) + 1);
-        const subjectEpisodes = episodesBySubject.get(episode.subjectId) ?? [];
+        const subjectEpisodes = unwatchedEpisodesBySubject.get(episode.subjectId) ?? [];
         subjectEpisodes.push(episode);
-        episodesBySubject.set(episode.subjectId, subjectEpisodes);
+        unwatchedEpisodesBySubject.set(episode.subjectId, subjectEpisodes);
         const current = bySubject.get(episode.subjectId);
         if (!current || compareEpisode(episode, current) < 0) {
           bySubject.set(episode.subjectId, episode);
@@ -103,8 +109,9 @@ export function createRepository(dbPath: string): Repository {
       return subjects.map((subject) => ({
         ...subject,
         nextEpisode: bySubject.get(subject.id) ?? null,
+        mainEpisodes: (mainEpisodesBySubject.get(subject.id) ?? []).sort(compareEpisodeProgress),
         unwatchedMainEpisodeCount: countsBySubject.get(subject.id) ?? 0,
-        unwatchedMainEpisodes: (episodesBySubject.get(subject.id) ?? []).sort(compareEpisodeProgress)
+        unwatchedMainEpisodes: (unwatchedEpisodesBySubject.get(subject.id) ?? []).sort(compareEpisodeProgress)
       }));
     },
 
