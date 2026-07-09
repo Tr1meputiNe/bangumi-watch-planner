@@ -69,6 +69,28 @@ describe('dashboard service', () => {
     expect(searchAnimeSubjects).toHaveBeenCalledWith('测试');
   });
 
+  it('passes calendar loading through to the Bangumi client', async () => {
+    const getCalendar = vi.fn(async () => [
+      {
+        weekday: { en: 'Thu', cn: '星期四', ja: '木耀日', id: 4 },
+        items: []
+      }
+    ]);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ getCalendar }),
+      repository: repository()
+    });
+
+    await expect(service.getCalendar()).resolves.toEqual([
+      {
+        weekday: { en: 'Thu', cn: '星期四', ja: '木耀日', id: 4 },
+        items: []
+      }
+    ]);
+    expect(getCalendar).toHaveBeenCalled();
+  });
+
   it('deduplicates concurrent manual sync requests', async () => {
     let releaseSync: (() => void) | null = null;
     let resolveSyncStarted: (() => void) | null = null;
@@ -138,6 +160,7 @@ function authStatus() {
 function client(overrides: Partial<BangumiClient> = {}): BangumiClient {
   return {
     getMe: vi.fn(),
+    getCalendar: vi.fn(async () => []),
     getWatchingAnime: vi.fn(async () => ({ total: 0, data: [] })),
     getSubjectEpisodes: vi.fn(),
     markEpisodesWatched: vi.fn(),

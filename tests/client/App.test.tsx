@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import App from '../../src/client/App.js';
@@ -30,23 +30,6 @@ const dashboard = {
       eps: 12,
       epStatus: 1,
       unwatchedMainEpisodeCount: 1,
-      mainEpisodes: [
-        {
-          id: 11,
-          subjectId: 1,
-          subjectName: 'テスト番組',
-          subjectNameCn: '测试番剧',
-          subjectUrl: 'https://bgm.tv/subject/1',
-          episodeType: 0,
-          sort: 1,
-          ep: 1,
-          name: 'first',
-          nameCn: '第一集',
-          airdate: '2026-07-08',
-          collectionType: 0,
-          dismissedAt: null
-        }
-      ],
       unwatchedMainEpisodes: [
         {
           id: 11,
@@ -88,7 +71,7 @@ const dashboard = {
 };
 
 describe('App', () => {
-  it('renders pending episodes and can mark one watched', async () => {
+  it('renders pending episodes and can dismiss one reminder', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -103,7 +86,7 @@ describe('App', () => {
       if (url === '/api/dashboard') {
         return Response.json(dashboard);
       }
-      if (url === '/api/episodes/11/watched' && init?.method === 'POST') {
+      if (url === '/api/reminders/11/dismiss' && init?.method === 'POST') {
         return new Response(null, { status: 204 });
       }
       throw new Error(`Unexpected request ${url}`);
@@ -116,10 +99,10 @@ describe('App', () => {
     expect(screen.getByText('第一集')).toBeInTheDocument();
     expect(screen.getByText('1 / 12')).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: '标记看过' }));
+    await userEvent.click(screen.getByRole('button', { name: '忽略' }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/episodes/11/watched', {
+      expect(fetchMock).toHaveBeenCalledWith('/api/reminders/11/dismiss', {
         method: 'POST',
         headers: { 'x-bwp-token': 'client-token' }
       });
@@ -128,7 +111,7 @@ describe('App', () => {
 
   it('refreshes the local API token and retries writes when the server token changed', async () => {
     let authCalls = 0;
-    let watchedCalls = 0;
+    let dismissCalls = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -144,9 +127,9 @@ describe('App', () => {
       if (url === '/api/dashboard') {
         return Response.json(dashboard);
       }
-      if (url === '/api/episodes/11/watched' && init?.method === 'POST') {
-        watchedCalls += 1;
-        if (watchedCalls === 1) {
+      if (url === '/api/reminders/11/dismiss' && init?.method === 'POST') {
+        dismissCalls += 1;
+        if (dismissCalls === 1) {
           return Response.json({ error: 'Invalid local API token' }, { status: 403 });
         }
         return new Response(null, { status: 204 });
@@ -158,17 +141,17 @@ describe('App', () => {
     render(<App />);
 
     await screen.findByText('第一集');
-    await userEvent.click(screen.getByRole('button', { name: '标记看过' }));
+    await userEvent.click(screen.getByRole('button', { name: '忽略' }));
 
     await waitFor(() => {
-      expect(watchedCalls).toBe(2);
+      expect(dismissCalls).toBe(2);
     });
-    const watchedRequests = fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/episodes/11/watched');
-    expect(watchedRequests[0][1]).toMatchObject({
+    const dismissRequests = fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/reminders/11/dismiss');
+    expect(dismissRequests[0][1]).toMatchObject({
       method: 'POST',
       headers: { 'x-bwp-token': 'old-token' }
     });
-    expect(watchedRequests[1][1]).toMatchObject({
+    expect(dismissRequests[1][1]).toMatchObject({
       method: 'POST',
       headers: { 'x-bwp-token': 'new-token' }
     });
@@ -196,7 +179,8 @@ describe('App', () => {
     render(<App />);
 
     await screen.findByText('第一集');
-    expect(screen.queryByRole('button', { name: '看到这里' })).not.toBeInTheDocument();
+    const backlog = screen.getByLabelText('待补新集');
+    expect(within(backlog).queryByRole('button', { name: /看到|看过|已看|标记/ })).not.toBeInTheDocument();
   });
 
   it('shows the total unwatched main episode count for a subject', async () => {
@@ -227,8 +211,8 @@ describe('App', () => {
     expect(await screen.findByText('3 集未看')).toBeInTheDocument();
   });
 
-  it('can mark progress from Bangumi-style episode buttons in the watching list', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  it('does not show watch-through episode buttons in the watching list', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
         return Response.json({
@@ -247,32 +231,6 @@ describe('App', () => {
               ...dashboard.subjects[0],
               epStatus: 1,
               unwatchedMainEpisodeCount: 3,
-              mainEpisodes: [
-                {
-                  ...dashboard.subjects[0].unwatchedMainEpisodes[0],
-                  id: 10,
-                  sort: 1,
-                  ep: 1,
-                  nameCn: '第一集',
-                  collectionType: 2
-                },
-                {
-                  ...dashboard.subjects[0].unwatchedMainEpisodes[0],
-                  id: 12,
-                  sort: 2,
-                  ep: 2,
-                  nameCn: '第二集',
-                  collectionType: 0
-                },
-                {
-                  ...dashboard.subjects[0].unwatchedMainEpisodes[0],
-                  id: 13,
-                  sort: 3,
-                  ep: 3,
-                  nameCn: '第三集',
-                  collectionType: 0
-                }
-              ],
               unwatchedMainEpisodes: [
                 dashboard.subjects[0].unwatchedMainEpisodes[0],
                 {
@@ -294,9 +252,6 @@ describe('App', () => {
           ]
         });
       }
-      if (url === '/api/subjects/1/watched-through' && init?.method === 'POST') {
-        return new Response(null, { status: 204 });
-      }
       throw new Error(`Unexpected request ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -304,22 +259,60 @@ describe('App', () => {
     render(<App />);
 
     await screen.findByText('3 集未看');
-    expect(screen.queryByLabelText('选择测试番剧看到的集数')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '测试番剧 第 1 集 已看' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '测试番剧 看到第 2 集' })).toHaveTextContent('02');
+    expect(screen.queryByLabelText(/观看进度/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /看到第|已看/ })).not.toBeInTheDocument();
+  });
 
-    await userEvent.click(screen.getByRole('button', { name: '测试番剧 看到第 2 集' }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/subjects/1/watched-through', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-bwp-token': 'client-token'
-        },
-        body: JSON.stringify({ episodeId: 12 })
-      });
+  it('loads a Bangumi-style calendar tab on demand', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({
+          authenticated: true,
+          username: 'sai',
+          nickname: 'Sai',
+          lastSyncAt: dashboard.lastSyncAt,
+          apiToken: 'client-token'
+        });
+      }
+      if (url === '/api/dashboard') {
+        return Response.json(dashboard);
+      }
+      if (url === '/api/calendar') {
+        return Response.json([
+          {
+            weekday: { en: 'Thu', cn: '星期四', ja: '木耀日', id: 4 },
+            items: [
+              {
+                id: 456,
+                name: 'Calendar Anime',
+                nameCn: '测试放送',
+                url: 'https://bgm.tv/subject/456',
+                airDate: '2026-07-09',
+                airWeekday: 4,
+                image: null,
+                ratingScore: 7.2,
+                rank: 1234,
+                collectionDoing: 321
+              }
+            ]
+          }
+        ]);
+      }
+      throw new Error(`Unexpected request ${url}`);
     });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    await screen.findByText('第一集');
+    await userEvent.click(screen.getByRole('tab', { name: '每日放送' }));
+
+    expect(await screen.findByRole('heading', { name: '每日放送' })).toBeInTheDocument();
+    expect(screen.getByText('星期四')).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: '测试放送' })[0]).toHaveAttribute('href', 'https://bgm.tv/subject/456');
+    expect(screen.getByText(/评分 7.2/)).toBeInTheDocument();
+    expect(screen.getByText(/321 人在看/)).toBeInTheDocument();
   });
 
   it('searches anime and can add a result to watching', async () => {

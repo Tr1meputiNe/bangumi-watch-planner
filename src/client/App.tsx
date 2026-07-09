@@ -3,15 +3,14 @@ import {
   addSubjectToWatching,
   dismissReminder,
   getAuthStatus,
+  getCalendar,
   getDashboard,
-  markWatched,
-  markWatchedThrough,
   saveOAuthConfig,
   searchAnime,
   setApiToken,
   syncNow
 } from './api.js';
-import type { AnimeSearchResult, AuthStatus, DashboardData, DashboardSubject, EpisodeRow } from '../server/types.js';
+import type { AnimeSearchResult, AuthStatus, CalendarDay, CalendarSubject, DashboardData, DashboardSubject, EpisodeRow } from '../server/types.js';
 import { displayEpisodeTitle, displaySubjectName, formatDateTime } from '../shared/format.js';
 
 type LoadState = {
@@ -20,10 +19,21 @@ type LoadState = {
   error: string | null;
 };
 
+type CalendarState = {
+  days: CalendarDay[] | null;
+  error: string | null;
+  loading: boolean;
+};
+
+type ActiveView = 'planner' | 'calendar';
+
 const emptyState: LoadState = { auth: null, dashboard: null, error: null };
+const emptyCalendarState: CalendarState = { days: null, error: null, loading: false };
 
 export default function App() {
   const [state, setState] = useState<LoadState>(emptyState);
+  const [activeView, setActiveView] = useState<ActiveView>('planner');
+  const [calendarState, setCalendarState] = useState<CalendarState>(emptyCalendarState);
   const [oauthForm, setOauthForm] = useState({ clientId: '', clientSecret: '' });
   const [animeSearch, setAnimeSearch] = useState<{ error: string | null; keyword: string; results: AnimeSearchResult[] }>({
     error: null,
@@ -42,9 +52,25 @@ export default function App() {
     }
   }, []);
 
+  const loadCalendar = useCallback(async () => {
+    setCalendarState((current) => ({ ...current, loading: true, error: null }));
+    try {
+      const days = await getCalendar();
+      setCalendarState({ days, error: null, loading: false });
+    } catch (error) {
+      setCalendarState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : String(error) }));
+    }
+  }, []);
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (activeView === 'calendar' && !calendarState.days && !calendarState.loading) {
+      void loadCalendar();
+    }
+  }, [activeView, calendarState.days, calendarState.loading, loadCalendar]);
 
   const pendingEpisodes = state.dashboard?.pendingEpisodes ?? [];
   const subjects = state.dashboard?.subjects ?? [];
@@ -118,63 +144,66 @@ export default function App() {
       {state.error ? <div className="notice error">{state.error}</div> : null}
       {state.dashboard?.lastError ? <div className="notice warning">同步错误：{state.dashboard.lastError}</div> : null}
 
-      <div className="workspace">
-        <section className="panel backlog-panel" aria-label="待补新集">
-          <div className="panel-title">
-            <div>
-              <span className="panel-eyebrow">Queue</span>
-              <h1>待补新集</h1>
-            </div>
-            <strong>{pendingEpisodes.length}</strong>
-          </div>
+      <div className="page-tabs" role="tablist" aria-label="视图">
+        <button type="button" role="tab" aria-selected={activeView === 'planner'} onClick={() => setActiveView('planner')}>
+          追番提醒
+        </button>
+        <button type="button" role="tab" aria-selected={activeView === 'calendar'} onClick={() => setActiveView('calendar')}>
+          每日放送
+        </button>
+      </div>
 
-          {pendingEpisodes.length > 0 ? (
-            <div className="episode-list">
-              {pendingEpisodes.map((episode) => (
-                <EpisodeItem
-                  key={episode.id}
-                  episode={episode}
-                  disabled={isPending}
-                  onWatched={() => runAction(() => markWatched(episode.id))}
-                  onDismiss={() => runAction(() => dismissReminder(episode.id))}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="empty">没有已播出且未看的本篇集数。</div>
-          )}
-        </section>
-
-        <div className="side-column">
-          <section className="panel watching-panel" aria-label="在看动画">
-            <div className="panel-title compact">
+      {activeView === 'planner' ? (
+        <div className="workspace">
+          <section className="panel backlog-panel" aria-label="待补新集">
+            <div className="panel-title">
               <div>
-                <span className="panel-eyebrow">Watching</span>
-                <h2>在看动画</h2>
+                <span className="panel-eyebrow">Queue</span>
+                <h1>待补新集</h1>
               </div>
-              <strong>{subjects.length}</strong>
+              <strong>{pendingEpisodes.length}</strong>
             </div>
-            <div className="subject-list">
-              {subjects.map((subject) => (
-                <SubjectItem
-                  key={subject.id}
-                  subject={subject}
-                  pendingCount={pendingBySubject.get(subject.id) ?? 0}
-                  disabled={isPending}
-                  onWatchedThrough={(episodeId) => runAction(() => markWatchedThrough(subject.id, episodeId))}
-                />
-              ))}
-            </div>
+
+            {pendingEpisodes.length > 0 ? (
+              <div className="episode-list">
+                {pendingEpisodes.map((episode) => (
+                  <EpisodeItem
+                    key={episode.id}
+                    episode={episode}
+                    disabled={isPending}
+                    onDismiss={() => runAction(() => dismissReminder(episode.id))}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="empty">没有已播出且未看的本篇集数。</div>
+            )}
           </section>
 
-          <section className="panel settings-panel" aria-label="设置">
-            <div className="panel-title compact">
-              <div>
-                <span className="panel-eyebrow">Settings</span>
-                <h2>设置</h2>
+          <div className="side-column">
+            <section className="panel watching-panel" aria-label="在看动画">
+              <div className="panel-title compact">
+                <div>
+                  <span className="panel-eyebrow">Watching</span>
+                  <h2>在看动画</h2>
+                </div>
+                <strong>{subjects.length}</strong>
               </div>
-              <strong>{state.auth?.authenticated ? state.auth.username : '未连接'}</strong>
-            </div>
+              <div className="subject-list">
+                {subjects.map((subject) => (
+                  <SubjectItem key={subject.id} subject={subject} pendingCount={pendingBySubject.get(subject.id) ?? 0} />
+                ))}
+              </div>
+            </section>
+
+            <section className="panel settings-panel" aria-label="设置">
+              <div className="panel-title compact">
+                <div>
+                  <span className="panel-eyebrow">Settings</span>
+                  <h2>设置</h2>
+                </div>
+                <strong>{state.auth?.authenticated ? state.auth.username : '未连接'}</strong>
+              </div>
 
             <div className="add-subject">
               <form className="anime-search-form" onSubmit={(event) => void runAnimeSearch(event)}>
@@ -282,29 +311,27 @@ export default function App() {
               </div>
               <span className="status-pill">{state.auth?.notificationsEnabled === false ? '已关闭' : '已开启'}</span>
             </div>
-          </section>
+            </section>
+          </div>
         </div>
-      </div>
+      ) : (
+        <CalendarPanel state={calendarState} onRetry={() => void loadCalendar()} />
+      )}
     </main>
   );
 }
 
 function SubjectItem({
   subject,
-  pendingCount,
-  disabled,
-  onWatchedThrough
+  pendingCount
 }: {
   subject: DashboardSubject;
   pendingCount: number;
-  disabled: boolean;
-  onWatchedThrough: (episodeId: number) => void;
 }) {
   const subjectTitle = displaySubjectName(subject.name, subject.nameCn);
   const progressText = `${subject.epStatus} / ${subject.eps || '?'}`;
   const progressPercent = subject.eps > 0 ? Math.min(100, Math.round((subject.epStatus / subject.eps) * 100)) : 0;
   const unwatchedCount = subject.unwatchedMainEpisodeCount ?? pendingCount;
-  const episodeOptions = subject.mainEpisodes?.length ? subject.mainEpisodes : (subject.unwatchedMainEpisodes ?? []);
 
   return (
     <article className="subject-row">
@@ -329,82 +356,18 @@ function SubjectItem({
         ) : (
           <p>暂无未看的本篇集数</p>
         )}
-        {episodeOptions.length > 0 ? <WatchProgressGrid subjectTitle={subjectTitle} episodes={episodeOptions} disabled={disabled} onWatchedThrough={onWatchedThrough} /> : null}
       </div>
     </article>
   );
 }
 
-function WatchProgressGrid({
-  subjectTitle,
-  episodes,
-  disabled,
-  onWatchedThrough
-}: {
-  subjectTitle: string;
-  episodes: EpisodeRow[];
-  disabled: boolean;
-  onWatchedThrough: (episodeId: number) => void;
-}) {
-  return (
-    <div className="watch-progress-grid" aria-label={`${subjectTitle}观看进度`}>
-      {episodes.map((episode) => {
-        const progress = episodeProgress(episode);
-        const watched = episode.collectionType === 2;
-        const aired = hasAired(episode.airdate);
-        return (
-          <button
-            key={episode.id}
-            type="button"
-            className={['watch-episode-button', watched ? 'is-watched' : aired ? 'is-aired' : 'is-unaired'].join(' ')}
-            onClick={() => onWatchedThrough(episode.id)}
-            disabled={disabled || watched}
-            aria-label={watched ? `${subjectTitle} 第 ${progress} 集 已看` : `${subjectTitle} 看到第 ${progress} 集`}
-            title={`${displayEpisodeTitle(episode.name, episode.nameCn, episode.sort)}${episode.airdate ? ` · ${episode.airdate}` : ''}`}
-          >
-            {formatEpisodeProgress(progress)}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function episodeProgress(episode: EpisodeRow): number {
-  return Number(episode.ep ?? episode.sort);
-}
-
-function formatEpisodeProgress(progress: number): string {
-  if (!Number.isFinite(progress)) return '?';
-  if (!Number.isInteger(progress)) return String(progress);
-  return String(progress).padStart(2, '0');
-}
-
-function hasAired(airdate: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(airdate)) return false;
-  return airdate <= todayInShanghai();
-}
-
-function todayInShanghai(): string {
-  const parts = new Intl.DateTimeFormat('en', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
 function EpisodeItem({
   episode,
   disabled,
-  onWatched,
   onDismiss
 }: {
   episode: EpisodeRow;
   disabled: boolean;
-  onWatched: () => void;
   onDismiss: () => void;
 }) {
   return (
@@ -423,13 +386,107 @@ function EpisodeItem({
         </a>
       </div>
       <div className="episode-actions">
-        <button type="button" onClick={onWatched} disabled={disabled}>
-          标记看过
-        </button>
         <button type="button" className="ghost" onClick={onDismiss} disabled={disabled}>
           忽略
         </button>
       </div>
     </article>
   );
+}
+
+function CalendarPanel({ state, onRetry }: { state: CalendarState; onRetry: () => void }) {
+  const days = state.days ?? [];
+  const todayWeekdayId = getShanghaiWeekdayId();
+  const today = days.find((day) => day.weekday.id === todayWeekdayId);
+  const totalCount = days.reduce((sum, day) => sum + day.items.length, 0);
+
+  return (
+    <section className="panel calendar-panel" aria-label="每日放送">
+      <div className="panel-title calendar-title">
+        <div>
+          <span className="panel-eyebrow">Calendar</span>
+          <h1>每日放送</h1>
+          <p>
+            {formatShanghaiToday()} · 本周 {totalCount} 部，今日 {today?.items.length ?? 0} 部
+          </p>
+        </div>
+        <button type="button" className="secondary" onClick={onRetry} disabled={state.loading}>
+          刷新
+        </button>
+      </div>
+
+      {state.error ? <div className="notice error calendar-notice">{state.error}</div> : null}
+      {state.loading && days.length === 0 ? <div className="empty">正在加载每日放送。</div> : null}
+      {!state.loading && days.length === 0 && !state.error ? <div className="empty">暂无每日放送数据。</div> : null}
+
+      {days.length > 0 ? (
+        <div className="calendar-grid">
+          {days.map((day) => (
+            <section
+              key={day.weekday.id}
+              className={day.weekday.id === todayWeekdayId ? 'calendar-day is-today' : 'calendar-day'}
+              aria-label={`${day.weekday.cn} ${day.items.length} 部`}
+            >
+              <header>
+                <div>
+                  <span>{day.weekday.en}</span>
+                  <h2>{day.weekday.cn}</h2>
+                </div>
+                <strong>{day.items.length}</strong>
+              </header>
+              <div className="calendar-items">
+                {day.items.map((item) => (
+                  <CalendarSubjectItem key={item.id} item={item} />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function CalendarSubjectItem({ item }: { item: CalendarSubject }) {
+  return (
+    <article className="calendar-subject">
+      <a className="calendar-cover" href={item.url} target="_blank" rel="noreferrer" aria-label={displaySubjectName(item.name, item.nameCn)}>
+        {item.image ? <img src={item.image} alt="" /> : <span>{item.nameCn || item.name}</span>}
+      </a>
+      <div>
+        <a href={item.url} target="_blank" rel="noreferrer">
+          {displaySubjectName(item.name, item.nameCn)}
+        </a>
+        <p>{calendarSubjectMeta(item)}</p>
+      </div>
+    </article>
+  );
+}
+
+function calendarSubjectMeta(item: CalendarSubject): string {
+  const parts = [item.airDate || '播出日期未定'];
+  if (item.ratingScore !== null) parts.push(`评分 ${item.ratingScore.toFixed(1)}`);
+  if (item.rank !== null) parts.push(`Rank ${item.rank}`);
+  if (item.collectionDoing !== null) parts.push(`${item.collectionDoing} 人在看`);
+  return parts.join(' · ');
+}
+
+function formatShanghaiToday(): string {
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'long'
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}年${values.month}月${values.day}日 ${values.weekday}`;
+}
+
+function getShanghaiWeekdayId(): number {
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai',
+    weekday: 'short'
+  }).format(new Date());
+  return { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[weekday] ?? -1;
 }

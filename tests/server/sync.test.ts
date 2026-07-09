@@ -6,6 +6,7 @@ describe('syncWatchingAnime', () => {
   it('uses Bangumi collection page size within the official API limit by default', async () => {
     const client: BangumiClient = {
       getMe: vi.fn(),
+      getCalendar: vi.fn(async () => []),
       getWatchingAnime: vi.fn(async () => ({
         total: 0,
         data: []
@@ -30,6 +31,7 @@ describe('syncWatchingAnime', () => {
   it('fetches all watching anime pages and stores their episode collections', async () => {
     const client: BangumiClient = {
       getMe: vi.fn(),
+      getCalendar: vi.fn(async () => []),
       getWatchingAnime: vi
         .fn()
         .mockResolvedValueOnce({
@@ -133,6 +135,7 @@ describe('syncWatchingAnime', () => {
   it('paginates episode collections for each subject', async () => {
     const client: BangumiClient = {
       getMe: vi.fn(),
+      getCalendar: vi.fn(async () => []),
       getWatchingAnime: vi.fn(async () => ({
         total: 1,
         data: [
@@ -195,6 +198,7 @@ describe('syncWatchingAnime', () => {
   it('keeps subject eps when the episode collection page has fewer known main episodes', async () => {
     const client: BangumiClient = {
       getMe: vi.fn(),
+      getCalendar: vi.fn(async () => []),
       getWatchingAnime: vi.fn(async () => ({
         total: 1,
         data: [
@@ -254,6 +258,7 @@ describe('syncWatchingAnime', () => {
   it('uses main episode count from episode collections when subject eps is missing', async () => {
     const client: BangumiClient = {
       getMe: vi.fn(),
+      getCalendar: vi.fn(async () => []),
       getWatchingAnime: vi.fn(async () => ({
         total: 1,
         data: [
@@ -313,6 +318,7 @@ describe('syncWatchingAnime', () => {
   it('uses the highest known main episode number when subject eps is missing and episodes are sparse', async () => {
     const client: BangumiClient = {
       getMe: vi.fn(),
+      getCalendar: vi.fn(async () => []),
       getWatchingAnime: vi.fn(async () => ({
         total: 1,
         data: [

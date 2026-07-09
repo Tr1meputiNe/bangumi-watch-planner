@@ -44,6 +44,10 @@ export function createDashboardService({ auth, client, repository }: DashboardDe
       };
     },
 
+    getCalendar() {
+      return client.getCalendar();
+    },
+
     async syncNow(): Promise<SyncResult> {
       if (syncInFlight) {
         return syncInFlight;

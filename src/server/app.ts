@@ -53,6 +53,7 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
 
   app.post('/api/sync', async () => dashboard.syncNow());
   app.get('/api/dashboard', async () => dashboard.getDashboard());
+  app.get('/api/calendar', async () => dashboard.getCalendar());
   app.get<{ Querystring: { q?: string } }>('/api/search/anime', async (request) => ({
     results: await dashboard.searchAnimeSubjects(request.query.q ?? '')
   }));

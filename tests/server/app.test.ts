@@ -53,6 +53,74 @@ describe('HTTP API', () => {
     await app.close();
   });
 
+  it('returns Bangumi calendar data', async () => {
+    const getCalendar = vi.fn(async () => [
+      {
+        weekday: { en: 'Thu', cn: '星期四', ja: '木耀日', id: 4 },
+        items: [
+          {
+            id: 456,
+            name: 'Calendar Anime',
+            nameCn: '测试放送',
+            url: 'https://bgm.tv/subject/456',
+            airDate: '2026-07-09',
+            airWeekday: 4,
+            image: null,
+            ratingScore: 7.2,
+            rank: 1234,
+            collectionDoing: 321
+          }
+        ]
+      }
+    ]);
+    const app = buildApp({
+      auth: {
+        createAuthorizationUrl: vi.fn(),
+        handleCallback: vi.fn(),
+        getAccessToken: vi.fn(),
+        getAuthStatus: vi.fn()
+      },
+      dashboard: {
+        getDashboard: vi.fn(),
+        getCalendar,
+        syncNow: vi.fn(),
+        markEpisodeWatched: vi.fn(),
+        dismissEpisode: vi.fn()
+      },
+      settings: {
+        saveOAuthConfig: vi.fn()
+      },
+      staticRoot: null,
+      apiToken: 'test-token'
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/api/calendar' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual([
+      {
+        weekday: { en: 'Thu', cn: '星期四', ja: '木耀日', id: 4 },
+        items: [
+          {
+            id: 456,
+            name: 'Calendar Anime',
+            nameCn: '测试放送',
+            url: 'https://bgm.tv/subject/456',
+            airDate: '2026-07-09',
+            airWeekday: 4,
+            image: null,
+            ratingScore: 7.2,
+            rank: 1234,
+            collectionDoing: 321
+          }
+        ]
+      }
+    ]);
+    expect(getCalendar).toHaveBeenCalled();
+
+    await app.close();
+  });
+
   it('marks one episode watched through the dashboard service', async () => {
     const markEpisodeWatched = vi.fn(async () => undefined);
     const app = buildApp({

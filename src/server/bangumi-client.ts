@@ -1,10 +1,12 @@
 import type {
   AnimeSearchResult,
+  BangumiCalendarDay,
   BangumiClient,
   BangumiCollectionPage,
   BangumiEpisodePage,
   BangumiSubjectSearchPage,
-  BangumiUser
+  BangumiUser,
+  CalendarDay
 } from './types.js';
 
 type BangumiClientDeps = {
@@ -17,6 +19,9 @@ type BangumiClientDeps = {
 
 const API_BASE = 'https://api.bgm.tv';
 const TRANSIENT_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+type RequestOptions = {
+  auth?: boolean;
+};
 
 export class BangumiApiError extends Error {
   constructor(
@@ -34,8 +39,8 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
   const maxRetries = deps.maxRetries ?? 2;
   const retryDelayMs = deps.retryDelayMs ?? 350;
 
-  async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const token = await deps.getAccessToken();
+  async function request<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {
+    const token = options.auth === false ? null : await deps.getAccessToken();
     let lastError: unknown = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -45,7 +50,7 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
           headers: {
             Accept: 'application/json',
             'User-Agent': deps.userAgent,
-            Authorization: `Bearer ${token}`,
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
             ...init.headers
           }
         });
@@ -81,6 +86,11 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
   return {
     getMe() {
       return request<BangumiUser>('/v0/me');
+    },
+
+    async getCalendar() {
+      const days = await request<BangumiCalendarDay[]>('/calendar', {}, { auth: false });
+      return days.map(mapCalendarDay);
     },
 
     getWatchingAnime(username, limit, offset) {
@@ -136,6 +146,28 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
       return page.data.map(mapSearchResult);
     }
   };
+}
+
+function mapCalendarDay(day: BangumiCalendarDay): CalendarDay {
+  return {
+    weekday: day.weekday,
+    items: day.items.map((item) => ({
+      id: item.id,
+      name: item.name,
+      nameCn: item.name_cn ?? '',
+      url: normalizeBangumiUrl(item.url ?? `https://bgm.tv/subject/${item.id}`),
+      airDate: item.air_date ?? '',
+      airWeekday: typeof item.air_weekday === 'number' ? item.air_weekday : null,
+      image: item.images?.common ?? item.images?.medium ?? item.images?.small ?? item.images?.grid ?? null,
+      ratingScore: typeof item.rating?.score === 'number' ? item.rating.score : null,
+      rank: typeof item.rank === 'number' ? item.rank : null,
+      collectionDoing: typeof item.collection?.doing === 'number' ? item.collection.doing : null
+    }))
+  };
+}
+
+function normalizeBangumiUrl(url: string): string {
+  return url.replace(/^http:\/\/bgm\.tv\//, 'https://bgm.tv/');
 }
 
 function mapSearchResult(subject: BangumiSubjectSearchPage['data'][number]): AnimeSearchResult {
