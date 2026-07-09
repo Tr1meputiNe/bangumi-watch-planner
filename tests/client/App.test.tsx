@@ -157,8 +157,8 @@ describe('App', () => {
     });
   });
 
-  it('can mark watched through the selected episode', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  it('does not show watch-through actions in the pending episode list', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
         return Response.json({
@@ -172,9 +172,6 @@ describe('App', () => {
       if (url === '/api/dashboard') {
         return Response.json(dashboard);
       }
-      if (url === '/api/subjects/1/watched-through' && init?.method === 'POST') {
-        return new Response(null, { status: 204 });
-      }
       throw new Error(`Unexpected request ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -182,18 +179,7 @@ describe('App', () => {
     render(<App />);
 
     await screen.findByText('第一集');
-    await userEvent.click(screen.getByRole('button', { name: '看到这里' }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/subjects/1/watched-through', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-bwp-token': 'client-token'
-        },
-        body: JSON.stringify({ episodeId: 11 })
-      });
-    });
+    expect(screen.queryByRole('button', { name: '看到这里' })).not.toBeInTheDocument();
   });
 
   it('shows the total unwatched main episode count for a subject', async () => {

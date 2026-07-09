@@ -136,7 +136,6 @@ export default function App() {
                   episode={episode}
                   disabled={isPending}
                   onWatched={() => runAction(() => markWatched(episode.id))}
-                  onWatchedThrough={() => runAction(() => markWatchedThrough(episode.subjectId, episode.id))}
                   onDismiss={() => runAction(() => dismissReminder(episode.id))}
                 />
               ))}
@@ -365,13 +364,11 @@ function EpisodeItem({
   episode,
   disabled,
   onWatched,
-  onWatchedThrough,
   onDismiss
 }: {
   episode: EpisodeRow;
   disabled: boolean;
   onWatched: () => void;
-  onWatchedThrough: () => void;
   onDismiss: () => void;
 }) {
   return (
@@ -390,9 +387,6 @@ function EpisodeItem({
         </a>
       </div>
       <div className="episode-actions">
-        <button type="button" className="secondary" onClick={onWatchedThrough} disabled={disabled}>
-          看到这里
-        </button>
         <button type="button" onClick={onWatched} disabled={disabled}>
           标记看过
         </button>
