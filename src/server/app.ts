@@ -53,6 +53,9 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
 
   app.post('/api/sync', async () => dashboard.syncNow());
   app.get('/api/dashboard', async () => dashboard.getDashboard());
+  app.get<{ Querystring: { q?: string } }>('/api/search/anime', async (request) => ({
+    results: await dashboard.searchAnimeSubjects(request.query.q ?? '')
+  }));
 
   app.post<{ Body: OAuthConfigInput }>('/api/settings/oauth', async (request, reply) => {
     if (!request.body?.clientId?.trim() || !request.body?.clientSecret?.trim()) {
@@ -73,6 +76,18 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
     return reply.code(204).send();
   });
 
+  app.post<{ Params: { subjectId: string }; Body: { episodeId?: number } }>('/api/subjects/:subjectId/watched-through', async (request, reply) => {
+    await dashboard.markSubjectEpisodesWatchedThrough(
+      parsePositiveInteger(request.params.subjectId),
+      parsePositiveInteger(String(request.body?.episodeId ?? ''))
+    );
+    return reply.code(204).send();
+  });
+
+  app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/watching', async (request) =>
+    dashboard.addSubjectToWatching(parsePositiveInteger(request.params.subjectId))
+  );
+
   app.post<{ Params: { episodeId: string } }>('/api/reminders/:episodeId/dismiss', async (request, reply) => {
     await dashboard.dismissEpisode(parsePositiveInteger(request.params.episodeId));
     return reply.code(204).send();
@@ -80,9 +95,9 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
 
   app.setErrorHandler((error, _request, reply) => {
     app.log.error(error);
-    const typedError = error as Error & { statusCode?: number };
+    const typedError = error as Error & { expose?: boolean; statusCode?: number };
     const statusCode = typedError.statusCode && typedError.statusCode >= 400 ? typedError.statusCode : 500;
-    const message = statusCode >= 500 ? 'Internal server error' : typedError.message;
+    const message = statusCode >= 500 && !typedError.expose ? 'Internal server error' : typedError.message;
     return reply.code(statusCode).send({ error: message });
   });
 

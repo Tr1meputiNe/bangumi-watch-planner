@@ -29,6 +29,7 @@ const dashboard = {
       nameCn: '测试番剧',
       eps: 12,
       epStatus: 1,
+      unwatchedMainEpisodeCount: 1,
       image: 'cover.jpg',
       url: 'https://bgm.tv/subject/1',
       nextEpisode: {
@@ -135,6 +136,125 @@ describe('App', () => {
     expect(watchedRequests[1][1]).toMatchObject({
       method: 'POST',
       headers: { 'x-bwp-token': 'new-token' }
+    });
+  });
+
+  it('can mark watched through the selected episode', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({
+          authenticated: true,
+          username: 'sai',
+          nickname: 'Sai',
+          lastSyncAt: dashboard.lastSyncAt,
+          apiToken: 'client-token'
+        });
+      }
+      if (url === '/api/dashboard') {
+        return Response.json(dashboard);
+      }
+      if (url === '/api/subjects/1/watched-through' && init?.method === 'POST') {
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    await screen.findByText('第一集');
+    await userEvent.click(screen.getByRole('button', { name: '看到这里' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/subjects/1/watched-through', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-bwp-token': 'client-token'
+        },
+        body: JSON.stringify({ episodeId: 11 })
+      });
+    });
+  });
+
+  it('shows the total unwatched main episode count for a subject', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (input.toString() === '/api/auth/status') {
+          return Response.json({
+            authenticated: true,
+            username: 'sai',
+            nickname: 'Sai',
+            lastSyncAt: dashboard.lastSyncAt,
+            apiToken: 'client-token'
+          });
+        }
+        if (input.toString() === '/api/dashboard') {
+          return Response.json({
+            ...dashboard,
+            subjects: [{ ...dashboard.subjects[0], unwatchedMainEpisodeCount: 3 }]
+          });
+        }
+        throw new Error(`Unexpected request ${input.toString()}`);
+      })
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText('3 集未看')).toBeInTheDocument();
+  });
+
+  it('searches anime and can add a result to watching', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({
+          authenticated: true,
+          username: 'sai',
+          nickname: 'Sai',
+          lastSyncAt: dashboard.lastSyncAt,
+          apiToken: 'client-token'
+        });
+      }
+      if (url === '/api/dashboard') {
+        return Response.json(dashboard);
+      }
+      if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
+        return Response.json({
+          results: [
+            {
+              id: 456,
+              name: 'Test Anime',
+              nameCn: '测试动画',
+              eps: 12,
+              image: null,
+              url: 'https://bgm.tv/subject/456'
+            }
+          ]
+        });
+      }
+      if (url === '/api/subjects/456/watching' && init?.method === 'POST') {
+        return Response.json({ subjectsSynced: 1, episodesSynced: 12 });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+    expect(await screen.findAllByText('测试动画')).toHaveLength(2);
+
+    await userEvent.click(screen.getByRole('button', { name: '加入在看' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/subjects/456/watching', {
+        method: 'POST',
+        headers: { 'x-bwp-token': 'client-token' }
+      });
     });
   });
 

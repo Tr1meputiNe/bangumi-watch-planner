@@ -39,6 +39,7 @@ export type EpisodeRow = {
 
 export type DashboardSubject = SubjectRow & {
   nextEpisode: EpisodeRow | null;
+  unwatchedMainEpisodeCount: number;
 };
 
 export type DashboardData = {
@@ -102,11 +103,42 @@ export type BangumiEpisodePage = {
   data: BangumiEpisodeCollection[];
 };
 
+export type BangumiSearchSubject = {
+  id: number;
+  type: number;
+  name: string;
+  name_cn?: string;
+  eps?: number;
+  images?: {
+    common?: string;
+    medium?: string;
+    small?: string;
+    grid?: string;
+    large?: string;
+  } | null;
+};
+
+export type BangumiSubjectSearchPage = {
+  total: number;
+  data: BangumiSearchSubject[];
+};
+
+export type AnimeSearchResult = {
+  id: number;
+  name: string;
+  nameCn: string;
+  eps: number;
+  image: string | null;
+  url: string;
+};
+
 export type BangumiClient = {
   getMe(): Promise<BangumiUser>;
   getWatchingAnime(username: string, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getSubjectEpisodes(subjectId: number, limit?: number, offset?: number): Promise<BangumiEpisodePage>;
   markEpisodesWatched(subjectId: number, episodeIds: number[]): Promise<void>;
+  addSubjectToWatching(subjectId: number): Promise<void>;
+  searchAnimeSubjects(keyword: string): Promise<AnimeSearchResult[]>;
 };
 
 export type SyncRepository = {
@@ -131,6 +163,9 @@ export type DashboardService = {
   getDashboard(): Promise<DashboardData>;
   syncNow(): Promise<SyncResult>;
   markEpisodeWatched(episodeId: number): Promise<void>;
+  markSubjectEpisodesWatchedThrough(subjectId: number, episodeId: number): Promise<void>;
+  addSubjectToWatching(subjectId: number): Promise<SyncResult>;
+  searchAnimeSubjects(keyword: string): Promise<AnimeSearchResult[]>;
   dismissEpisode(episodeId: number): Promise<void>;
 };
 

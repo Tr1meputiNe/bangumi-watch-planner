@@ -40,6 +40,31 @@ describe('repository', () => {
       nextEpisode: expect.objectContaining({ id: 12, sort: 3 })
     });
   });
+
+  it('counts all unwatched main episodes for each subject', async () => {
+    await repository.upsertSubject({
+      id: 1,
+      name: 'Test Anime',
+      nameCn: '测试番剧',
+      eps: 12,
+      epStatus: 1,
+      image: null,
+      url: 'https://bgm.tv/subject/1'
+    });
+    await repository.replaceSubjectEpisodes(1, [
+      episode({ id: 11, sort: 2, ep: 2, collectionType: 0 }),
+      episode({ id: 12, sort: 3, ep: 3, collectionType: 0 }),
+      episode({ id: 13, sort: 4, ep: 4, collectionType: 2 }),
+      episode({ id: 14, sort: 1, ep: null, episodeType: 1, collectionType: 0 })
+    ]);
+
+    const subjects = await repository.listSubjects();
+
+    expect(subjects[0]).toMatchObject({
+      unwatchedMainEpisodeCount: 2,
+      nextEpisode: expect.objectContaining({ id: 11 })
+    });
+  });
 });
 
 function episode(overrides: Partial<ReturnType<typeof baseEpisode>>) {

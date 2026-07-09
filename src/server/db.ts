@@ -88,13 +88,19 @@ export function createRepository(dbPath: string): Repository {
         .all() as SubjectRow[];
       const episodes = selectEpisodes(db, 'where collection_type != 2 and episode_type = 0 and dismissed_at is null');
       const bySubject = new Map<number, EpisodeRow>();
+      const countsBySubject = new Map<number, number>();
       for (const episode of episodes) {
+        countsBySubject.set(episode.subjectId, (countsBySubject.get(episode.subjectId) ?? 0) + 1);
         const current = bySubject.get(episode.subjectId);
         if (!current || compareEpisode(episode, current) < 0) {
           bySubject.set(episode.subjectId, episode);
         }
       }
-      return subjects.map((subject) => ({ ...subject, nextEpisode: bySubject.get(subject.id) ?? null }));
+      return subjects.map((subject) => ({
+        ...subject,
+        nextEpisode: bySubject.get(subject.id) ?? null,
+        unwatchedMainEpisodeCount: countsBySubject.get(subject.id) ?? 0
+      }));
     },
 
     async getEpisode(episodeId) {

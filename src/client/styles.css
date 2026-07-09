@@ -350,6 +350,17 @@ button.ghost {
   color: var(--muted);
 }
 
+button.secondary {
+  border-color: #b9d5ee;
+  background: #eef6fd;
+  color: var(--blue);
+}
+
+button.secondary:hover {
+  border-color: var(--blue);
+  background: #e3f0fb;
+}
+
 button.ghost:hover {
   border-color: var(--pink);
   background: #fff4f7;
@@ -478,6 +489,97 @@ button.ghost:hover {
 
 .settings-panel {
   overflow: hidden;
+}
+
+.add-subject {
+  display: grid;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 14px;
+}
+
+.anime-search-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.anime-search-form label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.anime-search-form input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 10px;
+  font: inherit;
+}
+
+.search-error {
+  margin: 0;
+  color: #842442;
+  font-size: 0.86rem;
+}
+
+.search-results {
+  display: grid;
+  gap: 8px;
+}
+
+.search-result {
+  min-height: 64px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  padding: 8px;
+}
+
+.search-result > a {
+  width: 42px;
+  aspect-ratio: 3 / 4;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #26313c;
+  color: #ffffff;
+  text-align: center;
+  text-decoration: none;
+  font-size: 0.64rem;
+  font-weight: 800;
+  line-height: 1.2;
+  padding: 4px;
+}
+
+.search-result img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.search-result strong {
+  display: block;
+  color: var(--ink);
+  line-height: 1.25;
+}
+
+.search-result p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .settings-row {
@@ -644,10 +746,16 @@ button.ghost:hover {
   .episode-actions {
     grid-column: 1 / -1;
     justify-content: stretch;
+    flex-wrap: wrap;
   }
 
   .episode-actions button {
     flex: 1;
+  }
+
+  .anime-search-form,
+  .search-result {
+    grid-template-columns: 1fr;
   }
 
   .settings-row {

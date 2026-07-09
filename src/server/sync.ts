@@ -27,9 +27,12 @@ export async function syncWatchingAnime({ username, client, repository, pageSize
 
     for (const collection of page.data) {
       const subject = mapSubject(collection);
-      await repository.upsertSubject(subject);
-
       const episodes = await getAllSubjectEpisodes(client, subject);
+
+      await repository.upsertSubject({
+        ...subject,
+        eps: getMainEpisodeCount(episodes) || subject.eps
+      });
       await repository.replaceSubjectEpisodes(subject.id, episodes);
 
       subjectsSynced += 1;
@@ -93,4 +96,8 @@ function mapEpisode(subject: SubjectRow, collection: BangumiEpisodeCollection): 
     collectionType: collection.type,
     dismissedAt: null
   };
+}
+
+function getMainEpisodeCount(episodes: EpisodeRow[]): number {
+  return episodes.filter((episode) => episode.episodeType === 0).length;
 }

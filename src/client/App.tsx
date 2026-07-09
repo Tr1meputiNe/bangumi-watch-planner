@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
-import { dismissReminder, getAuthStatus, getDashboard, markWatched, saveOAuthConfig, setApiToken, syncNow } from './api.js';
-import type { AuthStatus, DashboardData, DashboardSubject, EpisodeRow } from '../server/types.js';
+import {
+  addSubjectToWatching,
+  dismissReminder,
+  getAuthStatus,
+  getDashboard,
+  markWatched,
+  markWatchedThrough,
+  saveOAuthConfig,
+  searchAnime,
+  setApiToken,
+  syncNow
+} from './api.js';
+import type { AnimeSearchResult, AuthStatus, DashboardData, DashboardSubject, EpisodeRow } from '../server/types.js';
 import { displayEpisodeTitle, displaySubjectName, formatDateTime } from '../shared/format.js';
 
 type LoadState = {
@@ -14,6 +25,11 @@ const emptyState: LoadState = { auth: null, dashboard: null, error: null };
 export default function App() {
   const [state, setState] = useState<LoadState>(emptyState);
   const [oauthForm, setOauthForm] = useState({ clientId: '', clientSecret: '' });
+  const [animeSearch, setAnimeSearch] = useState<{ error: string | null; keyword: string; results: AnimeSearchResult[] }>({
+    error: null,
+    keyword: '',
+    results: []
+  });
   const [isPending, startTransition] = useTransition();
 
   const load = useCallback(async () => {
@@ -41,12 +57,28 @@ export default function App() {
     return map;
   }, [pendingEpisodes]);
 
-  async function runAction(action: () => Promise<void>) {
+  async function runAction(action: () => Promise<unknown>) {
     startTransition(() => {
       void action()
         .then(load)
         .catch((error) => {
           setState((current) => ({ ...current, error: error instanceof Error ? error.message : String(error) }));
+        });
+    });
+  }
+
+  async function runAnimeSearch(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const keyword = animeSearch.keyword.trim();
+    if (!keyword) {
+      setAnimeSearch((current) => ({ ...current, error: null, results: [] }));
+      return;
+    }
+    startTransition(() => {
+      void searchAnime(keyword)
+        .then((results) => setAnimeSearch((current) => ({ ...current, error: null, results })))
+        .catch((error) => {
+          setAnimeSearch((current) => ({ ...current, error: error instanceof Error ? error.message : String(error), results: [] }));
         });
     });
   }
@@ -104,6 +136,7 @@ export default function App() {
                   episode={episode}
                   disabled={isPending}
                   onWatched={() => runAction(() => markWatched(episode.id))}
+                  onWatchedThrough={() => runAction(() => markWatchedThrough(episode.subjectId, episode.id))}
                   onDismiss={() => runAction(() => dismissReminder(episode.id))}
                 />
               ))}
@@ -136,6 +169,42 @@ export default function App() {
                 <h2>设置</h2>
               </div>
               <strong>{state.auth?.authenticated ? state.auth.username : '未连接'}</strong>
+            </div>
+
+            <div className="add-subject">
+              <form className="anime-search-form" onSubmit={(event) => void runAnimeSearch(event)}>
+                <label>
+                  <span>搜索动画</span>
+                  <input
+                    value={animeSearch.keyword}
+                    onChange={(event) => setAnimeSearch((current) => ({ ...current, keyword: event.target.value }))}
+                    placeholder="番名、中文名或原名"
+                    disabled={!state.auth?.authenticated || isPending}
+                  />
+                </label>
+                <button type="submit" disabled={!state.auth?.authenticated || isPending || !animeSearch.keyword.trim()}>
+                  搜索
+                </button>
+              </form>
+              {animeSearch.error ? <p className="search-error">{animeSearch.error}</p> : null}
+              {animeSearch.results.length > 0 ? (
+                <div className="search-results">
+                  {animeSearch.results.map((result) => (
+                    <article key={result.id} className="search-result">
+                      <a href={result.url} target="_blank" rel="noreferrer">
+                        {result.image ? <img src={result.image} alt="" /> : <span>{result.nameCn || result.name}</span>}
+                      </a>
+                      <div>
+                        <strong>{displaySubjectName(result.name, result.nameCn)}</strong>
+                        <p>{result.eps ? `${result.eps} 集` : '总集数未知'}</p>
+                      </div>
+                      <button type="button" onClick={() => void runAction(() => addSubjectToWatching(result.id))} disabled={isPending}>
+                        加入在看
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             <div className="settings-row">
@@ -218,6 +287,7 @@ export default function App() {
 function SubjectItem({ subject, pendingCount }: { subject: DashboardSubject; pendingCount: number }) {
   const progressText = `${subject.epStatus} / ${subject.eps || '?'}`;
   const progressPercent = subject.eps > 0 ? Math.min(100, Math.round((subject.epStatus / subject.eps) * 100)) : 0;
+  const unwatchedCount = subject.unwatchedMainEpisodeCount ?? pendingCount;
   return (
     <article className="subject-row">
       <a className="subject-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={displaySubjectName(subject.name, subject.nameCn)}>
@@ -228,7 +298,7 @@ function SubjectItem({ subject, pendingCount }: { subject: DashboardSubject; pen
           <a href={subject.url} target="_blank" rel="noreferrer">
             {displaySubjectName(subject.name, subject.nameCn)}
           </a>
-          <span>{pendingCount > 0 ? `${pendingCount} 待补` : '已同步'}</span>
+          <span>{unwatchedCount > 0 ? `${unwatchedCount} 集未看` : '已同步'}</span>
         </div>
         <div className="progress-row">
           <span>{progressText}</span>
@@ -250,11 +320,13 @@ function EpisodeItem({
   episode,
   disabled,
   onWatched,
+  onWatchedThrough,
   onDismiss
 }: {
   episode: EpisodeRow;
   disabled: boolean;
   onWatched: () => void;
+  onWatchedThrough: () => void;
   onDismiss: () => void;
 }) {
   return (
@@ -273,6 +345,9 @@ function EpisodeItem({
         </a>
       </div>
       <div className="episode-actions">
+        <button type="button" className="secondary" onClick={onWatchedThrough} disabled={disabled}>
+          看到这里
+        </button>
         <button type="button" onClick={onWatched} disabled={disabled}>
           标记看过
         </button>

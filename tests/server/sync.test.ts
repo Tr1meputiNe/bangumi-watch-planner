@@ -191,4 +191,63 @@ describe('syncWatchingAnime', () => {
     expect(client.getSubjectEpisodes).toHaveBeenNthCalledWith(2, 1, 1000, 1000);
     expect(savedEpisodes.map((episode) => episode.id)).toEqual([1, 1001]);
   });
+
+  it('uses main episode count from episode collections when subject eps is missing or wrong', async () => {
+    const client: BangumiClient = {
+      getMe: vi.fn(),
+      getWatchingAnime: vi.fn(async () => ({
+        total: 1,
+        data: [
+          {
+            subject_id: 1,
+            type: 3,
+            ep_status: 1,
+            subject: {
+              id: 1,
+              name: 'One',
+              name_cn: '',
+              eps: 0,
+              images: {}
+            }
+          }
+        ]
+      })),
+      getSubjectEpisodes: vi.fn(async () => ({
+        total: 3,
+        data: [
+          {
+            type: 2,
+            updated_at: 0,
+            episode: { id: 11, subject_id: 1, type: 0, sort: 1, ep: 1, name: 'one', name_cn: '', airdate: '2026-07-01' }
+          },
+          {
+            type: 0,
+            updated_at: 0,
+            episode: { id: 12, subject_id: 1, type: 0, sort: 2, ep: 2, name: 'two', name_cn: '', airdate: '2026-07-08' }
+          },
+          {
+            type: 0,
+            updated_at: 0,
+            episode: { id: 13, subject_id: 1, type: 1, sort: 1, name: 'sp', name_cn: '', airdate: '2026-07-09' }
+          }
+        ]
+      })),
+      markEpisodesWatched: vi.fn(),
+      addSubjectToWatching: vi.fn(),
+      searchAnimeSubjects: vi.fn()
+    };
+    const savedSubjects: any[] = [];
+
+    await syncWatchingAnime({
+      username: 'sai',
+      client,
+      repository: {
+        upsertSubject: async (subject) => savedSubjects.push(subject),
+        replaceSubjectEpisodes: async () => undefined,
+        setSetting: async () => undefined
+      }
+    });
+
+    expect(savedSubjects[0].eps).toBe(2);
+  });
 });
