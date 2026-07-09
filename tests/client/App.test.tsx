@@ -30,6 +30,23 @@ const dashboard = {
       eps: 12,
       epStatus: 1,
       unwatchedMainEpisodeCount: 1,
+      unwatchedMainEpisodes: [
+        {
+          id: 11,
+          subjectId: 1,
+          subjectName: 'テスト番組',
+          subjectNameCn: '测试番剧',
+          subjectUrl: 'https://bgm.tv/subject/1',
+          episodeType: 0,
+          sort: 1,
+          ep: 1,
+          name: 'first',
+          nameCn: '第一集',
+          airdate: '2026-07-08',
+          collectionType: 0,
+          dismissedAt: null
+        }
+      ],
       image: 'cover.jpg',
       url: 'https://bgm.tv/subject/1',
       nextEpisode: {
@@ -80,6 +97,7 @@ describe('App', () => {
 
     expect(await screen.findAllByText('测试番剧')).toHaveLength(2);
     expect(screen.getByText('第一集')).toBeInTheDocument();
+    expect(screen.getByText('1 / 12')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: '标记看过' }));
 
@@ -204,6 +222,72 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByText('3 集未看')).toBeInTheDocument();
+  });
+
+  it('can choose which unwatched episode to mark through from the watching list', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({
+          authenticated: true,
+          username: 'sai',
+          nickname: 'Sai',
+          lastSyncAt: dashboard.lastSyncAt,
+          apiToken: 'client-token'
+        });
+      }
+      if (url === '/api/dashboard') {
+        return Response.json({
+          ...dashboard,
+          subjects: [
+            {
+              ...dashboard.subjects[0],
+              epStatus: 1,
+              unwatchedMainEpisodeCount: 3,
+              unwatchedMainEpisodes: [
+                dashboard.subjects[0].unwatchedMainEpisodes[0],
+                {
+                  ...dashboard.subjects[0].unwatchedMainEpisodes[0],
+                  id: 12,
+                  sort: 2,
+                  ep: 2,
+                  nameCn: '第二集'
+                },
+                {
+                  ...dashboard.subjects[0].unwatchedMainEpisodes[0],
+                  id: 13,
+                  sort: 3,
+                  ep: 3,
+                  nameCn: '第三集'
+                }
+              ]
+            }
+          ]
+        });
+      }
+      if (url === '/api/subjects/1/watched-through' && init?.method === 'POST') {
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    await screen.findByText('3 集未看');
+    await userEvent.selectOptions(screen.getByLabelText('选择测试番剧看到的集数'), '12');
+    await userEvent.click(screen.getByRole('button', { name: '测试番剧 看到' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/subjects/1/watched-through', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-bwp-token': 'client-token'
+        },
+        body: JSON.stringify({ episodeId: 12 })
+      });
+    });
   });
 
   it('searches anime and can add a result to watching', async () => {

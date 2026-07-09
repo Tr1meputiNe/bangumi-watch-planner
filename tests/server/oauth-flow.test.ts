@@ -135,7 +135,8 @@ describe('OAuth callback to user list flow', () => {
         expect.objectContaining({
           id: 123,
           name: 'Demo Anime',
-          nameCn: '演示动画'
+          nameCn: '演示动画',
+          eps: 12
         })
       ],
       pendingEpisodes: [

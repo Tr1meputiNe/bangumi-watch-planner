@@ -31,7 +31,7 @@ export async function syncWatchingAnime({ username, client, repository, pageSize
 
       await repository.upsertSubject({
         ...subject,
-        eps: getMainEpisodeCount(episodes) || subject.eps
+        eps: getMainEpisodeTotal(subject, episodes)
       });
       await repository.replaceSubjectEpisodes(subject.id, episodes);
 
@@ -98,6 +98,14 @@ function mapEpisode(subject: SubjectRow, collection: BangumiEpisodeCollection): 
   };
 }
 
-function getMainEpisodeCount(episodes: EpisodeRow[]): number {
-  return episodes.filter((episode) => episode.episodeType === 0).length;
+function getMainEpisodeTotal(subject: SubjectRow, episodes: EpisodeRow[]): number {
+  const mainEpisodes = episodes.filter((episode) => episode.episodeType === 0);
+  const knownMainEpisodeCount = mainEpisodes.length;
+  const highestKnownMainEpisode = mainEpisodes.reduce((highest, episode) => {
+    const progress = Number(episode.ep ?? episode.sort);
+    if (!Number.isFinite(progress) || progress <= 0) return highest;
+    return Math.max(highest, Math.ceil(progress));
+  }, 0);
+
+  return Math.max(subject.eps, subject.epStatus, knownMainEpisodeCount, highestKnownMainEpisode);
 }

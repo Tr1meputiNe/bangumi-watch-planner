@@ -157,7 +157,13 @@ export default function App() {
             </div>
             <div className="subject-list">
               {subjects.map((subject) => (
-                <SubjectItem key={subject.id} subject={subject} pendingCount={pendingBySubject.get(subject.id) ?? 0} />
+                <SubjectItem
+                  key={subject.id}
+                  subject={subject}
+                  pendingCount={pendingBySubject.get(subject.id) ?? 0}
+                  disabled={isPending}
+                  onWatchedThrough={(episodeId) => runAction(() => markWatchedThrough(subject.id, episodeId))}
+                />
               ))}
             </div>
           </section>
@@ -284,19 +290,41 @@ export default function App() {
   );
 }
 
-function SubjectItem({ subject, pendingCount }: { subject: DashboardSubject; pendingCount: number }) {
+function SubjectItem({
+  subject,
+  pendingCount,
+  disabled,
+  onWatchedThrough
+}: {
+  subject: DashboardSubject;
+  pendingCount: number;
+  disabled: boolean;
+  onWatchedThrough: (episodeId: number) => void;
+}) {
+  const subjectTitle = displaySubjectName(subject.name, subject.nameCn);
   const progressText = `${subject.epStatus} / ${subject.eps || '?'}`;
   const progressPercent = subject.eps > 0 ? Math.min(100, Math.round((subject.epStatus / subject.eps) * 100)) : 0;
   const unwatchedCount = subject.unwatchedMainEpisodeCount ?? pendingCount;
+  const episodeOptions = subject.unwatchedMainEpisodes ?? [];
+
+  function submitWatchProgress(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const episodeId = Number(form.get('episodeId'));
+    if (Number.isFinite(episodeId) && episodeId > 0) {
+      onWatchedThrough(episodeId);
+    }
+  }
+
   return (
     <article className="subject-row">
-      <a className="subject-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={displaySubjectName(subject.name, subject.nameCn)}>
+      <a className="subject-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={subjectTitle}>
         {subject.image ? <img src={subject.image} alt="" /> : <span>{subject.nameCn || subject.name}</span>}
       </a>
       <div className="subject-detail">
         <div className="subject-heading">
           <a href={subject.url} target="_blank" rel="noreferrer">
-            {displaySubjectName(subject.name, subject.nameCn)}
+            {subjectTitle}
           </a>
           <span>{unwatchedCount > 0 ? `${unwatchedCount} 集未看` : '已同步'}</span>
         </div>
@@ -311,6 +339,23 @@ function SubjectItem({ subject, pendingCount }: { subject: DashboardSubject; pen
         ) : (
           <p>暂无未看的本篇集数</p>
         )}
+        {episodeOptions.length > 0 ? (
+          <form className="watch-progress-form" onSubmit={submitWatchProgress}>
+            <label>
+              <span>看到</span>
+              <select name="episodeId" aria-label={`选择${subjectTitle}看到的集数`} disabled={disabled}>
+                {episodeOptions.map((episode) => (
+                  <option key={episode.id} value={episode.id}>
+                    第 {episode.ep ?? episode.sort} 集 · {displayEpisodeTitle(episode.name, episode.nameCn, episode.sort)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="submit" className="secondary" disabled={disabled} aria-label={`${subjectTitle} 看到`}>
+              看到
+            </button>
+          </form>
+        ) : null}
       </div>
     </article>
   );

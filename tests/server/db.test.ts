@@ -62,7 +62,11 @@ describe('repository', () => {
 
     expect(subjects[0]).toMatchObject({
       unwatchedMainEpisodeCount: 2,
-      nextEpisode: expect.objectContaining({ id: 11 })
+      nextEpisode: expect.objectContaining({ id: 11 }),
+      unwatchedMainEpisodes: [
+        expect.objectContaining({ id: 11, sort: 2 }),
+        expect.objectContaining({ id: 12, sort: 3 })
+      ]
     });
   });
 });

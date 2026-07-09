@@ -487,6 +487,38 @@ button.ghost:hover {
   line-height: 1.35;
 }
 
+.watch-progress-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.watch-progress-form label {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.watch-progress-form select {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 8px;
+  font: inherit;
+  font-size: 0.84rem;
+}
+
+.watch-progress-form button {
+  min-height: 32px;
+}
+
 .settings-panel {
   overflow: hidden;
 }
@@ -754,6 +786,7 @@ button.ghost:hover {
   }
 
   .anime-search-form,
+  .watch-progress-form,
   .search-result {
     grid-template-columns: 1fr;
   }
