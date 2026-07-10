@@ -12,6 +12,8 @@ type AppDeps = {
   apiToken?: string | null;
 };
 
+const API_TOKEN_COOKIE = 'bwp_token';
+
 export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUserLoaded, logger = false, apiToken = null }: AppDeps) {
   const app = fastify({ logger });
 
@@ -20,14 +22,19 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
     if (!request.url.startsWith('/api/')) return;
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return;
 
-    if (request.headers['x-bwp-token'] !== apiToken) {
+    const headerToken = request.headers['x-bwp-token'];
+    const cookieToken = parseCookieValue(request.headers.cookie, API_TOKEN_COOKIE);
+    if (headerToken !== apiToken && cookieToken !== apiToken) {
       return reply.code(403).send({ error: 'Invalid local API token' });
     }
   });
 
-  app.get('/api/auth/status', async () => {
+  app.get('/api/auth/status', async (_request, reply) => {
     const status = await auth.getAuthStatus();
-    return apiToken ? { ...status, apiToken } : status;
+    if (apiToken) {
+      reply.header('set-cookie', serializeLocalApiTokenCookie(apiToken));
+    }
+    return status;
   });
 
   app.get('/auth/login', async (_request, reply) => {
@@ -128,4 +135,27 @@ function parsePositiveInteger(value: string): number {
     throw Object.assign(new Error('Episode id must be a positive integer'), { statusCode: 400 });
   }
   return Number(value);
+}
+
+function serializeLocalApiTokenCookie(token: string): string {
+  return `${API_TOKEN_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict`;
+}
+
+function parseCookieValue(cookieHeader: string | undefined, name: string): string | null {
+  if (!cookieHeader) {
+    return null;
+  }
+  for (const rawCookie of cookieHeader.split(';')) {
+    const [rawName, ...rawValueParts] = rawCookie.trim().split('=');
+    if (rawName !== name) {
+      continue;
+    }
+    const rawValue = rawValueParts.join('=');
+    try {
+      return decodeURIComponent(rawValue);
+    } catch {
+      return rawValue;
+    }
+  }
+  return null;
 }

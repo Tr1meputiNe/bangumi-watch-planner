@@ -1,18 +1,10 @@
 import type { AnimeSearchResult, AuthStatus, CalendarDay, DashboardData, SyncResult } from '../server/types.js';
 
-let apiToken: string | null = null;
-
-export function setApiToken(value: string | null | undefined): void {
-  apiToken = value ?? null;
-}
-
 async function api<T>(input: RequestInfo | URL, init?: RequestInit, retryOnInvalidToken = true): Promise<T> {
   const headers = new Headers(init?.headers);
-  if (apiToken && init?.method && init.method !== 'GET') {
-    headers.set('x-bwp-token', apiToken);
-  }
   const headerEntries = [...headers.entries()];
-  const response = await fetch(input, { ...init, headers: headerEntries.length > 0 ? Object.fromEntries(headerEntries) : undefined });
+  const requestInit = headerEntries.length > 0 ? { ...init, headers: Object.fromEntries(headerEntries) } : init;
+  const response = await fetch(input, requestInit);
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: response.statusText }));
     if (isInvalidLocalToken(response, body) && retryOnInvalidToken && init?.method && init.method !== 'GET') {
@@ -36,8 +28,7 @@ async function refreshApiToken(): Promise<void> {
   if (!response.ok) {
     return;
   }
-  const status = (await response.json()) as AuthStatus;
-  setApiToken(status.apiToken);
+  await response.json();
 }
 
 export function getAuthStatus(): Promise<AuthStatus> {

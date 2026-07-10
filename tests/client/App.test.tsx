@@ -111,8 +111,7 @@ describe('App', () => {
           authenticated: true,
           username: 'sai',
           nickname: 'Sai',
-          lastSyncAt: dashboard.lastSyncAt,
-          apiToken: 'client-token'
+          lastSyncAt: dashboard.lastSyncAt
         });
       }
       if (url === '/api/dashboard') {
@@ -135,13 +134,12 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/reminders/11/dismiss', {
-        method: 'POST',
-        headers: { 'x-bwp-token': 'client-token' }
+        method: 'POST'
       });
     });
   });
 
-  it('refreshes the local API token and retries writes when the server token changed', async () => {
+  it('refreshes the local API cookie and retries writes when the server token changed', async () => {
     let authCalls = 0;
     let dismissCalls = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -152,8 +150,7 @@ describe('App', () => {
           authenticated: true,
           username: 'sai',
           nickname: 'Sai',
-          lastSyncAt: dashboard.lastSyncAt,
-          apiToken: authCalls === 1 ? 'old-token' : 'new-token'
+          lastSyncAt: dashboard.lastSyncAt
         });
       }
       if (url === '/api/dashboard') {
@@ -178,14 +175,13 @@ describe('App', () => {
     await waitFor(() => {
       expect(dismissCalls).toBe(2);
     });
+    expect(authCalls).toBe(3);
     const dismissRequests = fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/reminders/11/dismiss');
     expect(dismissRequests[0][1]).toMatchObject({
-      method: 'POST',
-      headers: { 'x-bwp-token': 'old-token' }
+      method: 'POST'
     });
     expect(dismissRequests[1][1]).toMatchObject({
-      method: 'POST',
-      headers: { 'x-bwp-token': 'new-token' }
+      method: 'POST'
     });
   });
 
@@ -197,8 +193,7 @@ describe('App', () => {
           authenticated: true,
           username: 'sai',
           nickname: 'Sai',
-          lastSyncAt: dashboard.lastSyncAt,
-          apiToken: 'client-token'
+          lastSyncAt: dashboard.lastSyncAt
         });
       }
       if (url === '/api/dashboard') {
@@ -224,8 +219,7 @@ describe('App', () => {
             authenticated: true,
             username: 'sai',
             nickname: 'Sai',
-            lastSyncAt: dashboard.lastSyncAt,
-            apiToken: 'client-token'
+            lastSyncAt: dashboard.lastSyncAt
           });
         }
         if (input.toString() === '/api/dashboard') {
@@ -251,8 +245,7 @@ describe('App', () => {
           authenticated: true,
           username: 'sai',
           nickname: 'Sai',
-          lastSyncAt: dashboard.lastSyncAt,
-          apiToken: 'client-token'
+          lastSyncAt: dashboard.lastSyncAt
         });
       }
       if (url === '/api/dashboard') {
@@ -287,8 +280,7 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/episodes/10/unwatched', {
-        method: 'POST',
-        headers: { 'x-bwp-token': 'client-token' }
+        method: 'POST'
       });
     });
   });
@@ -301,8 +293,7 @@ describe('App', () => {
           authenticated: true,
           username: 'sai',
           nickname: 'Sai',
-          lastSyncAt: dashboard.lastSyncAt,
-          apiToken: 'client-token'
+          lastSyncAt: dashboard.lastSyncAt
         });
       }
       if (url === '/api/dashboard') {
@@ -327,8 +318,7 @@ describe('App', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/subjects/1/watched-through', {
         method: 'POST',
         headers: {
-          'content-type': 'application/json',
-          'x-bwp-token': 'client-token'
+          'content-type': 'application/json'
         },
         body: JSON.stringify({ episodeId: 12 })
       });
@@ -343,8 +333,7 @@ describe('App', () => {
           authenticated: true,
           username: 'sai',
           nickname: 'Sai',
-          lastSyncAt: dashboard.lastSyncAt,
-          apiToken: 'client-token'
+          lastSyncAt: dashboard.lastSyncAt
         });
       }
       if (url === '/api/dashboard') {
@@ -395,8 +384,7 @@ describe('App', () => {
           authenticated: true,
           username: 'sai',
           nickname: 'Sai',
-          lastSyncAt: dashboard.lastSyncAt,
-          apiToken: 'client-token'
+          lastSyncAt: dashboard.lastSyncAt
         });
       }
       if (url === '/api/dashboard') {
@@ -433,8 +421,7 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/subjects/456/watching', {
-        method: 'POST',
-        headers: { 'x-bwp-token': 'client-token' }
+        method: 'POST'
       });
     });
   });
@@ -470,8 +457,7 @@ describe('App', () => {
           lastSyncAt: null,
           configured: oauthConfigured,
           callbackUrl: 'http://127.0.0.1:3777/auth/callback',
-          oauthClientId: oauthConfigured ? 'client-id' : null,
-          apiToken: 'client-token'
+          oauthClientId: oauthConfigured ? 'client-id' : null
         });
       }
       if (url === '/api/dashboard') {
@@ -498,8 +484,7 @@ describe('App', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/settings/oauth', {
         method: 'POST',
         headers: {
-          'content-type': 'application/json',
-          'x-bwp-token': 'client-token'
+          'content-type': 'application/json'
         },
         body: JSON.stringify({ clientId: 'client-id', clientSecret: 'client-secret' })
       });

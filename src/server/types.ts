@@ -6,7 +6,6 @@ export type AuthStatus = {
   configured?: boolean;
   oauthClientId?: string | null;
   callbackUrl?: string;
-  apiToken?: string;
   notificationsEnabled?: boolean;
   launchAgentInstalled?: boolean;
 };

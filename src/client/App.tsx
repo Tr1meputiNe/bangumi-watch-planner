@@ -9,7 +9,6 @@ import {
   markWatchedThrough,
   saveOAuthConfig,
   searchAnime,
-  setApiToken,
   syncNow
 } from './api.js';
 import type { AnimeSearchResult, AuthStatus, CalendarDay, CalendarSubject, DashboardData, DashboardSubject, EpisodeRow } from '../server/types.js';
@@ -47,7 +46,6 @@ export default function App() {
   const load = useCallback(async () => {
     try {
       const [auth, dashboard] = await Promise.all([getAuthStatus(), getDashboard()]);
-      setApiToken(auth.apiToken);
       setState({ auth, dashboard, error: null });
     } catch (error) {
       setState((current) => ({ ...current, error: error instanceof Error ? error.message : String(error) }));

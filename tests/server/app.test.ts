@@ -40,9 +40,11 @@ describe('HTTP API', () => {
       authenticated: true,
       username: 'sai',
       nickname: 'Sai',
-      lastSyncAt: '2026-07-08T20:00:00+08:00',
-      apiToken: 'test-token'
+      lastSyncAt: '2026-07-08T20:00:00+08:00'
     });
+    expect(authResponse.headers['set-cookie']).toContain('bwp_token=test-token');
+    expect(authResponse.headers['set-cookie']).toContain('HttpOnly');
+    expect(authResponse.headers['set-cookie']).toContain('SameSite=Strict');
     expect(dashboardResponse.json()).toEqual({
       pendingEpisodes: [],
       subjects: [],
@@ -406,6 +408,41 @@ describe('HTTP API', () => {
     const response = await app.inject({ method: 'POST', url: '/api/sync' });
 
     expect(response.statusCode).toBe(403);
+
+    await app.close();
+  });
+
+  it('accepts state-changing API requests with the local API cookie', async () => {
+    const syncNow = vi.fn(async () => ({ subjectsSynced: 1, episodesSynced: 2 }));
+    const app = buildApp({
+      auth: {
+        createAuthorizationUrl: vi.fn(),
+        handleCallback: vi.fn(),
+        getAccessToken: vi.fn(),
+        getAuthStatus: vi.fn()
+      },
+      dashboard: {
+        getDashboard: vi.fn(),
+        syncNow,
+        markEpisodeWatched: vi.fn(),
+        dismissEpisode: vi.fn()
+      },
+      settings: {
+        saveOAuthConfig: vi.fn()
+      },
+      staticRoot: null,
+      apiToken: 'secret-token'
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/sync',
+      headers: { cookie: 'bwp_token=secret-token' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ subjectsSynced: 1, episodesSynced: 2 });
+    expect(syncNow).toHaveBeenCalled();
 
     await app.close();
   });
