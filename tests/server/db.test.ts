@@ -41,6 +41,37 @@ describe('repository', () => {
     });
   });
 
+  it('recomputes subject progress and pending episodes when marking an episode unwatched locally', async () => {
+    await repository.upsertSubject({
+      id: 1,
+      name: 'Test Anime',
+      nameCn: '测试番剧',
+      eps: 12,
+      epStatus: 3,
+      image: null,
+      url: 'https://bgm.tv/subject/1'
+    });
+    await repository.replaceSubjectEpisodes(1, [
+      episode({ id: 10, sort: 1, ep: 1, collectionType: 2 }),
+      episode({ id: 11, sort: 2, ep: 2, collectionType: 2 }),
+      episode({ id: 12, sort: 3, ep: 3, collectionType: 0 })
+    ]);
+
+    await repository.markEpisodeUnwatched(11);
+
+    const subjects = await repository.listSubjects();
+    expect(subjects[0]).toMatchObject({
+      epStatus: 1,
+      nextEpisode: expect.objectContaining({ id: 11 }),
+      mainEpisodes: [
+        expect.objectContaining({ id: 10, collectionType: 2 }),
+        expect.objectContaining({ id: 11, collectionType: 0 }),
+        expect.objectContaining({ id: 12, collectionType: 0 })
+      ],
+      unwatchedMainEpisodeCount: 2
+    });
+  });
+
   it('counts all unwatched main episodes for each subject', async () => {
     await repository.upsertSubject({
       id: 1,
@@ -63,6 +94,11 @@ describe('repository', () => {
     expect(subjects[0]).toMatchObject({
       unwatchedMainEpisodeCount: 2,
       nextEpisode: expect.objectContaining({ id: 11 }),
+      mainEpisodes: [
+        expect.objectContaining({ id: 11, sort: 2 }),
+        expect.objectContaining({ id: 12, sort: 3 }),
+        expect.objectContaining({ id: 13, sort: 4 })
+      ],
       unwatchedMainEpisodes: [
         expect.objectContaining({ id: 11, sort: 2 }),
         expect.objectContaining({ id: 12, sort: 3 })

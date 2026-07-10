@@ -121,6 +121,16 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
       });
     },
 
+    async markEpisodesUnwatched(subjectId, episodeIds) {
+      await request<void>(`/v0/users/-/collections/${subjectId}/episodes`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ episode_id: episodeIds, type: 0 })
+      });
+    },
+
     async addSubjectToWatching(subjectId) {
       await request<void>(`/v0/users/-/collections/${subjectId}`, {
         method: 'POST',

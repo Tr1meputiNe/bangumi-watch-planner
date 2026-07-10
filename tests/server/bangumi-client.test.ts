@@ -86,6 +86,30 @@ describe('Bangumi client', () => {
     );
   });
 
+  it('sends the expected unwatched episode patch request', async () => {
+    const fetch = vi.fn(async () => ({ ok: true, status: 204, text: async () => '' }));
+    const client = createBangumiClient({
+      fetch,
+      getAccessToken: async () => 'token-1',
+      userAgent: 'tester/bangumi-watch-planner'
+    });
+
+    await client.markEpisodesUnwatched(123, [10]);
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.bgm.tv/v0/users/-/collections/123/episodes',
+      expect.objectContaining({
+        method: 'PATCH',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer token-1',
+          'Content-Type': 'application/json',
+          'User-Agent': 'tester/bangumi-watch-planner'
+        }),
+        body: JSON.stringify({ episode_id: [10], type: 0 })
+      })
+    );
+  });
+
   it('adds an anime subject to the watching collection', async () => {
     const fetch = vi.fn(async () => ({ ok: true, status: 204, text: async () => '' }));
     const client = createBangumiClient({

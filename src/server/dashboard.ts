@@ -68,6 +68,15 @@ export function createDashboardService({ auth, client, repository }: DashboardDe
       await repository.markEpisodeWatched(episodeId);
     },
 
+    async markEpisodeUnwatched(episodeId) {
+      const episode = await repository.getEpisode(episodeId);
+      if (!episode) {
+        throw new Error(`Episode ${episodeId} was not found`);
+      }
+      await client.markEpisodesUnwatched(episode.subjectId, [episodeId]);
+      await repository.markEpisodeUnwatched(episodeId);
+    },
+
     async markSubjectEpisodesWatchedThrough(subjectId, episodeId) {
       const selected = await repository.getEpisode(episodeId);
       if (!selected || selected.subjectId !== subjectId) {

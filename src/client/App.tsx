@@ -5,6 +5,8 @@ import {
   getAuthStatus,
   getCalendar,
   getDashboard,
+  markUnwatched,
+  markWatchedThrough,
   saveOAuthConfig,
   searchAnime,
   setApiToken,
@@ -191,7 +193,14 @@ export default function App() {
               </div>
               <div className="subject-list">
                 {subjects.map((subject) => (
-                  <SubjectItem key={subject.id} subject={subject} pendingCount={pendingBySubject.get(subject.id) ?? 0} />
+                  <SubjectItem
+                    key={subject.id}
+                    subject={subject}
+                    pendingCount={pendingBySubject.get(subject.id) ?? 0}
+                    disabled={isPending}
+                    onWatchedThrough={(episodeId) => runAction(() => markWatchedThrough(subject.id, episodeId))}
+                    onUnwatched={(episodeId) => runAction(() => markUnwatched(episodeId))}
+                  />
                 ))}
               </div>
             </section>
@@ -323,15 +332,22 @@ export default function App() {
 
 function SubjectItem({
   subject,
-  pendingCount
+  pendingCount,
+  disabled,
+  onWatchedThrough,
+  onUnwatched
 }: {
   subject: DashboardSubject;
   pendingCount: number;
+  disabled: boolean;
+  onWatchedThrough: (episodeId: number) => void;
+  onUnwatched: (episodeId: number) => void;
 }) {
   const subjectTitle = displaySubjectName(subject.name, subject.nameCn);
   const progressText = `${subject.epStatus} / ${subject.eps || '?'}`;
   const progressPercent = subject.eps > 0 ? Math.min(100, Math.round((subject.epStatus / subject.eps) * 100)) : 0;
   const unwatchedCount = subject.unwatchedMainEpisodeCount ?? pendingCount;
+  const episodeOptions = subject.mainEpisodes.length > 0 ? subject.mainEpisodes : subject.unwatchedMainEpisodes;
 
   return (
     <article className="subject-row">
@@ -356,9 +372,81 @@ function SubjectItem({
         ) : (
           <p>暂无未看的本篇集数</p>
         )}
+        {episodeOptions.length > 0 ? (
+          <WatchProgressGrid
+            subjectTitle={subjectTitle}
+            episodes={episodeOptions}
+            disabled={disabled}
+            onWatchedThrough={onWatchedThrough}
+            onUnwatched={onUnwatched}
+          />
+        ) : null}
       </div>
     </article>
   );
+}
+
+function WatchProgressGrid({
+  subjectTitle,
+  episodes,
+  disabled,
+  onWatchedThrough,
+  onUnwatched
+}: {
+  subjectTitle: string;
+  episodes: EpisodeRow[];
+  disabled: boolean;
+  onWatchedThrough: (episodeId: number) => void;
+  onUnwatched: (episodeId: number) => void;
+}) {
+  return (
+    <div className="watch-progress-grid" aria-label={`${subjectTitle}集数进度`}>
+      {episodes.map((episode) => {
+        const progress = episodeProgress(episode);
+        const watched = episode.collectionType === 2;
+        const aired = hasAired(episode.airdate);
+        return (
+          <button
+            key={episode.id}
+            type="button"
+            className={['watch-episode-button', watched ? 'is-watched' : aired ? 'is-aired' : 'is-unaired'].join(' ')}
+            onClick={() => (watched ? onUnwatched(episode.id) : onWatchedThrough(episode.id))}
+            disabled={disabled}
+            aria-label={watched ? `${subjectTitle} 第 ${progress} 集 取消看过` : `${subjectTitle} 第 ${progress} 集 标为看过`}
+            title={`${displayEpisodeTitle(episode.name, episode.nameCn, episode.sort)}${episode.airdate ? ` · ${episode.airdate}` : ''}`}
+          >
+            {formatEpisodeProgress(progress)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function episodeProgress(episode: EpisodeRow): number {
+  return Number(episode.ep ?? episode.sort);
+}
+
+function formatEpisodeProgress(progress: number): string {
+  if (!Number.isFinite(progress)) return '?';
+  if (!Number.isInteger(progress)) return String(progress);
+  return String(progress).padStart(2, '0');
+}
+
+function hasAired(airdate: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(airdate)) return false;
+  return airdate <= todayInShanghai();
+}
+
+function todayInShanghai(): string {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 function EpisodeItem({

@@ -70,6 +70,20 @@ export function markWatched(episodeId: number): Promise<void> {
   return api<void>(`/api/episodes/${episodeId}/watched`, { method: 'POST' });
 }
 
+export function markUnwatched(episodeId: number): Promise<void> {
+  return api<void>(`/api/episodes/${episodeId}/unwatched`, { method: 'POST' });
+}
+
+export function markWatchedThrough(subjectId: number, episodeId: number): Promise<void> {
+  return api<void>(`/api/subjects/${subjectId}/watched-through`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({ episodeId })
+  });
+}
+
 export async function searchAnime(keyword: string): Promise<AnimeSearchResult[]> {
   const response = await api<{ results: AnimeSearchResult[] }>(`/api/search/anime?q=${encodeURIComponent(keyword)}`);
   return response.results;

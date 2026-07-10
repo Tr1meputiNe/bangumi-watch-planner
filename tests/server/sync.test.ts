@@ -12,7 +12,8 @@ describe('syncWatchingAnime', () => {
         data: []
       })),
       getSubjectEpisodes: vi.fn(),
-      markEpisodesWatched: vi.fn()
+      markEpisodesWatched: vi.fn(),
+      markEpisodesUnwatched: vi.fn()
     };
 
     await syncWatchingAnime({
@@ -108,7 +109,8 @@ describe('syncWatchingAnime', () => {
             }
           ]
         }),
-      markEpisodesWatched: vi.fn()
+      markEpisodesWatched: vi.fn(),
+      markEpisodesUnwatched: vi.fn()
     };
     const savedSubjects: any[] = [];
     const savedEpisodes: any[] = [];
@@ -175,7 +177,8 @@ describe('syncWatchingAnime', () => {
             }
           ]
         }),
-      markEpisodesWatched: vi.fn()
+      markEpisodesWatched: vi.fn(),
+      markEpisodesUnwatched: vi.fn()
     };
     const savedEpisodes: any[] = [];
 
@@ -237,6 +240,7 @@ describe('syncWatchingAnime', () => {
         ]
       })),
       markEpisodesWatched: vi.fn(),
+      markEpisodesUnwatched: vi.fn(),
       addSubjectToWatching: vi.fn(),
       searchAnimeSubjects: vi.fn()
     };
@@ -297,6 +301,7 @@ describe('syncWatchingAnime', () => {
         ]
       })),
       markEpisodesWatched: vi.fn(),
+      markEpisodesUnwatched: vi.fn(),
       addSubjectToWatching: vi.fn(),
       searchAnimeSubjects: vi.fn()
     };
@@ -357,6 +362,7 @@ describe('syncWatchingAnime', () => {
         ]
       })),
       markEpisodesWatched: vi.fn(),
+      markEpisodesUnwatched: vi.fn(),
       addSubjectToWatching: vi.fn(),
       searchAnimeSubjects: vi.fn()
     };

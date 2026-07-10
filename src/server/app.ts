@@ -77,6 +77,11 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
     return reply.code(204).send();
   });
 
+  app.post<{ Params: { episodeId: string } }>('/api/episodes/:episodeId/unwatched', async (request, reply) => {
+    await dashboard.markEpisodeUnwatched(parsePositiveInteger(request.params.episodeId));
+    return reply.code(204).send();
+  });
+
   app.post<{ Params: { subjectId: string }; Body: { episodeId?: number } }>('/api/subjects/:subjectId/watched-through', async (request, reply) => {
     await dashboard.markSubjectEpisodesWatchedThrough(
       parsePositiveInteger(request.params.subjectId),

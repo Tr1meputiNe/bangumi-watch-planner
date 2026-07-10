@@ -39,6 +39,7 @@ export type EpisodeRow = {
 
 export type DashboardSubject = SubjectRow & {
   nextEpisode: EpisodeRow | null;
+  mainEpisodes: EpisodeRow[];
   unwatchedMainEpisodeCount: number;
   unwatchedMainEpisodes: EpisodeRow[];
 };
@@ -192,6 +193,7 @@ export type BangumiClient = {
   getWatchingAnime(username: string, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getSubjectEpisodes(subjectId: number, limit?: number, offset?: number): Promise<BangumiEpisodePage>;
   markEpisodesWatched(subjectId: number, episodeIds: number[]): Promise<void>;
+  markEpisodesUnwatched(subjectId: number, episodeIds: number[]): Promise<void>;
   addSubjectToWatching(subjectId: number): Promise<void>;
   searchAnimeSubjects(keyword: string): Promise<AnimeSearchResult[]>;
 };
@@ -219,6 +221,7 @@ export type DashboardService = {
   getCalendar(): Promise<CalendarDay[]>;
   syncNow(): Promise<SyncResult>;
   markEpisodeWatched(episodeId: number): Promise<void>;
+  markEpisodeUnwatched(episodeId: number): Promise<void>;
   markSubjectEpisodesWatchedThrough(subjectId: number, episodeId: number): Promise<void>;
   addSubjectToWatching(subjectId: number): Promise<SyncResult>;
   searchAnimeSubjects(keyword: string): Promise<AnimeSearchResult[]>;

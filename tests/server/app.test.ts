@@ -155,6 +155,41 @@ describe('HTTP API', () => {
     await app.close();
   });
 
+  it('marks one episode unwatched through the dashboard service', async () => {
+    const markEpisodeUnwatched = vi.fn(async () => undefined);
+    const app = buildApp({
+      auth: {
+        createAuthorizationUrl: vi.fn(),
+        handleCallback: vi.fn(),
+        getAccessToken: vi.fn(),
+        getAuthStatus: vi.fn()
+      },
+      dashboard: {
+        getDashboard: vi.fn(),
+        syncNow: vi.fn(),
+        markEpisodeWatched: vi.fn(),
+        markEpisodeUnwatched,
+        dismissEpisode: vi.fn()
+      },
+      settings: {
+        saveOAuthConfig: vi.fn()
+      },
+      staticRoot: null,
+      apiToken: 'test-token'
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/episodes/42/unwatched',
+      headers: { 'x-bwp-token': 'test-token' }
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(markEpisodeUnwatched).toHaveBeenCalledWith(42);
+
+    await app.close();
+  });
+
   it('marks all episodes through a selected episode', async () => {
     const markSubjectEpisodesWatchedThrough = vi.fn(async () => undefined);
     const app = buildApp({

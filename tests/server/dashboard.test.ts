@@ -33,6 +33,24 @@ describe('dashboard service', () => {
     expect(markEpisodeWatched).toHaveBeenNthCalledWith(3, 13);
   });
 
+  it('marks a watched episode unwatched', async () => {
+    const markEpisodesUnwatched = vi.fn(async () => undefined);
+    const markEpisodeUnwatched = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ markEpisodesUnwatched }),
+      repository: repository({
+        getEpisode: async () => episode({ id: 13, subjectId: 1, collectionType: 2 }),
+        markEpisodeUnwatched
+      })
+    });
+
+    await service.markEpisodeUnwatched(13);
+
+    expect(markEpisodesUnwatched).toHaveBeenCalledWith(1, [13]);
+    expect(markEpisodeUnwatched).toHaveBeenCalledWith(13);
+  });
+
   it('adds a subject to watching and runs one refresh sync', async () => {
     const addSubjectToWatching = vi.fn(async () => undefined);
     const getWatchingAnime = vi.fn(async () => ({ total: 0, data: [] }));
@@ -164,6 +182,7 @@ function client(overrides: Partial<BangumiClient> = {}): BangumiClient {
     getWatchingAnime: vi.fn(async () => ({ total: 0, data: [] })),
     getSubjectEpisodes: vi.fn(),
     markEpisodesWatched: vi.fn(),
+    markEpisodesUnwatched: vi.fn(),
     addSubjectToWatching: vi.fn(),
     searchAnimeSubjects: vi.fn(),
     ...overrides
@@ -180,6 +199,7 @@ function repository(overrides: Partial<Repository> = {}): Repository {
     listSubjects: vi.fn(async () => []),
     getEpisode: vi.fn(async () => null),
     markEpisodeWatched: vi.fn(async () => undefined),
+    markEpisodeUnwatched: vi.fn(async () => undefined),
     dismissEpisode: vi.fn(async () => undefined),
     getLastNotificationDate: vi.fn(async () => null),
     setLastNotificationDate: vi.fn(async () => undefined),

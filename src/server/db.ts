@@ -9,6 +9,7 @@ export type Repository = SyncRepository & {
   listSubjects(): Promise<DashboardSubject[]>;
   getEpisode(episodeId: number): Promise<EpisodeRow | null>;
   markEpisodeWatched(episodeId: number): Promise<void>;
+  markEpisodeUnwatched(episodeId: number): Promise<void>;
   dismissEpisode(episodeId: number, dismissedAt: string): Promise<void>;
   getLastNotificationDate(): Promise<string | null>;
   setLastNotificationDate(date: string): Promise<void>;
@@ -89,8 +90,12 @@ export function createRepository(dbPath: string): Repository {
       const mainEpisodes = selectEpisodes(db, 'where episode_type = 0');
       const bySubject = new Map<number, EpisodeRow>();
       const countsBySubject = new Map<number, number>();
+      const mainEpisodesBySubject = new Map<number, EpisodeRow[]>();
       const unwatchedEpisodesBySubject = new Map<number, EpisodeRow[]>();
       for (const episode of mainEpisodes) {
+        const subjectMainEpisodes = mainEpisodesBySubject.get(episode.subjectId) ?? [];
+        subjectMainEpisodes.push(episode);
+        mainEpisodesBySubject.set(episode.subjectId, subjectMainEpisodes);
         if (episode.collectionType === 2) continue;
 
         countsBySubject.set(episode.subjectId, (countsBySubject.get(episode.subjectId) ?? 0) + 1);
@@ -105,6 +110,7 @@ export function createRepository(dbPath: string): Repository {
       return subjects.map((subject) => ({
         ...subject,
         nextEpisode: bySubject.get(subject.id) ?? null,
+        mainEpisodes: (mainEpisodesBySubject.get(subject.id) ?? []).sort(compareEpisodeProgress),
         unwatchedMainEpisodeCount: countsBySubject.get(subject.id) ?? 0,
         unwatchedMainEpisodes: (unwatchedEpisodesBySubject.get(subject.id) ?? []).sort(compareEpisodeProgress)
       }));
@@ -127,6 +133,20 @@ export function createRepository(dbPath: string): Repository {
         }
       });
       markWatched();
+    },
+
+    async markEpisodeUnwatched(episodeId) {
+      const episode = selectEpisodes(db, 'where id = ?', [episodeId])[0] ?? null;
+      const markUnwatched = db.transaction(() => {
+        db.prepare('update episodes set collection_type = 0 where id = ?').run(episodeId);
+        if (episode) {
+          db.prepare('update subjects set ep_status = ? where id = ?').run(
+            highestWatchedMainEpisodeProgress(db, episode.subjectId),
+            episode.subjectId
+          );
+        }
+      });
+      markUnwatched();
     },
 
     async dismissEpisode(episodeId, dismissedAt) {
@@ -215,4 +235,12 @@ function compareEpisode(a: EpisodeRow, b: EpisodeRow): number {
 
 function compareEpisodeProgress(a: EpisodeRow, b: EpisodeRow): number {
   return Number(a.ep ?? a.sort) - Number(b.ep ?? b.sort);
+}
+
+function highestWatchedMainEpisodeProgress(db: Database.Database, subjectId: number): number {
+  return selectEpisodes(db, 'where subject_id = ? and episode_type = 0 and collection_type = 2', [subjectId]).reduce((highest, episode) => {
+    const progress = Number(episode.ep ?? episode.sort);
+    if (!Number.isFinite(progress) || progress <= 0) return highest;
+    return Math.max(highest, Math.floor(progress));
+  }, 0);
 }
