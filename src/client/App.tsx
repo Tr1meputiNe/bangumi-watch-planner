@@ -366,7 +366,10 @@ function SubjectItem({
           </div>
         </div>
         {subject.nextEpisode ? (
-          <p>最近未看：{displayEpisodeTitle(subject.nextEpisode.name, subject.nextEpisode.nameCn, subject.nextEpisode.sort)}</p>
+          <p>
+            下一集：{displayEpisodeTitle(subject.nextEpisode.name, subject.nextEpisode.nameCn, subject.nextEpisode.sort)} ·{' '}
+            {formatEpisodeAirdate(subject.nextEpisode.airdate)}
+          </p>
         ) : (
           <p>暂无未看的本篇集数</p>
         )}
@@ -436,6 +439,10 @@ function hasAired(airdate: string): boolean {
   return airdate <= todayInShanghai();
 }
 
+function formatEpisodeAirdate(airdate: string): string {
+  return airdate ? `播出日期：${airdate}` : '播出日期未知';
+}
+
 function todayInShanghai(): string {
   const parts = new Intl.DateTimeFormat('en', {
     timeZone: 'Asia/Shanghai',
@@ -481,8 +488,9 @@ function EpisodeItem({
 }
 
 function CalendarPanel({ state, onRetry }: { state: CalendarState; onRetry: () => void }) {
-  const days = state.days ?? [];
+  const rawDays = state.days ?? [];
   const todayWeekdayId = getShanghaiWeekdayId();
+  const days = orderCalendarDaysFromToday(rawDays, todayWeekdayId);
   const today = days.find((day) => day.weekday.id === todayWeekdayId);
   const totalCount = days.reduce((sum, day) => sum + day.items.length, 0);
 
@@ -531,6 +539,20 @@ function CalendarPanel({ state, onRetry }: { state: CalendarState; onRetry: () =
       ) : null}
     </section>
   );
+}
+
+function orderCalendarDaysFromToday(days: CalendarDay[], todayWeekdayId: number): CalendarDay[] {
+  if (todayWeekdayId < 0) {
+    return days;
+  }
+  return [...days].sort((a, b) => weekdayDistanceFromToday(a.weekday.id, todayWeekdayId) - weekdayDistanceFromToday(b.weekday.id, todayWeekdayId));
+}
+
+function weekdayDistanceFromToday(weekdayId: number, todayWeekdayId: number): number {
+  if (weekdayId < 0 || weekdayId > 6) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return (weekdayId - todayWeekdayId + 7) % 7;
 }
 
 function CalendarSubjectItem({ item }: { item: CalendarSubject }) {

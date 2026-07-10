@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/client/App.js';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const dashboard = {
   pendingEpisodes: [
@@ -237,6 +241,30 @@ describe('App', () => {
     expect(await screen.findByText('3 集未看')).toBeInTheDocument();
   });
 
+  it('shows the next episode airdate in the watching list', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (input.toString() === '/api/auth/status') {
+          return Response.json({
+            authenticated: true,
+            username: 'sai',
+            nickname: 'Sai',
+            lastSyncAt: dashboard.lastSyncAt
+          });
+        }
+        if (input.toString() === '/api/dashboard') {
+          return Response.json(dashboard);
+        }
+        throw new Error(`Unexpected request ${input.toString()}`);
+      })
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText('下一集：第一集 · 播出日期：2026-07-08')).toBeInTheDocument();
+  });
+
   it('can mark a watched episode back to unwatched from the watching list', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
@@ -325,7 +353,10 @@ describe('App', () => {
     });
   });
 
-  it('loads a Bangumi-style calendar tab on demand', async () => {
+  it('loads a Bangumi-style calendar tab on demand and starts from today', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-07-10T04:00:00.000Z'));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -357,6 +388,31 @@ describe('App', () => {
                 collectionDoing: 321
               }
             ]
+          },
+          {
+            weekday: { en: 'Fri', cn: '星期五', ja: '金耀日', id: 5 },
+            items: [
+              {
+                id: 457,
+                name: 'Friday Anime',
+                nameCn: '周五放送',
+                url: 'https://bgm.tv/subject/457',
+                airDate: '2026-07-10',
+                airWeekday: 5,
+                image: null,
+                ratingScore: null,
+                rank: null,
+                collectionDoing: null
+              }
+            ]
+          },
+          {
+            weekday: { en: 'Sat', cn: '星期六', ja: '土耀日', id: 6 },
+            items: []
+          },
+          {
+            weekday: { en: 'Sun', cn: '星期日', ja: '日耀日', id: 0 },
+            items: []
           }
         ]);
       }
@@ -367,11 +423,17 @@ describe('App', () => {
     render(<App />);
 
     await screen.findByText('第一集');
-    await userEvent.click(screen.getByRole('tab', { name: '每日放送' }));
+    await user.click(screen.getByRole('tab', { name: '每日放送' }));
 
     expect(await screen.findByRole('heading', { name: '每日放送' })).toBeInTheDocument();
-    expect(screen.getByText('星期四')).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual([
+      '星期五',
+      '星期六',
+      '星期日',
+      '星期四'
+    ]);
     expect(screen.getAllByRole('link', { name: '测试放送' })[0]).toHaveAttribute('href', 'https://bgm.tv/subject/456');
+    expect(screen.getAllByRole('link', { name: '周五放送' })[0]).toHaveAttribute('href', 'https://bgm.tv/subject/457');
     expect(screen.getByText(/评分 7.2/)).toBeInTheDocument();
     expect(screen.getByText(/321 人在看/)).toBeInTheDocument();
   });
