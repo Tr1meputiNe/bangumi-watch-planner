@@ -14,17 +14,20 @@ const baseEpisode: EpisodeRow = {
   name: 'third',
   nameCn: '第三集',
   airdate: '2026-07-08',
+  airTime: '',
   collectionType: 0,
   dismissedAt: null
 };
 
 describe('buildReminderCandidates', () => {
-  it('returns unwatched main episodes that already aired, sorted by airdate', () => {
+  it('returns unwatched main episodes that already aired, sorted by broadcast time', () => {
     const candidates = buildReminderCandidates(
       [
-        { ...baseEpisode, id: 3, airdate: '2026-07-08' },
+        { ...baseEpisode, id: 3, airdate: '2026-07-08', airTime: '23:00' },
         { ...baseEpisode, id: 1, airdate: '2026-07-01' },
-        { ...baseEpisode, id: 2, airdate: '2026-07-10' },
+        { ...baseEpisode, id: 2, airdate: '2026-07-08', airTime: '21:00' },
+        { ...baseEpisode, id: 9, airdate: '2026-07-08' },
+        { ...baseEpisode, id: 12, airdate: '2026-07-10' },
         { ...baseEpisode, id: 4, episodeType: 1 },
         { ...baseEpisode, id: 5, collectionType: 2 },
         { ...baseEpisode, id: 6, airdate: '' },
@@ -34,7 +37,7 @@ describe('buildReminderCandidates', () => {
       '2026-07-08'
     );
 
-    expect(candidates.map((episode) => episode.id)).toEqual([1, 3]);
+    expect(candidates.map((episode) => episode.id)).toEqual([1, 2, 3, 9]);
   });
 
   it('does not include dismissed episodes', () => {

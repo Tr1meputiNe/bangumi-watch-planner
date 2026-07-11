@@ -105,6 +105,33 @@ describe('repository', () => {
       ]
     });
   });
+
+  it('orders subjects by the nearest next episode broadcast time', async () => {
+    await repository.upsertSubject({
+      id: 1,
+      name: 'A Late Anime',
+      nameCn: 'A 晚播',
+      eps: 12,
+      epStatus: 1,
+      image: null,
+      url: 'https://bgm.tv/subject/1'
+    });
+    await repository.upsertSubject({
+      id: 2,
+      name: 'Z Early Anime',
+      nameCn: 'Z 早播',
+      eps: 12,
+      epStatus: 1,
+      image: null,
+      url: 'https://bgm.tv/subject/2'
+    });
+    await repository.replaceSubjectEpisodes(1, [episode({ id: 11, subjectId: 1, subjectName: 'A Late Anime', subjectNameCn: 'A 晚播', airTime: '23:30' })]);
+    await repository.replaceSubjectEpisodes(2, [episode({ id: 21, subjectId: 2, subjectName: 'Z Early Anime', subjectNameCn: 'Z 早播', airTime: '21:00' })]);
+
+    const subjects = await repository.listSubjects();
+
+    expect(subjects.map((subject) => subject.id)).toEqual([2, 1]);
+  });
 });
 
 function episode(overrides: Partial<ReturnType<typeof baseEpisode>>) {
@@ -124,6 +151,7 @@ function baseEpisode() {
     name: 'episode',
     nameCn: '第 2 集',
     airdate: '2026-07-08',
+    airTime: '',
     collectionType: 0,
     dismissedAt: null
   };

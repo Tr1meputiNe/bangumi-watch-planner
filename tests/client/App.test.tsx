@@ -410,6 +410,19 @@ describe('App', () => {
                 ratingScore: null,
                 rank: null,
                 collectionDoing: null
+              },
+              {
+                id: 458,
+                name: 'Friday Early Anime',
+                nameCn: '周五早播',
+                url: 'https://bgm.tv/subject/458',
+                airDate: '2026-07-10',
+                airTime: '20:00',
+                airWeekday: 5,
+                image: null,
+                ratingScore: null,
+                rank: null,
+                collectionDoing: null
               }
             ]
           },
@@ -439,6 +452,8 @@ describe('App', () => {
       '星期日',
       '星期四'
     ]);
+    const friday = screen.getByLabelText('星期五 2 部');
+    expect([...friday.querySelectorAll('.calendar-subject div > a')].map((link) => link.textContent)).toEqual(['周五早播', '周五放送']);
     expect(screen.getAllByRole('link', { name: '测试放送' })[0]).toHaveAttribute('href', 'https://bgm.tv/subject/456');
     expect(screen.getAllByRole('link', { name: '周五放送' })[0]).toHaveAttribute('href', 'https://bgm.tv/subject/457');
     expect(screen.getByText(/2026-07-09 22:30/)).toBeInTheDocument();

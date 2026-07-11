@@ -23,6 +23,8 @@ export function buildReminderCandidates(episodes: EpisodeRow[], today = todayInS
     .sort((a: EpisodeRow, b: EpisodeRow) => {
       const byDate = a.airdate.localeCompare(b.airdate);
       if (byDate !== 0) return byDate;
+      const byTime = compareAirTime(a.airTime, b.airTime);
+      if (byTime !== 0) return byTime;
       const bySubject = displaySubject(a).localeCompare(displaySubject(b), 'zh-Hans-CN');
       if (bySubject !== 0) return bySubject;
       return a.sort - b.sort;
@@ -60,4 +62,11 @@ export function createNotificationSummary(episodes: EpisodeRow[]): { title: stri
 
 function displaySubject(episode: EpisodeRow): string {
   return episode.subjectNameCn || episode.subjectName;
+}
+
+function compareAirTime(a: string, b: string): number {
+  if (a && b) return a.localeCompare(b);
+  if (a) return -1;
+  if (b) return 1;
+  return 0;
 }

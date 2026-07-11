@@ -531,7 +531,7 @@ function CalendarPanel({ state, onRetry }: { state: CalendarState; onRetry: () =
                 <strong>{day.items.length}</strong>
               </header>
               <div className="calendar-items">
-                {day.items.map((item) => (
+                {orderCalendarItemsByBroadcastTime(day.items).map((item) => (
                   <CalendarSubjectItem key={item.id} item={item} />
                 ))}
               </div>
@@ -555,6 +555,23 @@ function weekdayDistanceFromToday(weekdayId: number, todayWeekdayId: number): nu
     return Number.MAX_SAFE_INTEGER;
   }
   return (weekdayId - todayWeekdayId + 7) % 7;
+}
+
+function orderCalendarItemsByBroadcastTime(items: CalendarSubject[]): CalendarSubject[] {
+  return [...items].sort((a, b) => {
+    const byDate = a.airDate.localeCompare(b.airDate);
+    if (byDate !== 0) return byDate;
+    const byTime = compareAirTime(a.airTime, b.airTime);
+    if (byTime !== 0) return byTime;
+    return displaySubjectName(a.name, a.nameCn).localeCompare(displaySubjectName(b.name, b.nameCn), 'zh-Hans-CN');
+  });
+}
+
+function compareAirTime(a: string, b: string): number {
+  if (a && b) return a.localeCompare(b);
+  if (a) return -1;
+  if (b) return 1;
+  return 0;
 }
 
 function CalendarSubjectItem({ item }: { item: CalendarSubject }) {

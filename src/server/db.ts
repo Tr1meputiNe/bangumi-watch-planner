@@ -113,7 +113,7 @@ export function createRepository(dbPath: string): Repository {
         mainEpisodes: (mainEpisodesBySubject.get(subject.id) ?? []).sort(compareEpisodeProgress),
         unwatchedMainEpisodeCount: countsBySubject.get(subject.id) ?? 0,
         unwatchedMainEpisodes: (unwatchedEpisodesBySubject.get(subject.id) ?? []).sort(compareEpisodeProgress)
-      }));
+      })).sort(compareSubjectNextEpisode);
     },
 
     async getEpisode(episodeId) {
@@ -225,7 +225,7 @@ function selectEpisodes(db: Database.Database, whereClause: string, params: unkn
         dismissed_at as dismissedAt
        from episodes
        ${whereClause}
-       order by airdate, subject_name_cn, subject_name, sort`
+       order by airdate, case when air_time = '' then 1 else 0 end, air_time, subject_name_cn, subject_name, sort`
     )
     .all(...params) as EpisodeRow[];
 }
@@ -233,7 +233,32 @@ function selectEpisodes(db: Database.Database, whereClause: string, params: unkn
 function compareEpisode(a: EpisodeRow, b: EpisodeRow): number {
   const byAirdate = a.airdate.localeCompare(b.airdate);
   if (byAirdate !== 0) return byAirdate;
+  const byAirTime = compareAirTime(a.airTime, b.airTime);
+  if (byAirTime !== 0) return byAirTime;
   return a.sort - b.sort;
+}
+
+function compareSubjectNextEpisode(a: DashboardSubject, b: DashboardSubject): number {
+  if (a.nextEpisode && b.nextEpisode) {
+    const byEpisode = compareEpisode(a.nextEpisode, b.nextEpisode);
+    if (byEpisode !== 0) return byEpisode;
+  } else if (a.nextEpisode) {
+    return -1;
+  } else if (b.nextEpisode) {
+    return 1;
+  }
+  return displaySubject(a).localeCompare(displaySubject(b), 'zh-Hans-CN');
+}
+
+function compareAirTime(a: string, b: string): number {
+  if (a && b) return a.localeCompare(b);
+  if (a) return -1;
+  if (b) return 1;
+  return 0;
+}
+
+function displaySubject(subject: SubjectRow): string {
+  return subject.nameCn || subject.name;
 }
 
 function compareEpisodeProgress(a: EpisodeRow, b: EpisodeRow): number {
