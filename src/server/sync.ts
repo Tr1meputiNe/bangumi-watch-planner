@@ -20,6 +20,7 @@ export async function syncWatchingAnime({ username, client, repository, pageSize
   let total = Number.POSITIVE_INFINITY;
   let subjectsSynced = 0;
   let episodesSynced = 0;
+  const broadcastTimes = (await client.getBroadcastTimes?.()) ?? new Map<number, string>();
 
   while (offset < total) {
     const page = await client.getWatchingAnime(username, pageSize, offset);
@@ -27,7 +28,7 @@ export async function syncWatchingAnime({ username, client, repository, pageSize
 
     for (const collection of page.data) {
       const subject = mapSubject(collection);
-      const episodes = await getAllSubjectEpisodes(client, subject);
+      const episodes = await getAllSubjectEpisodes(client, subject, broadcastTimes);
 
       await repository.upsertSubject({
         ...subject,
@@ -48,16 +49,16 @@ export async function syncWatchingAnime({ username, client, repository, pageSize
   return { subjectsSynced, episodesSynced };
 }
 
-async function getAllSubjectEpisodes(client: BangumiClient, subject: SubjectRow): Promise<EpisodeRow[]> {
+async function getAllSubjectEpisodes(client: BangumiClient, subject: SubjectRow, broadcastTimes: Map<number, string>): Promise<EpisodeRow[]> {
   const limit = 1000;
   let offset = 0;
   let total = Number.POSITIVE_INFINITY;
   const episodes: EpisodeRow[] = [];
 
   while (offset < total) {
-    const page = await client.getSubjectEpisodes(subject.id, limit, offset);
-    total = page.total ?? offset + page.data.length;
-    episodes.push(...page.data.map((episode) => mapEpisode(subject, episode)));
+      const page = await client.getSubjectEpisodes(subject.id, limit, offset);
+      total = page.total ?? offset + page.data.length;
+    episodes.push(...page.data.map((episode) => mapEpisode(subject, episode, broadcastTimes.get(subject.id) ?? '')));
 
     if (page.data.length === 0) break;
     offset += limit;
@@ -79,7 +80,7 @@ function mapSubject(collection: BangumiSubjectCollection): SubjectRow {
   };
 }
 
-function mapEpisode(subject: SubjectRow, collection: BangumiEpisodeCollection): EpisodeRow {
+function mapEpisode(subject: SubjectRow, collection: BangumiEpisodeCollection, airTime = ''): EpisodeRow {
   const episode = collection.episode;
   return {
     id: episode.id,
@@ -93,6 +94,7 @@ function mapEpisode(subject: SubjectRow, collection: BangumiEpisodeCollection): 
     name: episode.name,
     nameCn: episode.name_cn ?? '',
     airdate: episode.airdate ?? '',
+    airTime,
     collectionType: collection.type,
     dismissedAt: null
   };

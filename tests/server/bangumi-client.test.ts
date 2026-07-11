@@ -4,10 +4,10 @@ import { createBangumiClient } from '../../src/server/bangumi-client.js';
 describe('Bangumi client', () => {
   it('fetches public calendar data without an access token', async () => {
     const getAccessToken = vi.fn(async () => 'token-1');
-    const fetch = vi.fn(async () => ({
+    const fetch = vi.fn(async (url: string) => ({
       ok: true,
       status: 200,
-      json: async () => [
+      json: async () => url === 'https://api.bgm.tv/calendar' ? [
         {
           weekday: { en: 'Thu', cn: '星期四', ja: '木耀日', id: 4 },
           items: [
@@ -26,7 +26,15 @@ describe('Bangumi client', () => {
             }
           ]
         }
-      ]
+      ] : {
+        items: [
+          {
+            begin: '2026-07-09T14:30:00.000Z',
+            broadcast: 'R/2026-07-09T14:30:00.000Z/P7D',
+            sites: [{ site: 'bangumi', id: '456' }]
+          }
+        ]
+      }
     }));
     const client = createBangumiClient({
       fetch,
@@ -44,6 +52,7 @@ describe('Bangumi client', () => {
             nameCn: '测试放送',
             url: 'https://bgm.tv/subject/456',
             airDate: '2026-07-09',
+            airTime: '22:30',
             airWeekday: 4,
             image: 'cover.jpg',
             ratingScore: 7.2,

@@ -62,14 +62,14 @@ export function createRepository(dbPath: string): Repository {
         const insert = db.prepare(
           `insert into episodes (
             id, subject_id, subject_name, subject_name_cn, subject_url,
-            episode_type, sort, ep, name, name_cn, airdate, collection_type, dismissed_at
+            episode_type, sort, ep, name, name_cn, airdate, air_time, collection_type, dismissed_at
           ) values (
             @id, @subjectId, @subjectName, @subjectNameCn, @subjectUrl,
-            @episodeType, @sort, @ep, @name, @nameCn, @airdate, @collectionType, @dismissedAt
+            @episodeType, @sort, @ep, @name, @nameCn, @airdate, @airTime, @collectionType, @dismissedAt
           )`
         );
         for (const row of rows) {
-          insert.run({ ...row, dismissedAt: existingDismissals.get(row.id) ?? row.dismissedAt });
+          insert.run({ ...row, airTime: row.airTime ?? '', dismissedAt: existingDismissals.get(row.id) ?? row.dismissedAt });
         }
       });
       tx(episodes);
@@ -193,6 +193,7 @@ function migrate(db: Database.Database): void {
       name text not null,
       name_cn text not null,
       airdate text not null,
+      air_time text not null default '',
       collection_type integer not null,
       dismissed_at text,
       foreign key(subject_id) references subjects(id) on delete cascade
@@ -201,6 +202,7 @@ function migrate(db: Database.Database): void {
     create index if not exists episodes_subject_id_idx on episodes(subject_id);
     create index if not exists episodes_airdate_idx on episodes(airdate);
   `);
+  addColumnIfMissing(db, 'episodes', 'air_time', "text not null default ''");
 }
 
 function selectEpisodes(db: Database.Database, whereClause: string, params: unknown[] = []): EpisodeRow[] {
@@ -218,6 +220,7 @@ function selectEpisodes(db: Database.Database, whereClause: string, params: unkn
         name,
         name_cn as nameCn,
         airdate,
+        air_time as airTime,
         collection_type as collectionType,
         dismissed_at as dismissedAt
        from episodes
@@ -243,4 +246,11 @@ function highestWatchedMainEpisodeProgress(db: Database.Database, subjectId: num
     if (!Number.isFinite(progress) || progress <= 0) return highest;
     return Math.max(highest, Math.floor(progress));
   }, 0);
+}
+
+function addColumnIfMissing(db: Database.Database, table: string, column: string, definition: string): void {
+  const columns = db.prepare(`pragma table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((row) => row.name === column)) {
+    db.prepare(`alter table ${table} add column ${column} ${definition}`).run();
+  }
 }

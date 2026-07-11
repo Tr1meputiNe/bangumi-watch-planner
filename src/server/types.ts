@@ -32,6 +32,7 @@ export type EpisodeRow = {
   name: string;
   nameCn: string;
   airdate: string;
+  airTime: string;
   collectionType: number;
   dismissedAt: string | null;
 };
@@ -174,6 +175,7 @@ export type CalendarSubject = {
   nameCn: string;
   url: string;
   airDate: string;
+  airTime: string;
   airWeekday: number | null;
   image: string | null;
   ratingScore: number | null;
@@ -191,6 +193,7 @@ export type BangumiClient = {
   getCalendar(): Promise<CalendarDay[]>;
   getWatchingAnime(username: string, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getSubjectEpisodes(subjectId: number, limit?: number, offset?: number): Promise<BangumiEpisodePage>;
+  getBroadcastTimes?(): Promise<Map<number, string>>;
   markEpisodesWatched(subjectId: number, episodeIds: number[]): Promise<void>;
   markEpisodesUnwatched(subjectId: number, episodeIds: number[]): Promise<void>;
   addSubjectToWatching(subjectId: number): Promise<void>;

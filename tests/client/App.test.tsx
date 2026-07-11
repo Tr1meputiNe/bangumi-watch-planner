@@ -22,6 +22,7 @@ const dashboard = {
       name: 'first',
       nameCn: '第一集',
       airdate: '2026-07-08',
+      airTime: '22:30',
       collectionType: 0,
       dismissedAt: null
     }
@@ -47,6 +48,7 @@ const dashboard = {
           name: 'first',
           nameCn: '第一集',
           airdate: '2026-07-08',
+          airTime: '22:30',
           collectionType: 2,
           dismissedAt: null
         },
@@ -62,6 +64,7 @@ const dashboard = {
           name: 'second',
           nameCn: '第二集',
           airdate: '2026-07-09',
+          airTime: '23:00',
           collectionType: 0,
           dismissedAt: null
         }
@@ -79,6 +82,7 @@ const dashboard = {
           name: 'first',
           nameCn: '第一集',
           airdate: '2026-07-08',
+          airTime: '22:30',
           collectionType: 0,
           dismissedAt: null
         }
@@ -97,6 +101,7 @@ const dashboard = {
         name: 'first',
         nameCn: '第一集',
         airdate: '2026-07-08',
+        airTime: '22:30',
         collectionType: 0,
         dismissedAt: null
       }
@@ -262,7 +267,7 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('下一集：第一集 · 播出日期：2026-07-08')).toBeInTheDocument();
+    expect(await screen.findByText('下一集：第一集 · 播出时间：2026-07-08 22:30')).toBeInTheDocument();
   });
 
   it('can mark a watched episode back to unwatched from the watching list', async () => {
@@ -381,6 +386,7 @@ describe('App', () => {
                 nameCn: '测试放送',
                 url: 'https://bgm.tv/subject/456',
                 airDate: '2026-07-09',
+                airTime: '22:30',
                 airWeekday: 4,
                 image: null,
                 ratingScore: 7.2,
@@ -398,6 +404,7 @@ describe('App', () => {
                 nameCn: '周五放送',
                 url: 'https://bgm.tv/subject/457',
                 airDate: '2026-07-10',
+                airTime: '23:00',
                 airWeekday: 5,
                 image: null,
                 ratingScore: null,
@@ -434,6 +441,7 @@ describe('App', () => {
     ]);
     expect(screen.getAllByRole('link', { name: '测试放送' })[0]).toHaveAttribute('href', 'https://bgm.tv/subject/456');
     expect(screen.getAllByRole('link', { name: '周五放送' })[0]).toHaveAttribute('href', 'https://bgm.tv/subject/457');
+    expect(screen.getByText(/2026-07-09 22:30/)).toBeInTheDocument();
     expect(screen.getByText(/评分 7.2/)).toBeInTheDocument();
     expect(screen.getByText(/321 人在看/)).toBeInTheDocument();
   });

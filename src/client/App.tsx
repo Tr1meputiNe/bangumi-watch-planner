@@ -368,7 +368,7 @@ function SubjectItem({
         {subject.nextEpisode ? (
           <p>
             下一集：{displayEpisodeTitle(subject.nextEpisode.name, subject.nextEpisode.nameCn, subject.nextEpisode.sort)} ·{' '}
-            {formatEpisodeAirdate(subject.nextEpisode.airdate)}
+            {formatEpisodeAirdate(subject.nextEpisode.airdate, subject.nextEpisode.airTime)}
           </p>
         ) : (
           <p>暂无未看的本篇集数</p>
@@ -439,8 +439,10 @@ function hasAired(airdate: string): boolean {
   return airdate <= todayInShanghai();
 }
 
-function formatEpisodeAirdate(airdate: string): string {
-  return airdate ? `播出日期：${airdate}` : '播出日期未知';
+function formatEpisodeAirdate(airdate: string, airTime = ''): string {
+  if (airdate && airTime) return `播出时间：${airdate} ${airTime}`;
+  if (airdate) return `播出日期：${airdate} · 具体时间未知`;
+  return '播出时间未知';
 }
 
 function todayInShanghai(): string {
@@ -572,11 +574,17 @@ function CalendarSubjectItem({ item }: { item: CalendarSubject }) {
 }
 
 function calendarSubjectMeta(item: CalendarSubject): string {
-  const parts = [item.airDate || '播出日期未定'];
+  const parts = [formatCalendarAirDateTime(item.airDate, item.airTime)];
   if (item.ratingScore !== null) parts.push(`评分 ${item.ratingScore.toFixed(1)}`);
   if (item.rank !== null) parts.push(`Rank ${item.rank}`);
   if (item.collectionDoing !== null) parts.push(`${item.collectionDoing} 人在看`);
   return parts.join(' · ');
+}
+
+function formatCalendarAirDateTime(airDate: string, airTime: string): string {
+  if (airDate && airTime) return `${airDate} ${airTime}`;
+  if (airDate) return `${airDate} 具体时间未知`;
+  return '播出时间未定';
 }
 
 function formatShanghaiToday(): string {

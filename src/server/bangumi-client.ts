@@ -8,6 +8,7 @@ import type {
   BangumiUser,
   CalendarDay
 } from './types.js';
+import { fetchBroadcastTimes } from './broadcast-schedule.js';
 
 type BangumiClientDeps = {
   fetch?: typeof fetch;
@@ -89,8 +90,15 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
     },
 
     async getCalendar() {
-      const days = await request<BangumiCalendarDay[]>('/calendar', {}, { auth: false });
-      return days.map(mapCalendarDay);
+      const [days, broadcastTimes] = await Promise.all([
+        request<BangumiCalendarDay[]>('/calendar', {}, { auth: false }),
+        fetchBroadcastTimes(fetchImpl, deps.userAgent)
+      ]);
+      return days.map((day) => mapCalendarDay(day, broadcastTimes));
+    },
+
+    getBroadcastTimes() {
+      return fetchBroadcastTimes(fetchImpl, deps.userAgent);
     },
 
     getWatchingAnime(username, limit, offset) {
@@ -158,7 +166,7 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
   };
 }
 
-function mapCalendarDay(day: BangumiCalendarDay): CalendarDay {
+function mapCalendarDay(day: BangumiCalendarDay, broadcastTimes = new Map<number, string>()): CalendarDay {
   return {
     weekday: day.weekday,
     items: day.items.map((item) => ({
@@ -167,6 +175,7 @@ function mapCalendarDay(day: BangumiCalendarDay): CalendarDay {
       nameCn: item.name_cn ?? '',
       url: normalizeBangumiUrl(item.url ?? `https://bgm.tv/subject/${item.id}`),
       airDate: item.air_date ?? '',
+      airTime: broadcastTimes.get(item.id) ?? '',
       airWeekday: typeof item.air_weekday === 'number' ? item.air_weekday : null,
       image: item.images?.common ?? item.images?.medium ?? item.images?.small ?? item.images?.grid ?? null,
       ratingScore: typeof item.rating?.score === 'number' ? item.rating.score : null,
