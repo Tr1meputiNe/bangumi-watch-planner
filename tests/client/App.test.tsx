@@ -137,6 +137,7 @@ describe('App', () => {
 
     expect(await screen.findAllByText('测试番剧')).toHaveLength(2);
     expect(screen.getByText('第一集')).toBeInTheDocument();
+    expect(screen.getByText('22:30')).toBeInTheDocument();
     expect(screen.getByText('1 / 12')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: '忽略' }));

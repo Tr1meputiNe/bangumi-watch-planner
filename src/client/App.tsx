@@ -445,6 +445,15 @@ function formatEpisodeAirdate(airdate: string, airTime = ''): string {
   return '播出时间未知';
 }
 
+function formatEpisodeIndexPrimary(airdate: string, airTime = ''): string {
+  return airTime || airdate.slice(5) || '--';
+}
+
+function formatEpisodeIndexMeta(episode: EpisodeRow): string {
+  const date = episode.airTime && episode.airdate ? `${episode.airdate.slice(5)} · ` : '';
+  return `${date}第 ${episode.sort} 集`;
+}
+
 function todayInShanghai(): string {
   const parts = new Intl.DateTimeFormat('en', {
     timeZone: 'Asia/Shanghai',
@@ -467,9 +476,9 @@ function EpisodeItem({
 }) {
   return (
     <article className="episode-row">
-      <div className="episode-index">
-        <span>{episode.airdate.slice(5) || '--'}</span>
-        <strong>第 {episode.sort} 集</strong>
+      <div className="episode-index" title={formatEpisodeAirdate(episode.airdate, episode.airTime)}>
+        <span>{formatEpisodeIndexPrimary(episode.airdate, episode.airTime)}</span>
+        <strong>{formatEpisodeIndexMeta(episode)}</strong>
       </div>
       <div className="episode-main">
         <a className="episode-subject" href={episode.subjectUrl} target="_blank" rel="noreferrer">
