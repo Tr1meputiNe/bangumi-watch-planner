@@ -5,6 +5,7 @@ import {
   getAuthStatus,
   getCalendar,
   getDashboard,
+  markWatched,
   markUnwatched,
   markWatchedThrough,
   saveOAuthConfig,
@@ -171,6 +172,7 @@ export default function App() {
                     key={episode.id}
                     episode={episode}
                     disabled={isPending}
+                    onWatched={() => runAction(() => markWatched(episode.id))}
                     onDismiss={() => runAction(() => dismissReminder(episode.id))}
                   />
                 ))}
@@ -468,10 +470,12 @@ function todayInShanghai(): string {
 function EpisodeItem({
   episode,
   disabled,
+  onWatched,
   onDismiss
 }: {
   episode: EpisodeRow;
   disabled: boolean;
+  onWatched: () => void;
   onDismiss: () => void;
 }) {
   return (
@@ -490,6 +494,9 @@ function EpisodeItem({
         </a>
       </div>
       <div className="episode-actions">
+        <button type="button" onClick={onWatched} disabled={disabled}>
+          已看
+        </button>
         <button type="button" className="ghost" onClick={onDismiss} disabled={disabled}>
           忽略
         </button>
