@@ -227,6 +227,9 @@ describe('App', () => {
         method: 'POST'
       });
     });
+    await waitFor(() => {
+      expect(within(backlog).queryByText('第一集')).not.toBeInTheDocument();
+    });
   });
 
   it('shows the total unwatched main episode count for a subject', async () => {

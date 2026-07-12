@@ -35,6 +35,7 @@ const emptyCalendarState: CalendarState = { days: null, error: null, loading: fa
 export default function App() {
   const [state, setState] = useState<LoadState>(emptyState);
   const [activeView, setActiveView] = useState<ActiveView>('planner');
+  const [actionEpisodeId, setActionEpisodeId] = useState<number | null>(null);
   const [calendarState, setCalendarState] = useState<CalendarState>(emptyCalendarState);
   const [oauthForm, setOauthForm] = useState({ clientId: '', clientSecret: '' });
   const [animeSearch, setAnimeSearch] = useState<{ error: string | null; keyword: string; results: AnimeSearchResult[] }>({
@@ -92,6 +93,19 @@ export default function App() {
           setState((current) => ({ ...current, error: error instanceof Error ? error.message : String(error) }));
         });
     });
+  }
+
+  async function markPendingEpisodeWatched(episodeId: number) {
+    setActionEpisodeId(episodeId);
+    try {
+      await markWatched(episodeId);
+      await load();
+      setState((current) => removePendingEpisode(current, episodeId));
+    } catch (error) {
+      setState((current) => ({ ...current, error: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      setActionEpisodeId(null);
+    }
   }
 
   async function runAnimeSearch(event: React.FormEvent<HTMLFormElement>) {
@@ -171,8 +185,9 @@ export default function App() {
                   <EpisodeItem
                     key={episode.id}
                     episode={episode}
-                    disabled={isPending}
-                    onWatched={() => runAction(() => markWatched(episode.id))}
+                    disabled={isPending || actionEpisodeId === episode.id}
+                    processing={actionEpisodeId === episode.id}
+                    onWatched={() => void markPendingEpisodeWatched(episode.id)}
                     onDismiss={() => runAction(() => dismissReminder(episode.id))}
                   />
                 ))}
@@ -330,6 +345,17 @@ export default function App() {
   );
 }
 
+function removePendingEpisode(state: LoadState, episodeId: number): LoadState {
+  if (!state.dashboard) return state;
+  return {
+    ...state,
+    dashboard: {
+      ...state.dashboard,
+      pendingEpisodes: state.dashboard.pendingEpisodes.filter((episode) => episode.id !== episodeId)
+    }
+  };
+}
+
 function SubjectItem({
   subject,
   pendingCount,
@@ -470,11 +496,13 @@ function todayInShanghai(): string {
 function EpisodeItem({
   episode,
   disabled,
+  processing,
   onWatched,
   onDismiss
 }: {
   episode: EpisodeRow;
   disabled: boolean;
+  processing: boolean;
   onWatched: () => void;
   onDismiss: () => void;
 }) {
@@ -495,7 +523,7 @@ function EpisodeItem({
       </div>
       <div className="episode-actions">
         <button type="button" onClick={onWatched} disabled={disabled}>
-          已看
+          {processing ? '处理中' : '已看'}
         </button>
         <button type="button" className="ghost" onClick={onDismiss} disabled={disabled}>
           忽略
