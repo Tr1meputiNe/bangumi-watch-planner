@@ -36,8 +36,8 @@ describe('broadcast schedule', () => {
 
     expect(times.get(123)).toEqual({ airDate: '', airTime: '09:00' });
     expect(times.get(255209)).toEqual({ airDate: '2026-07-05', airTime: '22:00' });
-    expect(times.get(495291)).toEqual({ airDate: '2026-07-05', airTime: '23:30' });
-    expect(times.get(501963)).toEqual({ airDate: '2026-07-12', airTime: '23:00' });
+    expect(times.get(495291)).toEqual({ airDate: '2026-07-06', airTime: '23:30' });
+    expect(times.get(501963)).toEqual({ airDate: '2026-07-13', airTime: '23:00' });
     expect(times.get(538760)).toEqual({ airDate: '2026-07-04', airTime: '20:00' });
   });
 });

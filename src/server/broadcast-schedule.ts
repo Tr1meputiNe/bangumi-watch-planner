@@ -109,20 +109,12 @@ function chooseBroadcastLine(text: string): string {
 function extractIndexShanghaiSchedule(line: string): BroadcastSchedule | null {
   const match = line.match(/(\d{4})年(\d{1,2})月(\d{1,2})日星期.(\d{1,2}):(\d{2})/);
   if (!match) return null;
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]) - 9, Number(match[5])));
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const hour = Number(match[4]);
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + (hour >= 24 ? 1 : 0)));
+  const shanghaiHour = (hour + 23) % 24;
   return {
-    airDate: `${values.year}-${values.month}-${values.day}`,
-    airTime: `${values.hour}:${values.minute}`
+    airDate: date.toISOString().slice(0, 10),
+    airTime: `${String(shanghaiHour).padStart(2, '0')}:${match[5]}`
   };
 }
 

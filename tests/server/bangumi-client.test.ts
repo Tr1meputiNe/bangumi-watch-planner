@@ -102,6 +102,10 @@ describe('Bangumi client', () => {
         {
           weekday: { en: 'Sun', cn: '星期日', ja: '日耀日', id: 7 },
           items: []
+        },
+        {
+          weekday: { en: 'Mon', cn: '星期一', ja: '月耀日', id: 1 },
+          items: []
         }
       ] : { items: [] }
       };
@@ -115,10 +119,11 @@ describe('Bangumi client', () => {
     const calendar = await client.getCalendar();
 
     expect(calendar.find((day) => day.weekday.id === 6)?.items).toHaveLength(0);
-    expect(calendar.find((day) => day.weekday.id === 7)?.items).toEqual([
+    expect(calendar.find((day) => day.weekday.id === 7)?.items).toHaveLength(0);
+    expect(calendar.find((day) => day.weekday.id === 1)?.items).toEqual([
       expect.objectContaining({
         id: 501963,
-        airDate: '2026-07-12',
+        airDate: '2026-07-13',
         airTime: '23:00'
       })
     ]);
