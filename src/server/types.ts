@@ -193,7 +193,7 @@ export type BangumiClient = {
   getCalendar(): Promise<CalendarDay[]>;
   getWatchingAnime(username: string, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getSubjectEpisodes(subjectId: number, limit?: number, offset?: number): Promise<BangumiEpisodePage>;
-  getBroadcastTimes?(): Promise<Map<number, { airDate: string; airTime: string }>>;
+  getBroadcastTimes?(): Promise<Map<number, { airDate: string; airTime: string; dayOffset: number }>>;
   markEpisodesWatched(subjectId: number, episodeIds: number[]): Promise<void>;
   markEpisodesUnwatched(subjectId: number, episodeIds: number[]): Promise<void>;
   addSubjectToWatching(subjectId: number): Promise<void>;

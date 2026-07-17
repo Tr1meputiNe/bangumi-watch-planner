@@ -111,7 +111,7 @@ describe('syncWatchingAnime', () => {
         }),
       markEpisodesWatched: vi.fn(),
       markEpisodesUnwatched: vi.fn(),
-      getBroadcastTimes: vi.fn(async () => new Map([[1, { airDate: '2026-07-09', airTime: '22:30' }]]))
+      getBroadcastTimes: vi.fn(async () => new Map([[1, { airDate: '2026-07-09', airTime: '22:30', dayOffset: 0 }]]))
     };
     const savedSubjects: any[] = [];
     const savedEpisodes: any[] = [];

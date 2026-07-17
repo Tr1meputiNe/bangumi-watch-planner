@@ -9,6 +9,7 @@ type BangumiData = {
 export type BroadcastSchedule = {
   airDate: string;
   airTime: string;
+  dayOffset: number;
 };
 
 const BANGUMI_DATA_URL = 'https://unpkg.com/bangumi-data@0.3/dist/data.json';
@@ -62,7 +63,7 @@ function mapBroadcastTimes(data: BangumiData): Map<number, BroadcastSchedule> {
       if (site.site !== 'bangumi') continue;
       const subjectId = Number(site.id);
       if (Number.isInteger(subjectId)) {
-        times.set(subjectId, { airDate: '', airTime });
+        times.set(subjectId, { airDate: '', airTime, dayOffset: 0 });
       }
     }
   }
@@ -110,11 +111,13 @@ function extractIndexShanghaiSchedule(line: string): BroadcastSchedule | null {
   const match = line.match(/(\d{4})年(\d{1,2})月(\d{1,2})日星期.(\d{1,2}):(\d{2})/);
   if (!match) return null;
   const hour = Number(match[4]);
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + (hour >= 24 ? 1 : 0)));
+  const dayOffset = hour >= 24 ? 1 : 0;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + dayOffset));
   const shanghaiHour = (hour + 23) % 24;
   return {
     airDate: date.toISOString().slice(0, 10),
-    airTime: `${String(shanghaiHour).padStart(2, '0')}:${match[5]}`
+    airTime: `${String(shanghaiHour).padStart(2, '0')}:${match[5]}`,
+    dayOffset
   };
 }
 

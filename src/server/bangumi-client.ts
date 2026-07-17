@@ -171,7 +171,7 @@ function mapCalendarDays(days: BangumiCalendarDay[], broadcastTimes = new Map<nu
   const byWeekday = new Map(mappedDays.map((day) => [day.weekday.id, day]));
   for (const day of days) {
     for (const item of day.items) {
-      const subject = mapCalendarSubject(item, broadcastTimes.get(item.id));
+      const subject = mapCalendarSubject(item, day.weekday.id, broadcastTimes.get(item.id));
       const weekdayId = weekdayFromDate(subject.airDate) ?? day.weekday.id;
       (byWeekday.get(weekdayId) ?? mappedDays[0]).items.push(subject);
     }
@@ -179,13 +179,13 @@ function mapCalendarDays(days: BangumiCalendarDay[], broadcastTimes = new Map<nu
   return mappedDays;
 }
 
-function mapCalendarSubject(item: BangumiCalendarDay['items'][number], schedule?: BroadcastSchedule): CalendarDay['items'][number] {
+function mapCalendarSubject(item: BangumiCalendarDay['items'][number], weekdayId: number, schedule?: BroadcastSchedule): CalendarDay['items'][number] {
   return {
     id: item.id,
     name: item.name,
     nameCn: item.name_cn ?? '',
     url: normalizeBangumiUrl(item.url ?? `https://bgm.tv/subject/${item.id}`),
-    airDate: schedule?.airDate || item.air_date || '',
+    airDate: calendarAirDate(item.air_date ?? '', weekdayId, schedule),
     airTime: schedule?.airTime ?? '',
     airWeekday: typeof item.air_weekday === 'number' ? item.air_weekday : null,
     image: item.images?.common ?? item.images?.medium ?? item.images?.small ?? item.images?.grid ?? null,
@@ -193,6 +193,29 @@ function mapCalendarSubject(item: BangumiCalendarDay['items'][number], schedule?
     rank: typeof item.rank === 'number' ? item.rank : null,
     collectionDoing: typeof item.collection?.doing === 'number' ? item.collection.doing : null
   };
+}
+
+function calendarAirDate(airDate: string, weekdayId: number, schedule?: BroadcastSchedule): string {
+  if (!airDate || !schedule) return schedule?.airDate || airDate;
+  if (!schedule.dayOffset) return airDate;
+  const date = upcomingShanghaiDateForWeekday(weekdayId);
+  if (Number.isNaN(date.getTime())) return airDate;
+  date.setUTCDate(date.getUTCDate() + schedule.dayOffset);
+  return date.toISOString().slice(0, 10);
+}
+
+function upcomingShanghaiDateForWeekday(weekdayId: number): Date {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const today = new Date(Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day)));
+  const todayId = today.getUTCDay() || 7;
+  const distance = (weekdayId - todayId + 7) % 7;
+  return new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + distance));
 }
 
 function weekdayFromDate(dateString: string): number | null {

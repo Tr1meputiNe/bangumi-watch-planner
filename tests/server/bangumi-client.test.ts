@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createBangumiClient } from '../../src/server/bangumi-client.js';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('Bangumi client', () => {
   it('fetches public calendar data without an access token', async () => {
@@ -72,12 +76,18 @@ describe('Bangumi client', () => {
   });
 
   it('moves 30-hour index broadcasts to their Shanghai calendar day', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-18T12:00:00+08:00'));
     const fetch = vi.fn(async (url: string) => {
       if (url === 'https://bgm.tv/index/99544') {
         return {
           ok: true,
           status: 200,
-          text: async () => '<li id="item_501963"><div class="text">2026年7月12日星期日24:00 第3话以后</div></li>'
+          text: async () => `
+            <li id="item_501963"><div class="text">2026年7月12日星期日24:00 第3话以后</div></li>
+            <li id="item_587109"><div class="text">2026年7月11日星期六26:00</div></li>
+            <li id="item_602733"><div class="text">2026年7月4日星期六26:38</div></li>
+          `
         };
       }
       return {
@@ -85,7 +95,7 @@ describe('Bangumi client', () => {
         status: 200,
         json: async () => url === 'https://api.bgm.tv/calendar' ? [
         {
-          weekday: { en: 'Sat', cn: '星期六', ja: '土耀日', id: 6 },
+          weekday: { en: 'Sun', cn: '星期日', ja: '日耀日', id: 7 },
           items: [
             {
               id: 501963,
@@ -93,15 +103,36 @@ describe('Bangumi client', () => {
               type: 2,
               name: 'Mushoku Tensei III',
               name_cn: '无职转生 第三季',
-              air_date: '2026-07-04',
-              air_weekday: 6,
+              air_date: '2026-07-12',
+              air_weekday: 7,
               images: null
             }
           ]
         },
         {
-          weekday: { en: 'Sun', cn: '星期日', ja: '日耀日', id: 7 },
-          items: []
+          weekday: { en: 'Sat', cn: '星期六', ja: '土耀日', id: 6 },
+          items: [
+            {
+              id: 587109,
+              url: 'http://bgm.tv/subject/587109',
+              type: 2,
+              name: 'Kaori',
+              name_cn: '花织即使是转生也想打架',
+              air_date: '2026-07-18',
+              air_weekday: 6,
+              images: null
+            },
+            {
+              id: 602733,
+              url: 'http://bgm.tv/subject/602733',
+              type: 2,
+              name: 'Saijo',
+              name_cn: '才女的侍从',
+              air_date: '2026-07-18',
+              air_weekday: 6,
+              images: null
+            }
+          ]
         },
         {
           weekday: { en: 'Mon', cn: '星期一', ja: '月耀日', id: 1 },
@@ -118,13 +149,23 @@ describe('Bangumi client', () => {
 
     const calendar = await client.getCalendar();
 
-    expect(calendar.find((day) => day.weekday.id === 6)?.items).toHaveLength(0);
-    expect(calendar.find((day) => day.weekday.id === 7)?.items).toHaveLength(0);
     expect(calendar.find((day) => day.weekday.id === 1)?.items).toEqual([
       expect.objectContaining({
         id: 501963,
-        airDate: '2026-07-13',
+        airDate: '2026-07-20',
         airTime: '23:00'
+      })
+    ]);
+    expect(calendar.find((day) => day.weekday.id === 7)?.items).toEqual([
+      expect.objectContaining({
+        id: 587109,
+        airDate: '2026-07-19',
+        airTime: '01:00'
+      }),
+      expect.objectContaining({
+        id: 602733,
+        airDate: '2026-07-19',
+        airTime: '01:38'
       })
     ]);
   });
