@@ -94,7 +94,7 @@ function mapEpisode(subject: SubjectRow, collection: BangumiEpisodeCollection, s
     ep: episode.ep ?? null,
     name: episode.name,
     nameCn: episode.name_cn ?? '',
-    airdate: schedule?.airDate || episode.airdate || '',
+    airdate: episode.airdate || '',
     airTime: schedule?.airTime ?? '',
     collectionType: collection.type,
     dismissedAt: null

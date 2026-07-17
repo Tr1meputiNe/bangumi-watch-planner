@@ -133,7 +133,7 @@ describe('syncWatchingAnime', () => {
     expect(client.getWatchingAnime).toHaveBeenNthCalledWith(2, 'sai', 50, 50);
     expect(savedSubjects.map((subject) => subject.id)).toEqual([1, 2]);
     expect(savedEpisodes.map((episode) => episode.id)).toEqual([11, 21]);
-    expect(savedEpisodes.find((episode) => episode.id === 11)?.airdate).toBe('2026-07-09');
+    expect(savedEpisodes.find((episode) => episode.id === 11)?.airdate).toBe('2026-07-01');
     expect(savedEpisodes.find((episode) => episode.id === 11)?.airTime).toBe('22:30');
     expect(savedEpisodes.find((episode) => episode.id === 21)?.airTime).toBe('');
   });
