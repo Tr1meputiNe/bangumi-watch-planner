@@ -34,10 +34,10 @@ describe('broadcast schedule', () => {
 
     const times = await fetchBroadcastTimes(fetch as typeof globalThis.fetch, 'tester/bangumi-watch-planner');
 
-    expect(times.get(123)).toBe('09:00');
-    expect(times.get(255209)).toBe('22:00');
-    expect(times.get(495291)).toBe('23:30');
-    expect(times.get(501963)).toBe('23:00');
-    expect(times.get(538760)).toBe('20:00');
+    expect(times.get(123)).toEqual({ airDate: '', airTime: '09:00' });
+    expect(times.get(255209)).toEqual({ airDate: '2026-07-05', airTime: '22:00' });
+    expect(times.get(495291)).toEqual({ airDate: '2026-07-05', airTime: '23:30' });
+    expect(times.get(501963)).toEqual({ airDate: '2026-07-12', airTime: '23:00' });
+    expect(times.get(538760)).toEqual({ airDate: '2026-07-04', airTime: '20:00' });
   });
 });

@@ -7,6 +7,7 @@ import type {
   SyncRepository,
   SyncResult
 } from './types.js';
+import type { BroadcastSchedule } from './broadcast-schedule.js';
 
 type SyncDeps = {
   username: string;
@@ -20,7 +21,7 @@ export async function syncWatchingAnime({ username, client, repository, pageSize
   let total = Number.POSITIVE_INFINITY;
   let subjectsSynced = 0;
   let episodesSynced = 0;
-  const broadcastTimes = (await client.getBroadcastTimes?.()) ?? new Map<number, string>();
+  const broadcastTimes = (await client.getBroadcastTimes?.()) ?? new Map<number, BroadcastSchedule>();
 
   while (offset < total) {
     const page = await client.getWatchingAnime(username, pageSize, offset);
@@ -49,7 +50,7 @@ export async function syncWatchingAnime({ username, client, repository, pageSize
   return { subjectsSynced, episodesSynced };
 }
 
-async function getAllSubjectEpisodes(client: BangumiClient, subject: SubjectRow, broadcastTimes: Map<number, string>): Promise<EpisodeRow[]> {
+async function getAllSubjectEpisodes(client: BangumiClient, subject: SubjectRow, broadcastTimes: Map<number, BroadcastSchedule>): Promise<EpisodeRow[]> {
   const limit = 1000;
   let offset = 0;
   let total = Number.POSITIVE_INFINITY;
@@ -58,7 +59,7 @@ async function getAllSubjectEpisodes(client: BangumiClient, subject: SubjectRow,
   while (offset < total) {
       const page = await client.getSubjectEpisodes(subject.id, limit, offset);
       total = page.total ?? offset + page.data.length;
-    episodes.push(...page.data.map((episode) => mapEpisode(subject, episode, broadcastTimes.get(subject.id) ?? '')));
+    episodes.push(...page.data.map((episode) => mapEpisode(subject, episode, broadcastTimes.get(subject.id))));
 
     if (page.data.length === 0) break;
     offset += limit;
@@ -80,7 +81,7 @@ function mapSubject(collection: BangumiSubjectCollection): SubjectRow {
   };
 }
 
-function mapEpisode(subject: SubjectRow, collection: BangumiEpisodeCollection, airTime = ''): EpisodeRow {
+function mapEpisode(subject: SubjectRow, collection: BangumiEpisodeCollection, schedule?: BroadcastSchedule): EpisodeRow {
   const episode = collection.episode;
   return {
     id: episode.id,
@@ -93,8 +94,8 @@ function mapEpisode(subject: SubjectRow, collection: BangumiEpisodeCollection, a
     ep: episode.ep ?? null,
     name: episode.name,
     nameCn: episode.name_cn ?? '',
-    airdate: episode.airdate ?? '',
-    airTime,
+    airdate: schedule?.airDate || episode.airdate || '',
+    airTime: schedule?.airTime ?? '',
     collectionType: collection.type,
     dismissedAt: null
   };

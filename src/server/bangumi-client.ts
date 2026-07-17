@@ -8,7 +8,7 @@ import type {
   BangumiUser,
   CalendarDay
 } from './types.js';
-import { fetchBroadcastTimes } from './broadcast-schedule.js';
+import { fetchBroadcastTimes, type BroadcastSchedule } from './broadcast-schedule.js';
 
 type BangumiClientDeps = {
   fetch?: typeof fetch;
@@ -94,7 +94,7 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
         request<BangumiCalendarDay[]>('/calendar', {}, { auth: false }),
         fetchBroadcastTimes(fetchImpl, deps.userAgent)
       ]);
-      return days.map((day) => mapCalendarDay(day, broadcastTimes));
+      return mapCalendarDays(days, broadcastTimes);
     },
 
     getBroadcastTimes() {
@@ -166,23 +166,40 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
   };
 }
 
-function mapCalendarDay(day: BangumiCalendarDay, broadcastTimes = new Map<number, string>()): CalendarDay {
+function mapCalendarDays(days: BangumiCalendarDay[], broadcastTimes = new Map<number, BroadcastSchedule>()): CalendarDay[] {
+  const mappedDays = days.map((day) => ({ ...day, items: [] as ReturnType<typeof mapCalendarSubject>[] }));
+  const byWeekday = new Map(mappedDays.map((day) => [day.weekday.id, day]));
+  for (const day of days) {
+    for (const item of day.items) {
+      const subject = mapCalendarSubject(item, broadcastTimes.get(item.id));
+      const weekdayId = weekdayFromDate(subject.airDate) ?? day.weekday.id;
+      (byWeekday.get(weekdayId) ?? mappedDays[0]).items.push(subject);
+    }
+  }
+  return mappedDays;
+}
+
+function mapCalendarSubject(item: BangumiCalendarDay['items'][number], schedule?: BroadcastSchedule): CalendarDay['items'][number] {
   return {
-    weekday: day.weekday,
-    items: day.items.map((item) => ({
-      id: item.id,
-      name: item.name,
-      nameCn: item.name_cn ?? '',
-      url: normalizeBangumiUrl(item.url ?? `https://bgm.tv/subject/${item.id}`),
-      airDate: item.air_date ?? '',
-      airTime: broadcastTimes.get(item.id) ?? '',
-      airWeekday: typeof item.air_weekday === 'number' ? item.air_weekday : null,
-      image: item.images?.common ?? item.images?.medium ?? item.images?.small ?? item.images?.grid ?? null,
-      ratingScore: typeof item.rating?.score === 'number' ? item.rating.score : null,
-      rank: typeof item.rank === 'number' ? item.rank : null,
-      collectionDoing: typeof item.collection?.doing === 'number' ? item.collection.doing : null
-    }))
+    id: item.id,
+    name: item.name,
+    nameCn: item.name_cn ?? '',
+    url: normalizeBangumiUrl(item.url ?? `https://bgm.tv/subject/${item.id}`),
+    airDate: schedule?.airDate || item.air_date || '',
+    airTime: schedule?.airTime ?? '',
+    airWeekday: typeof item.air_weekday === 'number' ? item.air_weekday : null,
+    image: item.images?.common ?? item.images?.medium ?? item.images?.small ?? item.images?.grid ?? null,
+    ratingScore: typeof item.rating?.score === 'number' ? item.rating.score : null,
+    rank: typeof item.rank === 'number' ? item.rank : null,
+    collectionDoing: typeof item.collection?.doing === 'number' ? item.collection.doing : null
   };
+}
+
+function weekdayFromDate(dateString: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return null;
+  const date = new Date(`${dateString}T00:00:00+08:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.getDay() || 7;
 }
 
 function normalizeBangumiUrl(url: string): string {

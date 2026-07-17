@@ -613,7 +613,7 @@ function orderCalendarDaysFromToday(days: CalendarDay[], todayWeekdayId: number)
 }
 
 function weekdayDistanceFromToday(weekdayId: number, todayWeekdayId: number): number {
-  if (weekdayId < 0 || weekdayId > 6) {
+  if (weekdayId < 1 || weekdayId > 7) {
     return Number.MAX_SAFE_INTEGER;
   }
   return (weekdayId - todayWeekdayId + 7) % 7;
@@ -683,5 +683,5 @@ function getShanghaiWeekdayId(): number {
     timeZone: 'Asia/Shanghai',
     weekday: 'short'
   }).format(new Date());
-  return { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[weekday] ?? -1;
+  return { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 }[weekday] ?? -1;
 }

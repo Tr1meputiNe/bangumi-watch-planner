@@ -444,7 +444,7 @@ describe('App', () => {
             items: []
           },
           {
-            weekday: { en: 'Sun', cn: '星期日', ja: '日耀日', id: 0 },
+            weekday: { en: 'Sun', cn: '星期日', ja: '日耀日', id: 7 },
             items: []
           }
         ]);

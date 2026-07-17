@@ -71,6 +71,59 @@ describe('Bangumi client', () => {
     );
   });
 
+  it('moves 30-hour index broadcasts to their Shanghai calendar day', async () => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url === 'https://bgm.tv/index/99544') {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => '<li id="item_501963"><div class="text">2026年7月12日星期日24:00 第3话以后</div></li>'
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => url === 'https://api.bgm.tv/calendar' ? [
+        {
+          weekday: { en: 'Sat', cn: '星期六', ja: '土耀日', id: 6 },
+          items: [
+            {
+              id: 501963,
+              url: 'http://bgm.tv/subject/501963',
+              type: 2,
+              name: 'Mushoku Tensei III',
+              name_cn: '无职转生 第三季',
+              air_date: '2026-07-04',
+              air_weekday: 6,
+              images: null
+            }
+          ]
+        },
+        {
+          weekday: { en: 'Sun', cn: '星期日', ja: '日耀日', id: 7 },
+          items: []
+        }
+      ] : { items: [] }
+      };
+    });
+    const client = createBangumiClient({
+      fetch,
+      getAccessToken: async () => 'token-1',
+      userAgent: 'tester/bangumi-watch-planner'
+    });
+
+    const calendar = await client.getCalendar();
+
+    expect(calendar.find((day) => day.weekday.id === 6)?.items).toHaveLength(0);
+    expect(calendar.find((day) => day.weekday.id === 7)?.items).toEqual([
+      expect.objectContaining({
+        id: 501963,
+        airDate: '2026-07-12',
+        airTime: '23:00'
+      })
+    ]);
+  });
+
   it('sends the expected watched episode patch request', async () => {
     const fetch = vi.fn(async () => ({ ok: true, status: 204, text: async () => '' }));
     const client = createBangumiClient({
