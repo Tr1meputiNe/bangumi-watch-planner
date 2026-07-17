@@ -522,6 +522,9 @@ describe('App', () => {
         method: 'POST'
       });
     });
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: '加入在看' })).not.toBeInTheDocument();
+    });
   });
 
   it('shows a login action when Bangumi is not connected', async () => {

@@ -36,6 +36,7 @@ export default function App() {
   const [state, setState] = useState<LoadState>(emptyState);
   const [activeView, setActiveView] = useState<ActiveView>('planner');
   const [actionEpisodeId, setActionEpisodeId] = useState<number | null>(null);
+  const [addingSubjectId, setAddingSubjectId] = useState<number | null>(null);
   const [calendarState, setCalendarState] = useState<CalendarState>(emptyCalendarState);
   const [oauthForm, setOauthForm] = useState({ clientId: '', clientSecret: '' });
   const [animeSearch, setAnimeSearch] = useState<{ error: string | null; keyword: string; results: AnimeSearchResult[] }>({
@@ -105,6 +106,23 @@ export default function App() {
       setState((current) => ({ ...current, error: error instanceof Error ? error.message : String(error) }));
     } finally {
       setActionEpisodeId(null);
+    }
+  }
+
+  async function addAnimeToWatching(subjectId: number) {
+    setAddingSubjectId(subjectId);
+    try {
+      await addSubjectToWatching(subjectId);
+      await load();
+      setAnimeSearch((current) => ({
+        ...current,
+        error: null,
+        results: current.results.filter((result) => result.id !== subjectId)
+      }));
+    } catch (error) {
+      setAnimeSearch((current) => ({ ...current, error: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      setAddingSubjectId(null);
     }
   }
 
@@ -256,8 +274,8 @@ export default function App() {
                         <strong>{displaySubjectName(result.name, result.nameCn)}</strong>
                         <p>{result.eps ? `${result.eps} 集` : '总集数未知'}</p>
                       </div>
-                      <button type="button" onClick={() => void runAction(() => addSubjectToWatching(result.id))} disabled={isPending}>
-                        加入在看
+                      <button type="button" onClick={() => void addAnimeToWatching(result.id)} disabled={isPending || addingSubjectId === result.id}>
+                        {addingSubjectId === result.id ? '添加中' : '加入在看'}
                       </button>
                     </article>
                   ))}
