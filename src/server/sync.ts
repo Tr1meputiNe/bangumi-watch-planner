@@ -7,7 +7,7 @@ import type {
   SyncRepository,
   SyncResult
 } from './types.js';
-import type { BroadcastSchedule } from './broadcast-schedule.js';
+import { shiftAirDate, type BroadcastSchedule } from './broadcast-schedule.js';
 
 type SyncDeps = {
   username: string;
@@ -94,7 +94,7 @@ function mapEpisode(subject: SubjectRow, collection: BangumiEpisodeCollection, s
     ep: episode.ep ?? null,
     name: episode.name,
     nameCn: episode.name_cn ?? '',
-    airdate: episode.airdate || '',
+    airdate: shiftAirDate(episode.airdate || '', schedule?.dayOffset ?? 0),
     airTime: schedule?.airTime ?? '',
     collectionType: collection.type,
     dismissedAt: null

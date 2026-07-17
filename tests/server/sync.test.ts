@@ -72,7 +72,7 @@ describe('syncWatchingAnime', () => {
       getSubjectEpisodes: vi
         .fn()
         .mockResolvedValueOnce({
-          total: 1,
+          total: 2,
           data: [
             {
               type: 0,
@@ -86,6 +86,20 @@ describe('syncWatchingAnime', () => {
                 name: 'first',
                 name_cn: '第一集',
                 airdate: '2026-07-01'
+              }
+            },
+            {
+              type: 0,
+              updated_at: 0,
+              episode: {
+                id: 12,
+                subject_id: 1,
+                type: 0,
+                sort: 2,
+                ep: 2,
+                name: 'second',
+                name_cn: '第二集',
+                airdate: '2026-07-08'
               }
             }
           ]
@@ -111,7 +125,7 @@ describe('syncWatchingAnime', () => {
         }),
       markEpisodesWatched: vi.fn(),
       markEpisodesUnwatched: vi.fn(),
-      getBroadcastTimes: vi.fn(async () => new Map([[1, { airDate: '2026-07-09', airTime: '22:30', dayOffset: 0 }]]))
+      getBroadcastTimes: vi.fn(async () => new Map([[1, { airDate: '2026-07-02', airTime: '01:30', dayOffset: 1 }]]))
     };
     const savedSubjects: any[] = [];
     const savedEpisodes: any[] = [];
@@ -128,13 +142,14 @@ describe('syncWatchingAnime', () => {
     });
 
     expect(result.subjectsSynced).toBe(2);
-    expect(result.episodesSynced).toBe(2);
+    expect(result.episodesSynced).toBe(3);
     expect(client.getWatchingAnime).toHaveBeenNthCalledWith(1, 'sai', 50, 0);
     expect(client.getWatchingAnime).toHaveBeenNthCalledWith(2, 'sai', 50, 50);
     expect(savedSubjects.map((subject) => subject.id)).toEqual([1, 2]);
-    expect(savedEpisodes.map((episode) => episode.id)).toEqual([11, 21]);
-    expect(savedEpisodes.find((episode) => episode.id === 11)?.airdate).toBe('2026-07-01');
-    expect(savedEpisodes.find((episode) => episode.id === 11)?.airTime).toBe('22:30');
+    expect(savedEpisodes.map((episode) => episode.id)).toEqual([11, 12, 21]);
+    expect(savedEpisodes.find((episode) => episode.id === 11)?.airdate).toBe('2026-07-02');
+    expect(savedEpisodes.find((episode) => episode.id === 12)?.airdate).toBe('2026-07-09');
+    expect(savedEpisodes.find((episode) => episode.id === 11)?.airTime).toBe('01:30');
     expect(savedEpisodes.find((episode) => episode.id === 21)?.airTime).toBe('');
   });
 

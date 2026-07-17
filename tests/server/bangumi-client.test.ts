@@ -7,6 +7,8 @@ afterEach(() => {
 
 describe('Bangumi client', () => {
   it('fetches public calendar data without an access token', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-09T12:00:00+08:00'));
     const getAccessToken = vi.fn(async () => 'token-1');
     const fetch = vi.fn(async (url: string) => ({
       ok: true,
@@ -87,6 +89,7 @@ describe('Bangumi client', () => {
             <li id="item_501963"><div class="text">2026年7月12日星期日24:00 第3话以后</div></li>
             <li id="item_587109"><div class="text">2026年7月11日星期六26:00</div></li>
             <li id="item_602733"><div class="text">2026年7月4日星期六26:38</div></li>
+            <li id="item_552533"><div class="text">2026年7月4日星期六23:30</div></li>
           `
         };
       }
@@ -131,6 +134,16 @@ describe('Bangumi client', () => {
               air_date: '2026-07-18',
               air_weekday: 6,
               images: null
+            },
+            {
+              id: 552533,
+              url: 'http://bgm.tv/subject/552533',
+              type: 2,
+              name: 'Jaadugar',
+              name_cn: '穹庐下的魔女',
+              air_date: '2026-07-04',
+              air_weekday: 6,
+              images: null
             }
           ]
         },
@@ -166,6 +179,12 @@ describe('Bangumi client', () => {
         id: 602733,
         airDate: '2026-07-19',
         airTime: '01:38'
+      })
+    ]);
+    expect(calendar.find((day) => day.weekday.id === 6)?.items).toEqual([
+      expect.objectContaining({
+        id: 552533,
+        airDate: '2026-07-18'
       })
     ]);
   });

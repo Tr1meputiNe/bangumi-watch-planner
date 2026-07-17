@@ -8,7 +8,7 @@ import type {
   BangumiUser,
   CalendarDay
 } from './types.js';
-import { fetchBroadcastTimes, type BroadcastSchedule } from './broadcast-schedule.js';
+import { fetchBroadcastTimes, shiftAirDate, type BroadcastSchedule } from './broadcast-schedule.js';
 
 type BangumiClientDeps = {
   fetch?: typeof fetch;
@@ -197,11 +197,11 @@ function mapCalendarSubject(item: BangumiCalendarDay['items'][number], weekdayId
 
 function calendarAirDate(airDate: string, weekdayId: number, schedule?: BroadcastSchedule): string {
   if (!airDate || !schedule) return schedule?.airDate || airDate;
-  if (!schedule.dayOffset) return airDate;
   const date = upcomingShanghaiDateForWeekday(weekdayId);
   if (Number.isNaN(date.getTime())) return airDate;
-  date.setUTCDate(date.getUTCDate() + schedule.dayOffset);
-  return date.toISOString().slice(0, 10);
+  const upcomingAirDate = shiftAirDate(date.toISOString().slice(0, 10), schedule.dayOffset);
+  const firstAirDate = schedule.airDate || shiftAirDate(airDate, schedule.dayOffset);
+  return firstAirDate > upcomingAirDate ? firstAirDate : upcomingAirDate;
 }
 
 function upcomingShanghaiDateForWeekday(weekdayId: number): Date {
