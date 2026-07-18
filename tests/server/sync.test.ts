@@ -153,6 +153,55 @@ describe('syncWatchingAnime', () => {
     expect(savedEpisodes.find((episode) => episode.id === 21)?.airTime).toBe('');
   });
 
+  it('moves every episode one week earlier when the timetable premiere is seven days earlier', async () => {
+    const client: BangumiClient = {
+      getMe: vi.fn(),
+      getCalendar: vi.fn(async () => []),
+      getWatchingAnime: vi.fn(async () => ({
+        total: 1,
+        data: [{
+          subject_id: 538760,
+          type: 3,
+          ep_status: 3,
+          subject: { id: 538760, name: 'Neko to Ryuu', name_cn: '猫与龙', eps: 12, images: {} }
+        }]
+      })),
+      getSubjectEpisodes: vi.fn(async () => ({
+        total: 2,
+        data: [
+          {
+            type: 2,
+            updated_at: 0,
+            episode: { id: 1, subject_id: 538760, type: 0, sort: 1, ep: 1, name: 'one', name_cn: '', airdate: '2026-07-04' }
+          },
+          {
+            type: 0,
+            updated_at: 0,
+            episode: { id: 2, subject_id: 538760, type: 0, sort: 2, ep: 2, name: 'two', name_cn: '', airdate: '2026-07-11' }
+          }
+        ]
+      })),
+      getBroadcastTimes: vi.fn(async () => new Map([[538760, { airDate: '2026-06-27', airTime: '20:30', dayOffset: 0 }]])),
+      markEpisodesWatched: vi.fn(),
+      markEpisodesUnwatched: vi.fn(),
+      addSubjectToWatching: vi.fn(),
+      searchAnimeSubjects: vi.fn()
+    };
+    const savedEpisodes: any[] = [];
+
+    await syncWatchingAnime({
+      username: 'sai',
+      client,
+      repository: {
+        upsertSubject: async () => undefined,
+        replaceSubjectEpisodes: async (_subjectId, episodes) => savedEpisodes.push(...episodes),
+        setSetting: async () => undefined
+      }
+    });
+
+    expect(savedEpisodes.map((episode) => episode.airdate)).toEqual(['2026-06-27', '2026-07-04']);
+  });
+
   it('paginates episode collections for each subject', async () => {
     const client: BangumiClient = {
       getMe: vi.fn(),

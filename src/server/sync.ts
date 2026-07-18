@@ -55,16 +55,21 @@ async function getAllSubjectEpisodes(client: BangumiClient, subject: SubjectRow,
   let offset = 0;
   let total = Number.POSITIVE_INFINITY;
   const episodes: EpisodeRow[] = [];
+  const schedule = broadcastTimes.get(subject.id);
 
   while (offset < total) {
       const page = await client.getSubjectEpisodes(subject.id, limit, offset);
       total = page.total ?? offset + page.data.length;
-    episodes.push(...page.data.map((episode) => mapEpisode(subject, episode, broadcastTimes.get(subject.id))));
+    episodes.push(...page.data.map((episode) => mapEpisode(subject, episode, schedule)));
 
     if (page.data.length === 0) break;
     offset += limit;
   }
 
+  const firstEpisode = episodes.find((episode) => episode.episodeType === 0 && episode.ep === 1);
+  if (schedule?.airDate && firstEpisode && Date.parse(firstEpisode.airdate) - Date.parse(schedule.airDate) === 7 * 24 * 60 * 60 * 1000) {
+    return episodes.map((episode) => ({ ...episode, airdate: shiftAirDate(episode.airdate, -7) }));
+  }
   return episodes;
 }
 
