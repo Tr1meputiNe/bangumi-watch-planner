@@ -310,12 +310,21 @@ export type OAuthManager = {
 
 export type DashboardService = {
   getDashboard(): Promise<DashboardData>;
+  getBacklog(): Promise<BacklogData>;
+  getWishlist(query: string, year: number | null | 'unknown'): Promise<WishlistData>;
   getCalendar(): Promise<CalendarDay[]>;
   syncNow(): Promise<SyncResult>;
   markEpisodeWatched(episodeId: number): Promise<void>;
   markEpisodeUnwatched(episodeId: number): Promise<void>;
   markSubjectEpisodesWatchedThrough(subjectId: number, episodeId: number): Promise<void>;
   addSubjectToWatching(subjectId: number): Promise<SyncResult>;
+  startSubject(subjectId: number): Promise<SyncResult>;
+  pauseBacklogSubject(subjectId: number): Promise<void>;
+  resumeBacklogSubject(subjectId: number): Promise<void>;
+  completeBacklogSubject(subjectId: number): Promise<void>;
+  swapBacklogTask(episodeId: number): Promise<void>;
+  skipBacklogToday(): Promise<void>;
+  replanBacklogToday(): Promise<void>;
   searchAnimeSubjects(keyword: string): Promise<AnimeSearchResult[]>;
   dismissEpisode(episodeId: number): Promise<void>;
 };

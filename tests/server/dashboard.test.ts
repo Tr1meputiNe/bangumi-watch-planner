@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDashboardService } from '../../src/server/dashboard.js';
-import type { AnimeSearchResult, BangumiClient, EpisodeRow } from '../../src/server/types.js';
+import { canAutoComplete, createDashboardService } from '../../src/server/dashboard.js';
+import type {
+  AnimeSearchResult,
+  BacklogTaskRow,
+  BangumiClient,
+  DashboardSubject,
+  EpisodeRow,
+  SubjectRow
+} from '../../src/server/types.js';
 import type { Repository } from '../../src/server/db.js';
 
 describe('dashboard service', () => {
@@ -24,7 +31,7 @@ describe('dashboard service', () => {
       })
     });
 
-    await (service as any).markSubjectEpisodesWatchedThrough(1, 13);
+    await service.markSubjectEpisodesWatchedThrough(1, 13);
 
     expect(markEpisodesWatched).toHaveBeenCalledWith(1, [11, 12, 13]);
     expect(markEpisodeWatched).toHaveBeenCalledTimes(3);
@@ -53,17 +60,21 @@ describe('dashboard service', () => {
 
   it('adds a subject to watching and runs one refresh sync', async () => {
     const addSubjectToWatching = vi.fn(async () => undefined);
-    const getWatchingAnime = vi.fn(async () => ({ total: 0, data: [] }));
+    const getAnimeCollections = vi.fn(async () => ({ total: 0, data: [] }));
     const service = createDashboardService({
       auth: authStatus(),
-      client: client({ addSubjectToWatching, getWatchingAnime }),
+      client: client({ addSubjectToWatching, getAnimeCollections }),
       repository: repository()
     });
 
-    await (service as any).addSubjectToWatching(456);
+    await service.addSubjectToWatching(456);
 
     expect(addSubjectToWatching).toHaveBeenCalledWith(456);
-    expect(getWatchingAnime).toHaveBeenCalledWith('sai', 50, 0);
+    expect(getAnimeCollections.mock.calls).toEqual([
+      ['sai', 1, 50, 0],
+      ['sai', 3, 50, 0],
+      ['sai', 4, 50, 0]
+    ]);
   });
 
   it('passes anime search through to the Bangumi client after trimming the keyword', async () => {
@@ -83,7 +94,7 @@ describe('dashboard service', () => {
       repository: repository()
     });
 
-    await expect((service as any).searchAnimeSubjects('  测试  ')).resolves.toHaveLength(1);
+    await expect(service.searchAnimeSubjects('  测试  ')).resolves.toHaveLength(1);
     expect(searchAnimeSubjects).toHaveBeenCalledWith('测试');
   });
 
@@ -115,16 +126,18 @@ describe('dashboard service', () => {
     const syncStarted = new Promise<void>((resolve) => {
       resolveSyncStarted = resolve;
     });
-    const getWatchingAnime = vi.fn(
-      async () =>
-        new Promise<{ total: number; data: [] }>((resolve) => {
+    const getAnimeCollections = vi.fn(
+      async (_username: string, type: 1 | 3 | 4) => {
+        if (type !== 1) return { total: 0, data: [] };
+        return new Promise<{ total: number; data: [] }>((resolve) => {
           releaseSync = () => resolve({ total: 0, data: [] });
           resolveSyncStarted?.();
-        })
+        });
+      }
     );
     const service = createDashboardService({
       auth: authStatus(),
-      client: client({ getWatchingAnime }),
+      client: client({ getAnimeCollections }),
       repository: repository()
     });
 
@@ -137,7 +150,7 @@ describe('dashboard service', () => {
       { subjectsSynced: 0, episodesSynced: 0 },
       { subjectsSynced: 0, episodesSynced: 0 }
     ]);
-    expect(getWatchingAnime).toHaveBeenCalledTimes(1);
+    expect(getAnimeCollections).toHaveBeenCalledTimes(3);
   });
 
   it('stores and throws a readable sync error for transient Bangumi failures', async () => {
@@ -145,7 +158,7 @@ describe('dashboard service', () => {
     const service = createDashboardService({
       auth: authStatus(),
       client: client({
-        getWatchingAnime: vi.fn(async () => {
+        getAnimeCollections: vi.fn(async () => {
           throw new TypeError('fetch failed');
         })
       }),
@@ -158,6 +171,440 @@ describe('dashboard service', () => {
       expose: true
     });
     expect(setSetting).toHaveBeenCalledWith('last_error', 'Bangumi 同步暂时失败，请稍后再试');
+  });
+
+  it('auto-completes only known totals with enough fetched and watched main episodes', () => {
+    const complete = [episode({ id: 11, collectionType: 2 }), episode({ id: 12, sort: 2, ep: 2, collectionType: 2 })];
+
+    expect(canAutoComplete(subject(), complete)).toBe(true);
+    expect(canAutoComplete(subject({ totalEpisodesKnown: false }), complete)).toBe(false);
+    expect(canAutoComplete(subject({ eps: 3 }), complete)).toBe(false);
+    expect(canAutoComplete(subject(), [complete[0], { ...complete[1], collectionType: 0 }])).toBe(false);
+    expect(canAutoComplete(subject(), [...complete, episode({ id: 99, episodeType: 1, collectionType: 0 })])).toBe(true);
+  });
+
+  it.each([
+    [true, 'seasonal'],
+    [false, 'backlog']
+  ] as const)('starts a wishlist title and syncs it into %s planning', async (isActive, plannerMode) => {
+    const setSubjectCollectionType = vi.fn(async () => undefined);
+    const getAnimeCollections = vi.fn(async (_username: string, type: 1 | 3 | 4) => ({
+      total: type === 3 ? 1 : 0,
+      data: type === 3 ? [{
+        subject_id: 1,
+        type: 3,
+        ep_status: 0,
+        subject: { id: 1, name: 'Test Anime', eps: 2, date: '2026-07-01' }
+      }] : []
+    }));
+    const upsertSubject = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({
+        setSubjectCollectionType,
+        getAnimeCollections,
+        getSubjectEpisodes: vi.fn(async () => ({ total: 0, data: [] })),
+        getBroadcastCatalog: vi.fn(async () => ({
+          schedules: new Map(),
+          seasonWindow: {
+            currentSeasonKey: '2026Q3',
+            previousSeasonKey: '2026Q2',
+            anchorDate: '2026-07-01',
+            overlapThrough: '2026-07-14',
+            activeSubjectIds: new Set(isActive ? [1] : []),
+            entries: new Map([[
+              isActive ? 1 : 999,
+              {
+                subjectId: isActive ? 1 : 999,
+                seasonKey: '2026Q3',
+                seasonKind: 'new',
+                normalPremiereDate: '2026-07-01',
+                airTime: '20:00',
+                dayOffset: 0
+              }
+            ]])
+          }
+        }))
+      }),
+      repository: repository({ upsertSubject, getSubject: vi.fn(async () => subject({ collectionType: 1, plannerMode: null })) }),
+      clock: () => new Date('2026-07-19T04:00:00.000Z')
+    });
+
+    await expect(service.startSubject(1)).resolves.toEqual({ subjectsSynced: 1, episodesSynced: 0 });
+
+    expect(setSubjectCollectionType).toHaveBeenCalledWith(1, 3);
+    expect(setSubjectCollectionType.mock.invocationCallOrder[0]).toBeLessThan(getAnimeCollections.mock.invocationCallOrder[0]);
+    expect(upsertSubject).toHaveBeenCalledWith(expect.objectContaining({ id: 1, collectionType: 3, plannerMode }));
+  });
+
+  it('never promotes an old wishlist title during sync alone', async () => {
+    const setSubjectCollectionType = vi.fn(async () => undefined);
+    const upsertSubject = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({
+        setSubjectCollectionType,
+        getAnimeCollections: vi.fn(async (_username, type) => ({
+          total: type === 1 ? 1 : 0,
+          data: type === 1 ? [{
+            subject_id: 1,
+            type: 1,
+            ep_status: 0,
+            subject: { id: 1, name: 'Old Wishlist', eps: 12, date: '2024-01-01' }
+          }] : []
+        }))
+      }),
+      repository: repository({ upsertSubject }),
+      clock: () => new Date('2026-07-19T04:00:00.000Z')
+    });
+
+    await service.syncNow();
+
+    expect(setSubjectCollectionType).not.toHaveBeenCalled();
+    expect(upsertSubject).toHaveBeenCalledWith(expect.objectContaining({ collectionType: 1, plannerMode: null }));
+  });
+
+  it('pauses a backlog title remotely before local state and replans once', async () => {
+    const events: string[] = [];
+    const setSubjectCollectionType = vi.fn(async () => { events.push('remote'); });
+    const setSubjectState = vi.fn(async () => { events.push('local'); });
+    const rebuildPlan = vi.fn(async () => { events.push('replan'); });
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ setSubjectCollectionType }),
+      repository: repository({
+        getSubject: vi.fn(async () => subject()),
+        setSubjectState
+      }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await service.pauseBacklogSubject(1);
+
+    expect(events).toEqual(['remote', 'local', 'replan']);
+    expect(setSubjectCollectionType).toHaveBeenCalledWith(1, 4);
+    expect(setSubjectState).toHaveBeenCalledWith(1, {
+      collectionType: 4,
+      plannerMode: 'backlog',
+      completedAt: null
+    });
+    expect(rebuildPlan).toHaveBeenCalledOnce();
+    expect(rebuildPlan).toHaveBeenCalledWith(expect.objectContaining({ today: '2026-07-19', includeToday: false }));
+  });
+
+  it('resumes a held title as backlog and replans once', async () => {
+    const setSubjectCollectionType = vi.fn(async () => undefined);
+    const setSubjectState = vi.fn(async () => undefined);
+    const rebuildPlan = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ setSubjectCollectionType }),
+      repository: repository({ getSubject: vi.fn(async () => subject({ collectionType: 4 })), setSubjectState }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await service.resumeBacklogSubject(1);
+
+    expect(setSubjectCollectionType).toHaveBeenCalledWith(1, 3);
+    expect(setSubjectState).toHaveBeenCalledWith(1, {
+      collectionType: 3,
+      plannerMode: 'backlog',
+      completedAt: null
+    });
+    expect(rebuildPlan).toHaveBeenCalledOnce();
+  });
+
+  it('marks the final main episode before completing the subject and replans once', async () => {
+    const events: string[] = [];
+    const markEpisodesWatched = vi.fn(async () => { events.push('remote episode'); });
+    const markEpisodeWatched = vi.fn(async () => { events.push('local episode'); });
+    const setSubjectCollectionType = vi.fn(async () => { events.push('remote subject'); });
+    const setSubjectState = vi.fn(async () => { events.push('local subject'); });
+    const rebuildPlan = vi.fn(async () => { events.push('replan'); });
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ markEpisodesWatched, setSubjectCollectionType }),
+      repository: repository({
+        getEpisode: vi.fn(async () => episode({ id: 12, sort: 2, ep: 2 })),
+        getSubject: vi.fn(async () => subject()),
+        listEpisodes: vi.fn(async () => [
+          episode({ id: 11, collectionType: 2 }),
+          episode({ id: 12, sort: 2, ep: 2, collectionType: 2 })
+        ]),
+        markEpisodeWatched,
+        setSubjectState
+      }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await service.markEpisodeWatched(12);
+
+    expect(events).toEqual(['remote episode', 'local episode', 'remote subject', 'local subject', 'replan']);
+    expect(setSubjectCollectionType).toHaveBeenCalledWith(1, 2);
+    expect(setSubjectState).toHaveBeenCalledWith(1, {
+      collectionType: 2,
+      plannerMode: 'backlog',
+      completedAt: '2026-07-19T04:00:00.000Z'
+    });
+    expect(rebuildPlan).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [subject({ totalEpisodesKnown: false }), [episode({ id: 11, collectionType: 2 }), episode({ id: 12, sort: 2, ep: 2, collectionType: 2 })]],
+    [subject({ eps: 3 }), [episode({ id: 11, collectionType: 2 }), episode({ id: 12, sort: 2, ep: 2, collectionType: 2 })]],
+    [subject(), [episode({ id: 11, collectionType: 2 }), episode({ id: 12, sort: 2, ep: 2, collectionType: 0 })]]
+  ])('does not auto-complete when the known-total predicate fails', async (storedSubject, episodes) => {
+    const setSubjectCollectionType = vi.fn(async () => undefined);
+    const rebuildPlan = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ setSubjectCollectionType }),
+      repository: repository({
+        getEpisode: vi.fn(async () => episode({ id: 12, sort: 2, ep: 2 })),
+        getSubject: vi.fn(async () => storedSubject),
+        listEpisodes: vi.fn(async () => episodes),
+        markEpisodeWatched: vi.fn(async () => undefined)
+      }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await service.markEpisodeWatched(12);
+
+    expect(setSubjectCollectionType).not.toHaveBeenCalledWith(1, 2);
+    expect(rebuildPlan).toHaveBeenCalledOnce();
+  });
+
+  it('does not change SQLite when the episode write fails remotely', async () => {
+    const markEpisodeWatched = vi.fn(async () => undefined);
+    const rebuildPlan = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ markEpisodesWatched: vi.fn(async () => { throw new Error('remote failed'); }) }),
+      repository: repository({ getEpisode: vi.fn(async () => episode()), markEpisodeWatched }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await expect(service.markEpisodeWatched(11)).rejects.toThrow('remote failed');
+
+    expect(markEpisodeWatched).not.toHaveBeenCalled();
+    expect(rebuildPlan).not.toHaveBeenCalled();
+  });
+
+  it('does not mark a subject complete when the remote completion write fails', async () => {
+    const setSubjectState = vi.fn(async () => undefined);
+    const rebuildPlan = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({
+        setSubjectCollectionType: vi.fn(async () => { throw new Error('completion failed'); })
+      }),
+      repository: repository({
+        getEpisode: vi.fn(async () => episode({ id: 12, sort: 2, ep: 2 })),
+        getSubject: vi.fn(async () => subject()),
+        listEpisodes: vi.fn(async () => [
+          episode({ id: 11, collectionType: 2 }),
+          episode({ id: 12, sort: 2, ep: 2, collectionType: 2 })
+        ]),
+        markEpisodeWatched: vi.fn(async () => undefined),
+        setSubjectState
+      }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await expect(service.markEpisodeWatched(12)).rejects.toThrow('completion failed');
+
+    expect(setSubjectState).not.toHaveBeenCalled();
+    expect(rebuildPlan).toHaveBeenCalledOnce();
+  });
+
+  it('reopens a completed subject in its existing planner mode', async () => {
+    const events: string[] = [];
+    const setSubjectCollectionType = vi.fn(async () => { events.push('remote subject'); });
+    const setSubjectState = vi.fn(async () => { events.push('local subject'); });
+    const rebuildPlan = vi.fn(async () => { events.push('replan'); });
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({
+        markEpisodesUnwatched: vi.fn(async () => { events.push('remote episode'); }),
+        setSubjectCollectionType
+      }),
+      repository: repository({
+        getEpisode: vi.fn(async () => episode({ collectionType: 2 })),
+        getSubject: vi.fn(async () => subject({ collectionType: 2, plannerMode: 'backlog', completedAt: '2026-07-18' })),
+        markEpisodeUnwatched: vi.fn(async () => { events.push('local episode'); }),
+        setSubjectState
+      }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await service.markEpisodeUnwatched(11);
+
+    expect(events).toEqual(['remote episode', 'local episode', 'remote subject', 'local subject', 'replan']);
+    expect(setSubjectCollectionType).toHaveBeenCalledWith(1, 3);
+    expect(setSubjectState).toHaveBeenCalledWith(1, {
+      collectionType: 3,
+      plannerMode: 'backlog',
+      completedAt: null
+    });
+  });
+
+  it('manually completes only a subject with an unknown total', async () => {
+    const setSubjectCollectionType = vi.fn(async () => undefined);
+    const setSubjectState = vi.fn(async () => undefined);
+    const rebuildPlan = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ setSubjectCollectionType }),
+      repository: repository({
+        getSubject: vi.fn(async () => subject({ totalEpisodesKnown: false })),
+        setSubjectState
+      }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await service.completeBacklogSubject(1);
+
+    expect(setSubjectCollectionType).toHaveBeenCalledWith(1, 2);
+    expect(setSubjectState).toHaveBeenCalledWith(1, {
+      collectionType: 2,
+      plannerMode: 'backlog',
+      completedAt: '2026-07-19T04:00:00.000Z'
+    });
+    expect(rebuildPlan).toHaveBeenCalledOnce();
+  });
+
+  it('rejects manual completion when the total is known', async () => {
+    const setSubjectCollectionType = vi.fn(async () => undefined);
+    const setSubjectState = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ setSubjectCollectionType }),
+      repository: repository({ getSubject: vi.fn(async () => subject()), setSubjectState }),
+      rebuildPlan: vi.fn(async () => undefined),
+      clock: fixedClock
+    });
+
+    await expect(service.completeBacklogSubject(1)).rejects.toMatchObject({ statusCode: 400 });
+
+    expect(setSubjectCollectionType).not.toHaveBeenCalled();
+    expect(setSubjectState).not.toHaveBeenCalled();
+  });
+
+  it('swaps a task by excluding it today and rebuilding all seven dates', async () => {
+    const deleteBacklogTask = vi.fn(async () => undefined);
+    const excludeEpisodeOnDate = vi.fn(async () => undefined);
+    const rebuildPlan = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client(),
+      repository: repository({ deleteBacklogTask, excludeEpisodeOnDate }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await service.swapBacklogTask(11);
+
+    expect(deleteBacklogTask).toHaveBeenCalledWith(11);
+    expect(excludeEpisodeOnDate).toHaveBeenCalledWith('2026-07-19', 11);
+    expect(rebuildPlan).toHaveBeenCalledWith(expect.objectContaining({ today: '2026-07-19', includeToday: true }));
+    expect(rebuildPlan).toHaveBeenCalledOnce();
+  });
+
+  it('skips today by clearing its tasks, setting the skip, and replanning once', async () => {
+    const replaceBacklogTasks = vi.fn(async () => undefined);
+    const skipBacklogDate = vi.fn(async () => undefined);
+    const rebuildPlan = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client(),
+      repository: repository({ replaceBacklogTasks, skipBacklogDate }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await service.skipBacklogToday();
+
+    expect(replaceBacklogTasks).toHaveBeenCalledWith({
+      fromDate: '2026-07-19',
+      throughDate: '2026-07-19',
+      preserveLocked: false,
+      tasks: []
+    });
+    expect(skipBacklogDate).toHaveBeenCalledWith('2026-07-19');
+    expect(rebuildPlan).toHaveBeenCalledOnce();
+  });
+
+  it('replans today after clearing its skips, exclusions, and tasks', async () => {
+    const clearBacklogDateOverrides = vi.fn(async () => undefined);
+    const replaceBacklogTasks = vi.fn(async () => undefined);
+    const rebuildPlan = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client(),
+      repository: repository({ clearBacklogDateOverrides, replaceBacklogTasks }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await service.replanBacklogToday();
+
+    expect(clearBacklogDateOverrides).toHaveBeenCalledWith('2026-07-19');
+    expect(replaceBacklogTasks).toHaveBeenCalledWith({
+      fromDate: '2026-07-19',
+      throughDate: '2026-07-19',
+      preserveLocked: false,
+      tasks: []
+    });
+    expect(rebuildPlan).toHaveBeenCalledWith(expect.objectContaining({ today: '2026-07-19', includeToday: true }));
+    expect(rebuildPlan).toHaveBeenCalledOnce();
+  });
+
+  it('builds the backlog read model and trims wishlist queries with the injected Shanghai clock', async () => {
+    const todayTask = backlogTask({ plannedDate: '2026-07-19' });
+    const futureTask = backlogTask({ id: 2, episodeId: 12, plannedDate: '2026-07-20', slot: 0 });
+    const active = dashboardSubject({ unwatchedMainEpisodeCount: 2 });
+    const held = dashboardSubject({ id: 2, collectionType: 4 });
+    const completed = dashboardSubject({ id: 3, collectionType: 2, completedAt: '2026-07-18' });
+    const seasonalEpisode = episode({ id: 90, subjectId: 9, airdate: '2026-07-20', collectionType: 2 });
+    const seasonal = dashboardSubject({ id: 9, plannerMode: 'seasonal', mainEpisodes: [seasonalEpisode] });
+    const listWishlist = vi.fn(async () => ({ items: [], years: [2026] }));
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client(),
+      repository: repository({
+        listBacklogTasks: vi.fn(async () => [todayTask, futureTask]),
+        listSubjectsByMode: vi.fn(async (mode, types) => {
+          if (mode === 'seasonal') return [seasonal];
+          if (types[0] === 3) return [active];
+          if (types[0] === 4) return [held];
+          return [completed];
+        }),
+        listWishlist
+      }),
+      clock: fixedClock
+    });
+
+    const backlog = await service.getBacklog();
+    expect(backlog).toMatchObject({
+      today: '2026-07-19',
+      todayTasks: [todayTask],
+      active: [active],
+      held: [held],
+      completed: [completed],
+      estimatedCompletionDate: '2026-07-19'
+    });
+    expect(backlog.futureDays).toHaveLength(6);
+    expect(backlog.futureDays[0]).toEqual({ date: '2026-07-20', seasonalLoad: 1, capacity: 2, tasks: [futureTask] });
+    await expect(service.getWishlist('  title  ', 2026)).resolves.toEqual({ items: [], years: [2026] });
+    expect(listWishlist).toHaveBeenCalledWith('title', 2026);
   });
 });
 
@@ -179,10 +626,30 @@ function client(overrides: Partial<BangumiClient> = {}): BangumiClient {
   return {
     getMe: vi.fn(),
     getCalendar: vi.fn(async () => []),
+    getAnimeCollections: vi.fn(async () => ({ total: 0, data: [] })),
     getWatchingAnime: vi.fn(async () => ({ total: 0, data: [] })),
-    getSubjectEpisodes: vi.fn(),
+    getSubjectEpisodes: vi.fn(async () => ({ total: 0, data: [] })),
+    getBroadcastCatalog: vi.fn(async () => ({
+      schedules: new Map(),
+      seasonWindow: {
+        currentSeasonKey: '2026Q3',
+        previousSeasonKey: '2026Q2',
+        anchorDate: '2026-07-01',
+        overlapThrough: '2026-07-14',
+        activeSubjectIds: new Set([999]),
+        entries: new Map([[999, {
+          subjectId: 999,
+          seasonKey: '2026Q3',
+          seasonKind: 'new',
+          normalPremiereDate: '2026-07-01',
+          airTime: '20:00',
+          dayOffset: 0
+        }]])
+      }
+    })),
     markEpisodesWatched: vi.fn(),
     markEpisodesUnwatched: vi.fn(),
+    setSubjectCollectionType: vi.fn(),
     addSubjectToWatching: vi.fn(),
     searchAnimeSubjects: vi.fn(),
     ...overrides
@@ -197,6 +664,21 @@ function repository(overrides: Partial<Repository> = {}): Repository {
     replaceSubjectEpisodes: vi.fn(async () => undefined),
     listEpisodes: vi.fn(async () => []),
     listSubjects: vi.fn(async () => []),
+    getSubject: vi.fn(async () => null),
+    listSubjectsByCollection: vi.fn(async () => []),
+    listSubjectsByMode: vi.fn(async () => []),
+    setSubjectState: vi.fn(async () => undefined),
+    listWishlist: vi.fn(async () => ({ items: [], years: [] })),
+    listBacklogTasks: vi.fn(async () => []),
+    replaceBacklogTasks: vi.fn(async () => undefined),
+    deleteBacklogTask: vi.fn(async () => undefined),
+    lockBacklogDate: vi.fn(async () => undefined),
+    skipBacklogDate: vi.fn(async () => undefined),
+    clearBacklogDateOverrides: vi.fn(async () => undefined),
+    excludeEpisodeOnDate: vi.fn(async () => undefined),
+    listSkippedBacklogDates: vi.fn(async () => []),
+    listBacklogExclusions: vi.fn(async () => []),
+    prunePlannerState: vi.fn(async () => undefined),
     getEpisode: vi.fn(async () => null),
     markEpisodeWatched: vi.fn(async () => undefined),
     markEpisodeUnwatched: vi.fn(async () => undefined),
@@ -220,8 +702,58 @@ function episode(overrides: Partial<EpisodeRow> = {}): EpisodeRow {
     name: 'episode',
     nameCn: '第 1 集',
     airdate: '2026-07-08',
+    airTime: '',
     collectionType: 0,
     dismissedAt: null,
     ...overrides
   };
+}
+
+function subject(overrides: Partial<SubjectRow> = {}): SubjectRow {
+  return {
+    id: 1,
+    name: 'Test Anime',
+    nameCn: '测试番剧',
+    eps: 2,
+    epStatus: 1,
+    image: null,
+    url: 'https://bgm.tv/subject/1',
+    collectionType: 3,
+    plannerMode: 'backlog',
+    seasonKey: null,
+    seasonKind: null,
+    airYear: 2024,
+    totalEpisodesKnown: true,
+    completedAt: null,
+    ...overrides
+  };
+}
+
+function dashboardSubject(overrides: Partial<DashboardSubject> = {}): DashboardSubject {
+  return {
+    ...subject(overrides),
+    nextEpisode: null,
+    mainEpisodes: [],
+    unwatchedMainEpisodeCount: 0,
+    unwatchedMainEpisodes: [],
+    ...overrides
+  };
+}
+
+function backlogTask(overrides: Partial<BacklogTaskRow> = {}): BacklogTaskRow {
+  const episodeId = overrides.episodeId ?? 11;
+  return {
+    id: 1,
+    episodeId,
+    subjectId: 1,
+    plannedDate: '2026-07-19',
+    slot: 0,
+    locked: false,
+    episode: episode({ id: episodeId }),
+    ...overrides
+  };
+}
+
+function fixedClock(): Date {
+  return new Date('2026-07-19T04:00:00.000Z');
 }
