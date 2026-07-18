@@ -83,5 +83,52 @@ Diff check  exit 0
 
 ## Concerns
 
-- The concrete client currently exposes only `getBroadcastTimes`; `getBroadcastCatalog` remains optional and is not implemented in `src/server/bangumi-client.ts`. The new sync has a compatibility fallback, but production seasonal classification requires that existing dependency to expose the full catalog before Task 6 switches the dashboard caller.
+- None.
+
+## Coordination
+
 - Concurrent commit `d5155e7` updated `src/server/broadcast-schedule.ts` and its test while this task was in progress. Those changes were left untouched and are not part of the Task 5 diff.
+
+## Production Catalog Wiring Follow-up
+
+Added concrete `createBangumiClient().getBroadcastCatalog()` wiring to the existing `fetchBroadcastCatalog` function using the factory's existing fetch implementation and user agent. Existing `getBroadcastTimes` and calendar paths are unchanged.
+
+### Red
+
+```sh
+npm test -- tests/server/bangumi-client.test.ts
+```
+
+```text
+Test Files  1 failed (1)
+Tests       1 failed | 13 passed (14)
+AssertionError: expected undefined to be type of 'function'
+```
+
+### Green
+
+```sh
+npm test -- tests/server/bangumi-client.test.ts tests/server/sync-integration.test.ts
+```
+
+```text
+Test Files  2 passed (2)
+Tests       18 passed (18)
+```
+
+### Full Verification
+
+```sh
+npm test
+npm run build
+npm run lint
+git diff --check
+```
+
+```text
+Test Files  14 passed (14)
+Tests       103 passed (103)
+Build       exit 0
+ESLint      exit 0
+Diff check  exit 0
+```

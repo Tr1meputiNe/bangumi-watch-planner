@@ -8,7 +8,7 @@ import type {
   BangumiUser,
   CalendarDay
 } from './types.js';
-import { fetchBroadcastTimes, shiftAirDate, type BroadcastSchedule } from './broadcast-schedule.js';
+import { fetchBroadcastCatalog, fetchBroadcastTimes, shiftAirDate, type BroadcastSchedule } from './broadcast-schedule.js';
 
 type BangumiClientDeps = {
   fetch?: typeof fetch;
@@ -109,6 +109,10 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
 
     getBroadcastTimes() {
       return fetchBroadcastTimes(fetchImpl, deps.userAgent);
+    },
+
+    getBroadcastCatalog() {
+      return fetchBroadcastCatalog(fetchImpl, deps.userAgent, new Date());
     },
 
     getAnimeCollections,
