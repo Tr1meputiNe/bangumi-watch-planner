@@ -20,6 +20,48 @@ describe('collection sync integration', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
+  it.each([
+    ['missing', undefined],
+    ['empty', async () => emptyCatalog('2026-07-17')]
+  ] as const)('preserves existing data when the authoritative season catalog is %s', async (_case, getBroadcastCatalog) => {
+    await repository.upsertSubject({
+      ...subjectWrite(101, 3),
+      plannerMode: 'seasonal',
+      seasonKey: '2026Q3',
+      seasonKind: 'new'
+    });
+    await repository.replaceSubjectEpisodes(101, [episodeRow(1010, 101, '2026-07-04')]);
+    await repository.replaceBacklogTasks({
+      fromDate: '2026-07-20',
+      throughDate: '2026-07-20',
+      preserveLocked: false,
+      tasks: [{ episodeId: 1010, subjectId: 101, plannedDate: '2026-07-20', slot: 0, locked: false }]
+    });
+    const upsertSubject = vi.spyOn(repository, 'upsertSubject');
+    const replaceBacklogTasks = vi.spyOn(repository, 'replaceBacklogTasks');
+    const getAnimeCollections = vi.fn(async () => ({ total: 1, data: [collection(101, 3)] }));
+    const client = clientFor({ 1: [], 3: [], 4: [] }, catalogFor('2026-07-17'), {
+      getAnimeCollections,
+      getBroadcastCatalog
+    });
+
+    await expect(syncAnimeCollections({ username: 'sai', client, repository, today: '2026-07-17' }))
+      .rejects.toThrow(/authoritative season window/i);
+
+    expect(getAnimeCollections).not.toHaveBeenCalled();
+    expect(upsertSubject).not.toHaveBeenCalled();
+    expect(replaceBacklogTasks).not.toHaveBeenCalled();
+    await expect(repository.getSubject(101)).resolves.toMatchObject({
+      collectionType: 3,
+      plannerMode: 'seasonal',
+      seasonKey: '2026Q3',
+      seasonKind: 'new'
+    });
+    await expect(repository.listBacklogTasks('2026-07-20', '2026-07-20')).resolves.toEqual([
+      expect.objectContaining({ episodeId: 1010, plannedDate: '2026-07-20' })
+    ]);
+  });
+
   it('classifies current seasonal, unrelated backlog, wishlist, and held collections without remote writes', async () => {
     await repository.upsertSubject({
       ...subjectWrite(999, 2),
@@ -157,6 +199,20 @@ function catalogFor(today: string): BroadcastCatalog {
   ]);
   const previous = seasonCatalog('2026Q2', [seasonEntry(103, '2026Q2', 'new', '2026-04-02')]);
   return { schedules: new Map(), seasonWindow: buildSeasonWindow(today, current, previous) };
+}
+
+function emptyCatalog(today: string): BroadcastCatalog {
+  return {
+    schedules: new Map(),
+    seasonWindow: {
+      currentSeasonKey: '2026Q3',
+      previousSeasonKey: '2026Q2',
+      anchorDate: today,
+      overlapThrough: today,
+      activeSubjectIds: new Set(),
+      entries: new Map()
+    }
+  };
 }
 
 function seasonCatalog(seasonKey: string, entries: SeasonEntry[]): SeasonCatalog {

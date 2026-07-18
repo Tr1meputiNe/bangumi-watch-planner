@@ -77,6 +77,54 @@ Build       exit 0
 Diff check  exit 0
 ```
 
+## Authoritative Season Window Safety Follow-up
+
+Generic collection sync now requires `getBroadcastCatalog` to return a non-empty authoritative season window before collection reads begin. Missing or empty authority throws a clear internal error and leaves existing subject classification, episodes, and backlog tasks unchanged. The legacy `syncWatchingAnime` wrapper retains its existing broadcast-times fallback.
+
+### Red
+
+```sh
+npm test -- tests/server/sync-integration.test.ts
+```
+
+```text
+Test Files  1 failed (1)
+Tests       2 failed | 4 passed (6)
+AssertionError: promise resolved "{ subjectsSynced: 3, episodesSynced: 2 }" instead of rejecting
+```
+
+### Green
+
+```sh
+npm test -- tests/server/sync.test.ts tests/server/sync-integration.test.ts tests/server/bangumi-client.test.ts tests/server/backlog-planner.test.ts tests/server/db.test.ts
+npx tsc -p tsconfig.server.json --noEmit
+npx eslint src/server/sync.ts tests/server/sync.test.ts tests/server/sync-integration.test.ts
+```
+
+```text
+Test Files  5 passed (5)
+Tests       53 passed (53)
+TypeScript  exit 0
+ESLint      exit 0
+```
+
+### Concurrent Full Suite
+
+```sh
+npm test
+npm run lint
+npm run build
+```
+
+```text
+Test Files  2 failed | 12 passed (14)
+Tests       7 failed | 134 passed (141)
+Full ESLint exit 0
+Build       exit 0
+```
+
+The seven full-suite failures are in concurrently edited Task 6 dashboard/OAuth tests whose client fixtures omit `getBroadcastCatalog` or return an empty window. Task 5's focused suites are green; no Task 6 files were changed by this fix.
+
 ## Commit
 
 - `feat: sync and classify anime collections`

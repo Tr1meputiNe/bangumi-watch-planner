@@ -32,7 +32,7 @@ export async function syncAnimeCollections({
 }): Promise<SyncResult> {
   let subjectsSynced = 0;
   let episodesSynced = 0;
-  const broadcastCatalog = await getBroadcastCatalog(client, today);
+  const broadcastCatalog = await getBroadcastCatalog(client);
 
   for (const collectionType of [1, 3, 4] as const) {
     let offset = 0;
@@ -179,12 +179,15 @@ async function rebuildPlan({ repository, today, includeToday }: {
   await repository.setSetting('backlog_rotation_cursor', plan.rotationCursorSubjectId === null ? '' : String(plan.rotationCursorSubjectId));
 }
 
-async function getBroadcastCatalog(client: BangumiClient, today: string): Promise<BroadcastCatalog> {
-  if (client.getBroadcastCatalog) return client.getBroadcastCatalog();
-  return {
-    schedules: (await client.getBroadcastTimes?.()) ?? new Map(),
-    seasonWindow: emptySeasonWindow(today)
-  };
+async function getBroadcastCatalog(client: BangumiClient): Promise<BroadcastCatalog> {
+  if (!client.getBroadcastCatalog) {
+    throw new Error('Anime collection sync requires an authoritative season window');
+  }
+  const catalog = await client.getBroadcastCatalog();
+  if (catalog.seasonWindow.entries.size === 0) {
+    throw new Error('Anime collection sync requires a non-empty authoritative season window');
+  }
+  return catalog;
 }
 
 async function getAllSubjectEpisodes(
@@ -289,17 +292,6 @@ function getAirYear(date: string | undefined): number | null {
 
 function parseCursor(value: string | null): number | null {
   return value && /^[1-9]\d*$/.test(value) ? Number(value) : null;
-}
-
-function emptySeasonWindow(today: string): SeasonWindow {
-  return {
-    currentSeasonKey: '',
-    previousSeasonKey: '',
-    anchorDate: today,
-    overlapThrough: today,
-    activeSubjectIds: new Set(),
-    entries: new Map()
-  };
 }
 
 function dateRange(from: string, through: string): string[] {

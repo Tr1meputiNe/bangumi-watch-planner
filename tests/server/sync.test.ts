@@ -187,8 +187,15 @@ function broadcastCatalog(schedules = new Map()): BroadcastCatalog {
       previousSeasonKey: '2026Q2',
       anchorDate: '2026-07-01',
       overlapThrough: '2026-07-14',
-      activeSubjectIds: new Set(),
-      entries: new Map()
+      activeSubjectIds: new Set([999]),
+      entries: new Map([[999, {
+        subjectId: 999,
+        seasonKey: '2026Q3',
+        seasonKind: 'new',
+        normalPremiereDate: '2026-07-01',
+        airTime: '20:00',
+        dayOffset: 0
+      }]])
     }
   };
 }
