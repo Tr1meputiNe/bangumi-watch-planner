@@ -291,12 +291,15 @@ describe('dashboard service', () => {
     const events: string[] = [];
     const setSubjectCollectionType = vi.fn(async () => { events.push('remote'); });
     const setSubjectState = vi.fn(async () => { events.push('local'); });
+    const deleteBacklogTask = vi.fn(async () => { events.push('delete task'); });
     const rebuildPlan = vi.fn(async () => { events.push('replan'); });
     const service = createDashboardService({
       auth: authStatus(),
       client: client({ setSubjectCollectionType }),
       repository: repository({
         getSubject: vi.fn(async () => subject()),
+        listBacklogTasks: vi.fn(async () => [backlogTask()]),
+        deleteBacklogTask,
         setSubjectState
       }),
       rebuildPlan,
@@ -305,7 +308,7 @@ describe('dashboard service', () => {
 
     await service.pauseBacklogSubject(1);
 
-    expect(events).toEqual(['remote', 'local', 'replan']);
+    expect(events).toEqual(['remote', 'local', 'delete task', 'replan']);
     expect(setSubjectCollectionType).toHaveBeenCalledWith(1, 4);
     expect(setSubjectState).toHaveBeenCalledWith(1, {
       collectionType: 4,
@@ -313,7 +316,8 @@ describe('dashboard service', () => {
       completedAt: null
     });
     expect(rebuildPlan).toHaveBeenCalledOnce();
-    expect(rebuildPlan).toHaveBeenCalledWith(expect.objectContaining({ today: '2026-07-19', includeToday: false }));
+    expect(deleteBacklogTask).toHaveBeenCalledWith(11);
+    expect(rebuildPlan).toHaveBeenCalledWith(expect.objectContaining({ today: '2026-07-19', includeToday: true }));
   });
 
   it('resumes a held title as backlog and replans once', async () => {
@@ -399,6 +403,29 @@ describe('dashboard service', () => {
       plannerMode: 'backlog',
       completedAt: '2026-07-19T04:00:00.000Z'
     });
+    expect(rebuildPlan).toHaveBeenCalledOnce();
+  });
+
+  it('removes a watched task and refills today only when it belongs to today\'s backlog plan', async () => {
+    const deleteBacklogTask = vi.fn(async () => undefined);
+    const rebuildPlan = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ markEpisodesWatched: vi.fn(async () => undefined) }),
+      repository: repository({
+        getEpisode: vi.fn(async () => episode()),
+        listBacklogTasks: vi.fn(async () => [backlogTask()]),
+        markEpisodeWatched: vi.fn(async () => undefined),
+        deleteBacklogTask
+      }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await service.markEpisodeWatched(11);
+
+    expect(deleteBacklogTask).toHaveBeenCalledWith(11);
+    expect(rebuildPlan).toHaveBeenCalledWith(expect.objectContaining({ today: '2026-07-19', includeToday: true }));
     expect(rebuildPlan).toHaveBeenCalledOnce();
   });
 

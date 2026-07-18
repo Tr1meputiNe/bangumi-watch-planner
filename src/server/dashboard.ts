@@ -83,7 +83,7 @@ export function createDashboardService({
     });
   }
 
-  async function replanAfterEpisodeMutation(mutation: () => Promise<void>, now: Date): Promise<void> {
+  async function replanAfterEpisodeMutation(mutation: () => Promise<void>, now: Date, includeToday = false): Promise<void> {
     let failure: { error: unknown } | null = null;
     try {
       await mutation();
@@ -91,7 +91,7 @@ export function createDashboardService({
       failure = { error };
     }
     try {
-      await replan(false, now);
+      await replan(includeToday, now);
     } catch (error) {
       if (!failure) throw error;
     }
@@ -99,11 +99,19 @@ export function createDashboardService({
   }
 
   async function markEpisodesWatched(subjectId: number, episodeIds: number[], now: Date): Promise<void> {
+    const today = todayInShanghai(now);
+    const watchedIds = new Set(episodeIds);
+    const todayTaskIds = (await repository.listBacklogTasks(today, today))
+      .map((task) => task.episodeId)
+      .filter((episodeId) => watchedIds.has(episodeId));
     await client.markEpisodesWatched(subjectId, episodeIds);
     for (const episodeId of episodeIds) {
       await repository.markEpisodeWatched(episodeId);
     }
-    await replanAfterEpisodeMutation(() => completeIfEligible(subjectId, now), now);
+    for (const episodeId of todayTaskIds) {
+      await repository.deleteBacklogTask(episodeId);
+    }
+    await replanAfterEpisodeMutation(() => completeIfEligible(subjectId, now), now, todayTaskIds.length > 0);
   }
 
   async function clearTodayTasks(today: string): Promise<void> {
@@ -113,6 +121,16 @@ export function createDashboardService({
       preserveLocked: false,
       tasks: []
     });
+  }
+
+  async function removeTodayTasksForSubject(subjectId: number, now: Date): Promise<boolean> {
+    const today = todayInShanghai(now);
+    const tasks = (await repository.listBacklogTasks(today, today))
+      .filter((task) => task.subjectId === subjectId);
+    for (const task of tasks) {
+      await repository.deleteBacklogTask(task.episodeId);
+    }
+    return tasks.length > 0;
   }
 
   const service: DashboardService = {
@@ -271,7 +289,8 @@ export function createDashboardService({
         plannerMode: 'backlog',
         completedAt: null
       });
-      await replan(false);
+      const now = clock();
+      await replan(await removeTodayTasksForSubject(subjectId, now), now);
     },
 
     async resumeBacklogSubject(subjectId) {
@@ -303,7 +322,7 @@ export function createDashboardService({
         plannerMode: subject.plannerMode,
         completedAt: now.toISOString()
       });
-      await replan(false, now);
+      await replan(await removeTodayTasksForSubject(subjectId, now), now);
     },
 
     async swapBacklogTask(episodeId) {
