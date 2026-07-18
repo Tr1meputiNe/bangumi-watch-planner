@@ -10,6 +10,10 @@ export type AuthStatus = {
   launchAgentInstalled?: boolean;
 };
 
+export type BangumiCollectionType = 1 | 2 | 3 | 4 | 5;
+export type PlannerMode = 'seasonal' | 'backlog' | null;
+export type SeasonKind = 'new' | 'continuing';
+
 export type SubjectRow = {
   id: number;
   name: string;
@@ -18,6 +22,14 @@ export type SubjectRow = {
   epStatus: number;
   image: string | null;
   url: string;
+  // Optional until the next sync persists planner metadata for legacy callers.
+  collectionType?: BangumiCollectionType;
+  plannerMode?: PlannerMode;
+  seasonKey?: string | null;
+  seasonKind?: SeasonKind | null;
+  airYear?: number | null;
+  totalEpisodesKnown?: boolean;
+  completedAt?: string | null;
 };
 
 export type EpisodeRow = {
@@ -49,6 +61,31 @@ export type DashboardData = {
   subjects: DashboardSubject[];
   lastSyncAt: string | null;
   lastError: string | null;
+};
+
+export type BacklogTaskRow = {
+  id: number;
+  episodeId: number;
+  subjectId: number;
+  plannedDate: string;
+  slot: number;
+  locked: boolean;
+  episode: EpisodeRow;
+};
+
+export type BacklogData = {
+  today: string;
+  todayTasks: BacklogTaskRow[];
+  futureDays: Array<{ date: string; seasonalLoad: number; capacity: number; tasks: BacklogTaskRow[] }>;
+  active: DashboardSubject[];
+  held: DashboardSubject[];
+  completed: DashboardSubject[];
+  estimatedCompletionDate: string | null;
+};
+
+export type WishlistData = {
+  items: Array<SubjectRow & { isCurrentSeason: boolean }>;
+  years: number[];
 };
 
 export type BangumiUser = {
