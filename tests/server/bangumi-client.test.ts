@@ -189,6 +189,51 @@ describe('Bangumi client', () => {
     ]);
   });
 
+  it.each([1, 3, 4] as const)('loads anime collection type %s with pagination', async (type) => {
+    const fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        total: 1,
+        data: [{
+          subject_id: 456,
+          type,
+          ep_status: 0,
+          subject: { id: 456, name: 'Test Anime', date: '2026-07-01' }
+        }]
+      })
+    }));
+    const client = createBangumiClient({
+      fetch,
+      getAccessToken: async () => 'token',
+      userAgent: 'tester/bangumi-watch-planner'
+    });
+
+    const page = await client.getAnimeCollections('sai', type, 50, 100);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `https://api.bgm.tv/v0/users/sai/collections?subject_type=2&type=${type}&limit=50&offset=100`,
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer token' }) })
+    );
+    expect(page.data[0]?.subject.date).toBe('2026-07-01');
+  });
+
+  it.each([2, 3, 4] as const)('writes collection type %s with PATCH', async (type) => {
+    const fetch = vi.fn(async () => ({ ok: true, status: 204, text: async () => '' }));
+    const client = createBangumiClient({
+      fetch,
+      getAccessToken: async () => 'token',
+      userAgent: 'tester/bangumi-watch-planner'
+    });
+
+    await client.setSubjectCollectionType(456, type);
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.bgm.tv/v0/users/-/collections/456',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ type }) })
+    );
+  });
+
   it('sends the expected watched episode patch request', async () => {
     const fetch = vi.fn(async () => ({ ok: true, status: 204, text: async () => '' }));
     const client = createBangumiClient({

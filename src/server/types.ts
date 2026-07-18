@@ -104,6 +104,7 @@ export type BangumiSubjectCollection = {
     id: number;
     name: string;
     name_cn?: string;
+    date?: string;
     eps?: number;
     images?: {
       common?: string;
@@ -230,11 +231,13 @@ export type CalendarDay = {
 export type BangumiClient = {
   getMe(): Promise<BangumiUser>;
   getCalendar(): Promise<CalendarDay[]>;
+  getAnimeCollections(username: string, type: 1 | 3 | 4, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getWatchingAnime(username: string, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getSubjectEpisodes(subjectId: number, limit?: number, offset?: number): Promise<BangumiEpisodePage>;
   getBroadcastTimes?(): Promise<Map<number, { airDate: string; airTime: string; dayOffset: number }>>;
   markEpisodesWatched(subjectId: number, episodeIds: number[]): Promise<void>;
   markEpisodesUnwatched(subjectId: number, episodeIds: number[]): Promise<void>;
+  setSubjectCollectionType(subjectId: number, type: 2 | 3 | 4): Promise<void>;
   addSubjectToWatching(subjectId: number): Promise<void>;
   searchAnimeSubjects(keyword: string): Promise<AnimeSearchResult[]>;
 };

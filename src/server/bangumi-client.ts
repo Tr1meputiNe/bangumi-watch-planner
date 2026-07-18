@@ -84,6 +84,16 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
     throw new BangumiApiError('Bangumi API request failed', 502, lastError);
   }
 
+  function getAnimeCollections(username: string, type: 1 | 3 | 4, limit: number, offset: number) {
+    const params = new URLSearchParams({
+      subject_type: '2',
+      type: String(type),
+      limit: String(limit),
+      offset: String(offset)
+    });
+    return request<BangumiCollectionPage>(`/v0/users/${encodeURIComponent(username)}/collections?${params}`);
+  }
+
   return {
     getMe() {
       return request<BangumiUser>('/v0/me');
@@ -101,14 +111,10 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
       return fetchBroadcastTimes(fetchImpl, deps.userAgent);
     },
 
+    getAnimeCollections,
+
     getWatchingAnime(username, limit, offset) {
-      const params = new URLSearchParams({
-        subject_type: '2',
-        type: '3',
-        limit: String(limit),
-        offset: String(offset)
-      });
-      return request<BangumiCollectionPage>(`/v0/users/${encodeURIComponent(username)}/collections?${params}`);
+      return getAnimeCollections(username, 3, limit, offset);
     },
 
     getSubjectEpisodes(subjectId, limit = 1000, offset = 0) {
@@ -136,6 +142,16 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ episode_id: episodeIds, type: 0 })
+      });
+    },
+
+    async setSubjectCollectionType(subjectId, type) {
+      await request<void>(`/v0/users/-/collections/${subjectId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ type })
       });
     },
 
