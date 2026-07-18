@@ -112,6 +112,48 @@ const dashboard = {
 };
 
 describe('App', () => {
+  it('shows four tabs in the required order and loads backlog only when opened', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: null });
+      }
+      if (url === '/api/dashboard') {
+        return Response.json(dashboard);
+      }
+      if (url === '/api/backlog') {
+        return Response.json({
+          today: '2026-07-19',
+          todayTasks: [],
+          futureDays: [],
+          active: [{ ...dashboard.subjects[0], id: 99, nameCn: '旧番标题', plannerMode: 'backlog' }],
+          held: [],
+          completed: [],
+          estimatedCompletionDate: null
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect((await screen.findAllByRole('tab')).map((tab) => tab.textContent)).toEqual([
+      '追番提醒',
+      '补番计划',
+      '想看',
+      '每日放送'
+    ]);
+    expect(fetchMock.mock.calls.some(([input]) => input.toString() === '/api/backlog')).toBe(false);
+    expect(screen.getAllByText('测试番剧').length).toBeGreaterThan(0);
+    expect(screen.queryByText('旧番标题')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: '补番计划' }));
+
+    expect(await screen.findByText('旧番标题')).toBeInTheDocument();
+    expect(screen.queryByText('测试番剧')).not.toBeInTheDocument();
+  });
+
   it('renders pending episodes and can dismiss one reminder', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();

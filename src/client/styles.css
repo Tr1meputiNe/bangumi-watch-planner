@@ -920,6 +920,229 @@ button.ghost:hover {
   line-height: 1.35;
 }
 
+.settings-panel,
+.backlog-workspace,
+.wishlist-panel {
+  margin-top: 16px;
+}
+
+.backlog-workspace {
+  display: grid;
+  gap: 16px;
+}
+
+.backlog-day-actions,
+.backlog-task-actions,
+.backlog-subject-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.backlog-task-list,
+.backlog-subject-list,
+.wishlist-list {
+  display: grid;
+}
+
+.backlog-task {
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 176px;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding: 12px 14px;
+}
+
+.backlog-task-index {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-weight: 800;
+}
+
+.backlog-task > div,
+.backlog-subject-row > div,
+.wishlist-row > div {
+  min-width: 0;
+}
+
+.backlog-task a,
+.backlog-subject-row a,
+.wishlist-heading a {
+  color: var(--ink);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.backlog-task p,
+.backlog-subject-row p,
+.backlog-day p,
+.wishlist-row p,
+.completion-estimate {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.completion-estimate {
+  border-top: 1px solid var(--line);
+  padding: 12px 14px;
+}
+
+.backlog-days {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.backlog-day {
+  min-height: 118px;
+  border-top: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  padding: 12px;
+}
+
+.backlog-day:nth-child(3n) {
+  border-right: 0;
+}
+
+.backlog-day header {
+  display: grid;
+  gap: 4px;
+}
+
+.backlog-day header span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.backlog-day ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--ink);
+  font-size: 0.86rem;
+}
+
+.backlog-subject-row {
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 190px;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding: 12px 14px;
+}
+
+.wishlist-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 180px;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding: 14px;
+}
+
+.wishlist-filters label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.wishlist-filters input,
+.wishlist-filters select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 10px;
+  font: inherit;
+}
+
+.wishlist-row {
+  min-height: 88px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 112px;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding: 12px 14px;
+}
+
+.wishlist-cover {
+  width: 48px;
+  aspect-ratio: 3 / 4;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  background: #26313c;
+  color: #ffffff;
+  overflow: hidden;
+  text-align: center;
+  text-decoration: none;
+  font-size: 0.64rem;
+  font-weight: 800;
+}
+
+.wishlist-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.wishlist-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 760px) {
+  .backlog-task,
+  .backlog-subject-row,
+  .wishlist-row {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .backlog-task-actions,
+  .backlog-subject-actions,
+  .wishlist-row > button {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+
+  .backlog-task-actions button,
+  .backlog-subject-actions button,
+  .wishlist-row > button {
+    flex: 1;
+    width: 100%;
+  }
+
+  .backlog-days {
+    grid-template-columns: 1fr;
+  }
+
+  .backlog-day,
+  .backlog-day:nth-child(3n) {
+    border-right: 0;
+  }
+
+  .wishlist-filters {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 980px) {
   .topbar,
   .workspace {

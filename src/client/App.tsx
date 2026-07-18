@@ -1,19 +1,20 @@
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
+import { useCallback, useEffect, useState, useTransition } from 'react';
 import {
   addSubjectToWatching,
-  dismissReminder,
   getAuthStatus,
+  getBacklog,
   getCalendar,
   getDashboard,
-  markWatched,
-  markUnwatched,
-  markWatchedThrough,
   saveOAuthConfig,
   searchAnime,
   syncNow
 } from './api.js';
-import type { AnimeSearchResult, AuthStatus, CalendarDay, CalendarSubject, DashboardData, DashboardSubject, EpisodeRow } from '../server/types.js';
-import { displayEpisodeTitle, displaySubjectName, formatDateTime } from '../shared/format.js';
+import type { AnimeSearchResult, AuthStatus, BacklogData, DashboardData } from '../server/types.js';
+import { displaySubjectName, formatDateTime } from '../shared/format.js';
+import BacklogView from './views/BacklogView.js';
+import CalendarView, { type CalendarViewState } from './views/CalendarView.js';
+import WatchingView from './views/WatchingView.js';
+import WishlistView from './views/WishlistView.js';
 
 type LoadState = {
   auth: AuthStatus | null;
@@ -21,24 +22,25 @@ type LoadState = {
   error: string | null;
 };
 
-type CalendarState = {
-  days: CalendarDay[] | null;
-  error: string | null;
+type BacklogState = {
+  data: BacklogData | null;
   loading: boolean;
+  error: string | null;
 };
 
-type ActiveView = 'planner' | 'calendar';
+type ActiveView = 'watching' | 'backlog' | 'wishlist' | 'calendar';
 
 const emptyState: LoadState = { auth: null, dashboard: null, error: null };
-const emptyCalendarState: CalendarState = { days: null, error: null, loading: false };
+const emptyBacklogState: BacklogState = { data: null, loading: false, error: null };
+const emptyCalendarState: CalendarViewState = { days: null, error: null, loading: false };
 
 export default function App() {
   const [state, setState] = useState<LoadState>(emptyState);
-  const [activeView, setActiveView] = useState<ActiveView>('planner');
-  const [actionEpisodeId, setActionEpisodeId] = useState<number | null>(null);
-  const [addingSubjectId, setAddingSubjectId] = useState<number | null>(null);
-  const [calendarState, setCalendarState] = useState<CalendarState>(emptyCalendarState);
+  const [activeView, setActiveView] = useState<ActiveView>('watching');
+  const [backlogState, setBacklogState] = useState<BacklogState>(emptyBacklogState);
+  const [calendarState, setCalendarState] = useState<CalendarViewState>(emptyCalendarState);
   const [oauthForm, setOauthForm] = useState({ clientId: '', clientSecret: '' });
+  const [addingSubjectId, setAddingSubjectId] = useState<number | null>(null);
   const [animeSearch, setAnimeSearch] = useState<{ error: string | null; keyword: string; results: AnimeSearchResult[] }>({
     error: null,
     keyword: '',
@@ -46,14 +48,40 @@ export default function App() {
   });
   const [isPending, startTransition] = useTransition();
 
+  const showError = useCallback((message: string) => {
+    setState((current) => ({ ...current, error: message }));
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const [auth, dashboard] = await Promise.all([getAuthStatus(), getDashboard()]);
       setState({ auth, dashboard, error: null });
     } catch (error) {
-      setState((current) => ({ ...current, error: error instanceof Error ? error.message : String(error) }));
+      showError(error instanceof Error ? error.message : String(error));
     }
-  }, []);
+  }, [showError]);
+
+  const loadBacklog = useCallback(async () => {
+    setBacklogState((current) => ({ ...current, loading: true, error: null }));
+    try {
+      const data = await getBacklog();
+      setBacklogState({ data, loading: false, error: null });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setBacklogState((current) => ({ ...current, loading: false, error: message }));
+      showError(message);
+    }
+  }, [showError]);
+
+  const refreshBacklogAndDashboard = useCallback(async () => {
+    try {
+      const [auth, dashboard, backlog] = await Promise.all([getAuthStatus(), getDashboard(), getBacklog()]);
+      setState({ auth, dashboard, error: null });
+      setBacklogState({ data: backlog, loading: false, error: null });
+    } catch (error) {
+      showError(error instanceof Error ? error.message : String(error));
+    }
+  }, [showError]);
 
   const loadCalendar = useCallback(async () => {
     setCalendarState((current) => ({ ...current, loading: true, error: null }));
@@ -61,69 +89,33 @@ export default function App() {
       const days = await getCalendar();
       setCalendarState({ days, error: null, loading: false });
     } catch (error) {
-      setCalendarState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : String(error) }));
+      setCalendarState((current) => ({
+        ...current,
+        loading: false,
+        error: error instanceof Error ? error.message : String(error)
+      }));
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
-    if (activeView === 'calendar' && !calendarState.days && !calendarState.loading) {
-      void loadCalendar();
-    }
+    if (activeView === 'backlog' && !backlogState.data && !backlogState.loading) void loadBacklog();
+  }, [activeView, backlogState.data, backlogState.loading, loadBacklog]);
+
+  useEffect(() => {
+    if (activeView === 'calendar' && !calendarState.days && !calendarState.loading) void loadCalendar();
   }, [activeView, calendarState.days, calendarState.loading, loadCalendar]);
-
-  const pendingEpisodes = state.dashboard?.pendingEpisodes ?? [];
-  const subjects = state.dashboard?.subjects ?? [];
-
-  const pendingBySubject = useMemo(() => {
-    const map = new Map<number, number>();
-    for (const episode of pendingEpisodes) {
-      map.set(episode.subjectId, (map.get(episode.subjectId) ?? 0) + 1);
-    }
-    return map;
-  }, [pendingEpisodes]);
 
   async function runAction(action: () => Promise<unknown>) {
     startTransition(() => {
       void action()
-        .then(load)
-        .catch((error) => {
-          setState((current) => ({ ...current, error: error instanceof Error ? error.message : String(error) }));
-        });
+        .then(async () => {
+          if (activeView === 'backlog') await refreshBacklogAndDashboard();
+          else await load();
+        })
+        .catch((error) => showError(error instanceof Error ? error.message : String(error)));
     });
-  }
-
-  async function markPendingEpisodeWatched(episodeId: number) {
-    setActionEpisodeId(episodeId);
-    try {
-      await markWatched(episodeId);
-      await load();
-      setState((current) => removePendingEpisode(current, episodeId));
-    } catch (error) {
-      setState((current) => ({ ...current, error: error instanceof Error ? error.message : String(error) }));
-    } finally {
-      setActionEpisodeId(null);
-    }
-  }
-
-  async function addAnimeToWatching(subjectId: number) {
-    setAddingSubjectId(subjectId);
-    try {
-      await addSubjectToWatching(subjectId);
-      await load();
-      setAnimeSearch((current) => ({
-        ...current,
-        error: null,
-        results: current.results.filter((result) => result.id !== subjectId)
-      }));
-    } catch (error) {
-      setAnimeSearch((current) => ({ ...current, error: error instanceof Error ? error.message : String(error) }));
-    } finally {
-      setAddingSubjectId(null);
-    }
   }
 
   async function runAnimeSearch(event: React.FormEvent<HTMLFormElement>) {
@@ -136,10 +128,25 @@ export default function App() {
     startTransition(() => {
       void searchAnime(keyword)
         .then((results) => setAnimeSearch((current) => ({ ...current, error: null, results })))
-        .catch((error) => {
-          setAnimeSearch((current) => ({ ...current, error: error instanceof Error ? error.message : String(error), results: [] }));
-        });
+        .catch((error) => setAnimeSearch((current) => ({
+          ...current,
+          error: error instanceof Error ? error.message : String(error),
+          results: []
+        })));
     });
+  }
+
+  async function addAnimeToWatching(subjectId: number) {
+    setAddingSubjectId(subjectId);
+    try {
+      await addSubjectToWatching(subjectId);
+      await load();
+      setAnimeSearch((current) => ({ ...current, error: null, results: current.results.filter((result) => result.id !== subjectId) }));
+    } catch (error) {
+      setAnimeSearch((current) => ({ ...current, error: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      setAddingSubjectId(null);
+    }
   }
 
   async function saveOAuthSettings(event: React.FormEvent<HTMLFormElement>) {
@@ -147,6 +154,8 @@ export default function App() {
     await runAction(() => saveOAuthConfig(oauthForm.clientId, oauthForm.clientSecret));
   }
 
+  const pendingEpisodes = state.dashboard?.pendingEpisodes ?? [];
+  const subjects = state.dashboard?.subjects ?? [];
   const accountLabel = state.auth?.authenticated ? state.auth.nickname || state.auth.username : '未连接';
   const syncTime = formatDateTime(state.dashboard?.lastSyncAt ?? state.auth?.lastSyncAt ?? null);
 
@@ -154,13 +163,8 @@ export default function App() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">
-            bgm
-          </span>
-          <div>
-            <p>Bangumi Watch Planner</p>
-            <strong>{accountLabel}</strong>
-          </div>
+          <span className="brand-mark" aria-hidden="true">bgm</span>
+          <div><p>Bangumi Watch Planner</p><strong>{accountLabel}</strong></div>
         </div>
         <div className="topbar-stats" aria-live="polite">
           <span>{pendingEpisodes.length} 集待补</span>
@@ -168,9 +172,7 @@ export default function App() {
           <span>{syncTime}</span>
         </div>
         <div className="topbar-actions">
-          <button type="button" onClick={() => void runAction(syncNow)} disabled={isPending || !state.auth?.authenticated}>
-            立即同步
-          </button>
+          <button type="button" onClick={() => void runAction(syncNow)} disabled={isPending || !state.auth?.authenticated}>立即同步</button>
         </div>
       </header>
 
@@ -178,510 +180,147 @@ export default function App() {
       {state.dashboard?.lastError ? <div className="notice warning">同步错误：{state.dashboard.lastError}</div> : null}
 
       <div className="page-tabs" role="tablist" aria-label="视图">
-        <button type="button" role="tab" aria-selected={activeView === 'planner'} onClick={() => setActiveView('planner')}>
-          追番提醒
-        </button>
-        <button type="button" role="tab" aria-selected={activeView === 'calendar'} onClick={() => setActiveView('calendar')}>
-          每日放送
-        </button>
+        <Tab active={activeView === 'watching'} onClick={() => setActiveView('watching')}>追番提醒</Tab>
+        <Tab active={activeView === 'backlog'} onClick={() => setActiveView('backlog')}>补番计划</Tab>
+        <Tab active={activeView === 'wishlist'} onClick={() => setActiveView('wishlist')}>想看</Tab>
+        <Tab active={activeView === 'calendar'} onClick={() => setActiveView('calendar')}>每日放送</Tab>
       </div>
 
-      {activeView === 'planner' ? (
-        <div className="workspace">
-          <section className="panel backlog-panel" aria-label="待补新集">
-            <div className="panel-title">
-              <div>
-                <span className="panel-eyebrow">Queue</span>
-                <h1>待补新集</h1>
-              </div>
-              <strong>{pendingEpisodes.length}</strong>
-            </div>
+      {activeView === 'watching' ? (
+        <>
+          {state.dashboard ? (
+            <WatchingView dashboard={state.dashboard} disabled={isPending} onChanged={load} onError={showError} />
+          ) : <div className="empty">正在加载追番提醒。</div>}
+          <SettingsPanel
+            auth={state.auth}
+            disabled={isPending}
+            oauthForm={oauthForm}
+            setOauthForm={setOauthForm}
+            animeSearch={animeSearch}
+            setAnimeSearch={setAnimeSearch}
+            addingSubjectId={addingSubjectId}
+            onSearch={runAnimeSearch}
+            onAdd={addAnimeToWatching}
+            onSaveOAuth={saveOAuthSettings}
+          />
+        </>
+      ) : null}
 
-            {pendingEpisodes.length > 0 ? (
-              <div className="episode-list">
-                {pendingEpisodes.map((episode) => (
-                  <EpisodeItem
-                    key={episode.id}
-                    episode={episode}
-                    disabled={isPending || actionEpisodeId === episode.id}
-                    processing={actionEpisodeId === episode.id}
-                    onWatched={() => void markPendingEpisodeWatched(episode.id)}
-                    onDismiss={() => runAction(() => dismissReminder(episode.id))}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="empty">没有已播出且未看的本篇集数。</div>
-            )}
-          </section>
+      {activeView === 'backlog' ? (
+        backlogState.data ? (
+          <BacklogView
+            data={backlogState.data}
+            disabled={isPending || backlogState.loading}
+            onChanged={refreshBacklogAndDashboard}
+            onError={showError}
+          />
+        ) : <div className="empty">{backlogState.error || '正在加载补番计划。'}</div>
+      ) : null}
 
-          <div className="side-column">
-            <section className="panel watching-panel" aria-label="在看动画">
-              <div className="panel-title compact">
-                <div>
-                  <span className="panel-eyebrow">Watching</span>
-                  <h2>在看动画</h2>
-                </div>
-                <strong>{subjects.length}</strong>
-              </div>
-              <div className="subject-list">
-                {subjects.map((subject) => (
-                  <SubjectItem
-                    key={subject.id}
-                    subject={subject}
-                    pendingCount={pendingBySubject.get(subject.id) ?? 0}
-                    disabled={isPending}
-                    onWatchedThrough={(episodeId) => runAction(() => markWatchedThrough(subject.id, episodeId))}
-                    onUnwatched={(episodeId) => runAction(() => markUnwatched(episodeId))}
-                  />
-                ))}
-              </div>
-            </section>
-
-            <section className="panel settings-panel" aria-label="设置">
-              <div className="panel-title compact">
-                <div>
-                  <span className="panel-eyebrow">Settings</span>
-                  <h2>设置</h2>
-                </div>
-                <strong>{state.auth?.authenticated ? state.auth.username : '未连接'}</strong>
-              </div>
-
-            <div className="add-subject">
-              <form className="anime-search-form" onSubmit={(event) => void runAnimeSearch(event)}>
-                <label>
-                  <span>搜索动画</span>
-                  <input
-                    value={animeSearch.keyword}
-                    onChange={(event) => setAnimeSearch((current) => ({ ...current, keyword: event.target.value }))}
-                    placeholder="番名、中文名或原名"
-                    disabled={!state.auth?.authenticated || isPending}
-                  />
-                </label>
-                <button type="submit" disabled={!state.auth?.authenticated || isPending || !animeSearch.keyword.trim()}>
-                  搜索
-                </button>
-              </form>
-              {animeSearch.error ? <p className="search-error">{animeSearch.error}</p> : null}
-              {animeSearch.results.length > 0 ? (
-                <div className="search-results">
-                  {animeSearch.results.map((result) => (
-                    <article key={result.id} className="search-result">
-                      <a href={result.url} target="_blank" rel="noreferrer">
-                        {result.image ? <img src={result.image} alt="" /> : <span>{result.nameCn || result.name}</span>}
-                      </a>
-                      <div>
-                        <strong>{displaySubjectName(result.name, result.nameCn)}</strong>
-                        <p>{result.eps ? `${result.eps} 集` : '总集数未知'}</p>
-                      </div>
-                      <button type="button" onClick={() => void addAnimeToWatching(result.id)} disabled={isPending || addingSubjectId === result.id}>
-                        {addingSubjectId === result.id ? '添加中' : '加入在看'}
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="settings-row">
-              <div>
-                <strong>Bangumi</strong>
-                <p>
-                  {state.auth?.authenticated
-                    ? `已连接 ${state.auth.nickname || state.auth.username}`
-                    : state.auth?.configured === false
-                      ? '填写 Bangumi 开发者应用信息后，用你的 Bangumi 账号登录。'
-                      : '连接后才能同步你的在看列表。'}
-                </p>
-              </div>
-              {state.auth?.authenticated ? (
-                <span className="status-pill">已连接</span>
-              ) : state.auth?.configured === false ? (
-                <span className="status-pill muted">待配置</span>
-              ) : (
-                <a className="button-link" href="/auth/login">
-                  连接 Bangumi
-                </a>
-              )}
-            </div>
-            {!state.auth?.authenticated && state.auth?.configured === false ? (
-              <div className="oauth-setup">
-                <div className="oauth-guide">
-                  <a href="https://bgm.tv/dev" target="_blank" rel="noreferrer">
-                    打开 Bangumi 开发者平台
-                  </a>
-                  <p>创建应用时把回调地址填为：</p>
-                  <code>{state.auth.callbackUrl ?? 'http://127.0.0.1:3777/auth/callback'}</code>
-                </div>
-                <form className="oauth-form" onSubmit={(event) => void saveOAuthSettings(event)}>
-                  <label>
-                    <span>Bangumi App ID</span>
-                    <input
-                      value={oauthForm.clientId}
-                      onChange={(event) => setOauthForm((current) => ({ ...current, clientId: event.target.value }))}
-                      placeholder={state.auth.oauthClientId ?? 'App ID'}
-                      autoComplete="off"
-                    />
-                  </label>
-                  <label>
-                    <span>Bangumi App Secret</span>
-                    <input
-                      value={oauthForm.clientSecret}
-                      onChange={(event) => setOauthForm((current) => ({ ...current, clientSecret: event.target.value }))}
-                      placeholder="App Secret"
-                      type="password"
-                      autoComplete="off"
-                    />
-                  </label>
-                  <button type="submit" disabled={isPending || !oauthForm.clientId.trim() || !oauthForm.clientSecret.trim()}>
-                    保存 OAuth 配置
-                  </button>
-                </form>
-              </div>
-            ) : null}
-            <div className="settings-row">
-              <div>
-                <strong>后台提醒</strong>
-                <p>每日 20:00；浏览器关闭后由本机服务发送通知。</p>
-              </div>
-              <span className="status-pill">{state.auth?.launchAgentInstalled ? '已安装' : '未安装'}</span>
-            </div>
-            <div className="settings-row">
-              <div>
-                <strong>通知</strong>
-                <p>同一天一次汇总；已忽略集数不再提醒。</p>
-              </div>
-              <span className="status-pill">{state.auth?.notificationsEnabled === false ? '已关闭' : '已开启'}</span>
-            </div>
-            </section>
-          </div>
-        </div>
-      ) : (
-        <CalendarPanel state={calendarState} onRetry={() => void loadCalendar()} />
-      )}
+      {activeView === 'wishlist' ? <WishlistView disabled={isPending} onChanged={load} onError={showError} /> : null}
+      {activeView === 'calendar' ? <CalendarView state={calendarState} onRetry={() => void loadCalendar()} /> : null}
     </main>
   );
 }
 
-function removePendingEpisode(state: LoadState, episodeId: number): LoadState {
-  if (!state.dashboard) return state;
-  return {
-    ...state,
-    dashboard: {
-      ...state.dashboard,
-      pendingEpisodes: state.dashboard.pendingEpisodes.filter((episode) => episode.id !== episodeId)
-    }
-  };
+function Tab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return <button type="button" role="tab" aria-selected={active} onClick={onClick}>{children}</button>;
 }
 
-function SubjectItem({
-  subject,
-  pendingCount,
-  disabled,
-  onWatchedThrough,
-  onUnwatched
-}: {
-  subject: DashboardSubject;
-  pendingCount: number;
-  disabled: boolean;
-  onWatchedThrough: (episodeId: number) => void;
-  onUnwatched: (episodeId: number) => void;
-}) {
-  const subjectTitle = displaySubjectName(subject.name, subject.nameCn);
-  const progressText = `${subject.epStatus} / ${subject.eps || '?'}`;
-  const progressPercent = subject.eps > 0 ? Math.min(100, Math.round((subject.epStatus / subject.eps) * 100)) : 0;
-  const unwatchedCount = subject.unwatchedMainEpisodeCount ?? pendingCount;
-  const episodeOptions = subject.mainEpisodes.length > 0 ? subject.mainEpisodes : subject.unwatchedMainEpisodes;
+type SearchState = { error: string | null; keyword: string; results: AnimeSearchResult[] };
 
+function SettingsPanel({
+  auth,
+  disabled,
+  oauthForm,
+  setOauthForm,
+  animeSearch,
+  setAnimeSearch,
+  addingSubjectId,
+  onSearch,
+  onAdd,
+  onSaveOAuth
+}: {
+  auth: AuthStatus | null;
+  disabled: boolean;
+  oauthForm: { clientId: string; clientSecret: string };
+  setOauthForm: React.Dispatch<React.SetStateAction<{ clientId: string; clientSecret: string }>>;
+  animeSearch: SearchState;
+  setAnimeSearch: React.Dispatch<React.SetStateAction<SearchState>>;
+  addingSubjectId: number | null;
+  onSearch(event: React.FormEvent<HTMLFormElement>): Promise<void>;
+  onAdd(subjectId: number): Promise<void>;
+  onSaveOAuth(event: React.FormEvent<HTMLFormElement>): Promise<void>;
+}) {
   return (
-    <article className="subject-row">
-      <a className="subject-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={subjectTitle}>
-        {subject.image ? <img src={subject.image} alt="" /> : <span>{subject.nameCn || subject.name}</span>}
-      </a>
-      <div className="subject-detail">
-        <div className="subject-heading">
-          <a href={subject.url} target="_blank" rel="noreferrer">
-            {subjectTitle}
-          </a>
-          <span>{unwatchedCount > 0 ? `${unwatchedCount} 集未看` : '已同步'}</span>
-        </div>
-        <div className="progress-row">
-          <span>{progressText}</span>
-          <div className="progress-track" aria-hidden="true">
-            <i style={{ width: `${progressPercent}%` }} />
+    <section className="panel settings-panel" aria-label="设置">
+      <div className="panel-title compact">
+        <div><span className="panel-eyebrow">Settings</span><h2>设置</h2></div>
+        <strong>{auth?.authenticated ? auth.username : '未连接'}</strong>
+      </div>
+
+      <div className="add-subject">
+        <form className="anime-search-form" onSubmit={(event) => void onSearch(event)}>
+          <label>
+            <span>搜索动画</span>
+            <input
+              value={animeSearch.keyword}
+              onChange={(event) => setAnimeSearch((current) => ({ ...current, keyword: event.target.value }))}
+              placeholder="番名、中文名或原名"
+              disabled={!auth?.authenticated || disabled}
+            />
+          </label>
+          <button type="submit" disabled={!auth?.authenticated || disabled || !animeSearch.keyword.trim()}>搜索</button>
+        </form>
+        {animeSearch.error ? <p className="search-error">{animeSearch.error}</p> : null}
+        {animeSearch.results.length > 0 ? (
+          <div className="search-results">
+            {animeSearch.results.map((result) => (
+              <article key={result.id} className="search-result">
+                <a href={result.url} target="_blank" rel="noreferrer">
+                  {result.image ? <img src={result.image} alt="" /> : <span>{result.nameCn || result.name}</span>}
+                </a>
+                <div><strong>{displaySubjectName(result.name, result.nameCn)}</strong><p>{result.eps ? `${result.eps} 集` : '总集数未知'}</p></div>
+                <button type="button" onClick={() => void onAdd(result.id)} disabled={disabled || addingSubjectId === result.id}>
+                  {addingSubjectId === result.id ? '添加中' : '加入在看'}
+                </button>
+              </article>
+            ))}
           </div>
-        </div>
-        {subject.nextEpisode ? (
-          <p>
-            下一集：{displayEpisodeTitle(subject.nextEpisode.name, subject.nextEpisode.nameCn, subject.nextEpisode.sort)} ·{' '}
-            {formatEpisodeAirdate(subject.nextEpisode.airdate, subject.nextEpisode.airTime)}
-          </p>
-        ) : (
-          <p>暂无未看的本篇集数</p>
-        )}
-        {episodeOptions.length > 0 ? (
-          <WatchProgressGrid
-            subjectTitle={subjectTitle}
-            episodes={episodeOptions}
-            disabled={disabled}
-            onWatchedThrough={onWatchedThrough}
-            onUnwatched={onUnwatched}
-          />
         ) : null}
       </div>
-    </article>
-  );
-}
 
-function WatchProgressGrid({
-  subjectTitle,
-  episodes,
-  disabled,
-  onWatchedThrough,
-  onUnwatched
-}: {
-  subjectTitle: string;
-  episodes: EpisodeRow[];
-  disabled: boolean;
-  onWatchedThrough: (episodeId: number) => void;
-  onUnwatched: (episodeId: number) => void;
-}) {
-  return (
-    <div className="watch-progress-grid" aria-label={`${subjectTitle}集数进度`}>
-      {episodes.map((episode) => {
-        const progress = episodeProgress(episode);
-        const watched = episode.collectionType === 2;
-        const aired = hasAired(episode.airdate);
-        return (
-          <button
-            key={episode.id}
-            type="button"
-            className={['watch-episode-button', watched ? 'is-watched' : aired ? 'is-aired' : 'is-unaired'].join(' ')}
-            onClick={() => (watched ? onUnwatched(episode.id) : onWatchedThrough(episode.id))}
-            disabled={disabled}
-            aria-label={watched ? `${subjectTitle} 第 ${progress} 集 取消看过` : `${subjectTitle} 第 ${progress} 集 标为看过`}
-            title={`${displayEpisodeTitle(episode.name, episode.nameCn, episode.sort)}${episode.airdate ? ` · ${episode.airdate}` : ''}`}
-          >
-            {formatEpisodeProgress(progress)}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function episodeProgress(episode: EpisodeRow): number {
-  return Number(episode.ep ?? episode.sort);
-}
-
-function formatEpisodeProgress(progress: number): string {
-  if (!Number.isFinite(progress)) return '?';
-  if (!Number.isInteger(progress)) return String(progress);
-  return String(progress).padStart(2, '0');
-}
-
-function hasAired(airdate: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(airdate)) return false;
-  return airdate <= todayInShanghai();
-}
-
-function formatEpisodeAirdate(airdate: string, airTime = ''): string {
-  if (airdate && airTime) return `播出时间：${airdate} ${airTime}`;
-  if (airdate) return `播出日期：${airdate} · 具体时间未知`;
-  return '播出时间未知';
-}
-
-function formatEpisodeIndexPrimary(airdate: string, airTime = ''): string {
-  return airTime || airdate.slice(5) || '--';
-}
-
-function formatEpisodeIndexMeta(episode: EpisodeRow): string {
-  const date = episode.airTime && episode.airdate ? `${episode.airdate.slice(5)} · ` : '';
-  return `${date}第 ${episode.sort} 集`;
-}
-
-function todayInShanghai(): string {
-  const parts = new Intl.DateTimeFormat('en', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
-function EpisodeItem({
-  episode,
-  disabled,
-  processing,
-  onWatched,
-  onDismiss
-}: {
-  episode: EpisodeRow;
-  disabled: boolean;
-  processing: boolean;
-  onWatched: () => void;
-  onDismiss: () => void;
-}) {
-  return (
-    <article className="episode-row">
-      <div className="episode-index" title={formatEpisodeAirdate(episode.airdate, episode.airTime)}>
-        <span>{formatEpisodeIndexPrimary(episode.airdate, episode.airTime)}</span>
-        <strong>{formatEpisodeIndexMeta(episode)}</strong>
-      </div>
-      <div className="episode-main">
-        <a className="episode-subject" href={episode.subjectUrl} target="_blank" rel="noreferrer">
-          {displaySubjectName(episode.subjectName, episode.subjectNameCn)}
-        </a>
-        <h3>{displayEpisodeTitle(episode.name, episode.nameCn, episode.sort)}</h3>
-        <a href={episode.subjectUrl} target="_blank" rel="noreferrer">
-          打开 Bangumi
-        </a>
-      </div>
-      <div className="episode-actions">
-        <button type="button" onClick={onWatched} disabled={disabled}>
-          {processing ? '处理中' : '已看'}
-        </button>
-        <button type="button" className="ghost" onClick={onDismiss} disabled={disabled}>
-          忽略
-        </button>
-      </div>
-    </article>
-  );
-}
-
-function CalendarPanel({ state, onRetry }: { state: CalendarState; onRetry: () => void }) {
-  const rawDays = state.days ?? [];
-  const todayWeekdayId = getShanghaiWeekdayId();
-  const days = orderCalendarDaysFromToday(rawDays, todayWeekdayId);
-  const today = days.find((day) => day.weekday.id === todayWeekdayId);
-  const totalCount = days.reduce((sum, day) => sum + day.items.length, 0);
-
-  return (
-    <section className="panel calendar-panel" aria-label="每日放送">
-      <div className="panel-title calendar-title">
+      <div className="settings-row">
         <div>
-          <span className="panel-eyebrow">Calendar</span>
-          <h1>每日放送</h1>
-          <p>
-            {formatShanghaiToday()} · 本周 {totalCount} 部，今日 {today?.items.length ?? 0} 部
-          </p>
+          <strong>Bangumi</strong>
+          <p>{auth?.authenticated
+            ? `已连接 ${auth.nickname || auth.username}`
+            : auth?.configured === false
+              ? '填写 Bangumi 开发者应用信息后，用你的 Bangumi 账号登录。'
+              : '连接后才能同步你的在看列表。'}</p>
         </div>
-        <button type="button" className="secondary" onClick={onRetry} disabled={state.loading}>
-          刷新
-        </button>
+        {auth?.authenticated ? <span className="status-pill">已连接</span> : auth?.configured === false
+          ? <span className="status-pill muted">待配置</span>
+          : <a className="button-link" href="/auth/login">连接 Bangumi</a>}
       </div>
 
-      {state.error ? <div className="notice error calendar-notice">{state.error}</div> : null}
-      {state.loading && days.length === 0 ? <div className="empty">正在加载每日放送。</div> : null}
-      {!state.loading && days.length === 0 && !state.error ? <div className="empty">暂无每日放送数据。</div> : null}
-
-      {days.length > 0 ? (
-        <div className="calendar-grid">
-          {days.map((day) => (
-            <section
-              key={day.weekday.id}
-              className={day.weekday.id === todayWeekdayId ? 'calendar-day is-today' : 'calendar-day'}
-              aria-label={`${day.weekday.cn} ${day.items.length} 部`}
-            >
-              <header>
-                <div>
-                  <span>{day.weekday.en}</span>
-                  <h2>{day.weekday.cn}</h2>
-                </div>
-                <strong>{day.items.length}</strong>
-              </header>
-              <div className="calendar-items">
-                {orderCalendarItemsByBroadcastTime(day.items).map((item) => (
-                  <CalendarSubjectItem key={item.id} item={item} />
-                ))}
-              </div>
-            </section>
-          ))}
+      {!auth?.authenticated && auth?.configured === false ? (
+        <div className="oauth-setup">
+          <div className="oauth-guide">
+            <a href="https://bgm.tv/dev" target="_blank" rel="noreferrer">打开 Bangumi 开发者平台</a>
+            <p>创建应用时把回调地址填为：</p>
+            <code>{auth.callbackUrl ?? 'http://127.0.0.1:3777/auth/callback'}</code>
+          </div>
+          <form className="oauth-form" onSubmit={(event) => void onSaveOAuth(event)}>
+            <label><span>Bangumi App ID</span><input value={oauthForm.clientId} onChange={(event) => setOauthForm((current) => ({ ...current, clientId: event.target.value }))} placeholder={auth.oauthClientId ?? 'App ID'} autoComplete="off" /></label>
+            <label><span>Bangumi App Secret</span><input value={oauthForm.clientSecret} onChange={(event) => setOauthForm((current) => ({ ...current, clientSecret: event.target.value }))} placeholder="App Secret" type="password" autoComplete="off" /></label>
+            <button type="submit" disabled={disabled || !oauthForm.clientId.trim() || !oauthForm.clientSecret.trim()}>保存 OAuth 配置</button>
+          </form>
         </div>
       ) : null}
+
+      <div className="settings-row"><div><strong>后台提醒</strong><p>每日 20:00；浏览器关闭后由本机服务发送通知。</p></div><span className="status-pill">{auth?.launchAgentInstalled ? '已安装' : '未安装'}</span></div>
+      <div className="settings-row"><div><strong>通知</strong><p>同一天一次汇总；已忽略集数不再提醒。</p></div><span className="status-pill">{auth?.notificationsEnabled === false ? '已关闭' : '已开启'}</span></div>
     </section>
   );
-}
-
-function orderCalendarDaysFromToday(days: CalendarDay[], todayWeekdayId: number): CalendarDay[] {
-  if (todayWeekdayId < 0) {
-    return days;
-  }
-  return [...days].sort((a, b) => weekdayDistanceFromToday(a.weekday.id, todayWeekdayId) - weekdayDistanceFromToday(b.weekday.id, todayWeekdayId));
-}
-
-function weekdayDistanceFromToday(weekdayId: number, todayWeekdayId: number): number {
-  if (weekdayId < 1 || weekdayId > 7) {
-    return Number.MAX_SAFE_INTEGER;
-  }
-  return (weekdayId - todayWeekdayId + 7) % 7;
-}
-
-function orderCalendarItemsByBroadcastTime(items: CalendarSubject[]): CalendarSubject[] {
-  return [...items].sort((a, b) => {
-    const byDate = a.airDate.localeCompare(b.airDate);
-    if (byDate !== 0) return byDate;
-    const byTime = compareAirTime(a.airTime, b.airTime);
-    if (byTime !== 0) return byTime;
-    return displaySubjectName(a.name, a.nameCn).localeCompare(displaySubjectName(b.name, b.nameCn), 'zh-Hans-CN');
-  });
-}
-
-function compareAirTime(a: string, b: string): number {
-  if (a && b) return a.localeCompare(b);
-  if (a) return -1;
-  if (b) return 1;
-  return 0;
-}
-
-function CalendarSubjectItem({ item }: { item: CalendarSubject }) {
-  return (
-    <article className="calendar-subject">
-      <a className="calendar-cover" href={item.url} target="_blank" rel="noreferrer" aria-label={displaySubjectName(item.name, item.nameCn)}>
-        {item.image ? <img src={item.image} alt="" /> : <span>{item.nameCn || item.name}</span>}
-      </a>
-      <div>
-        <a href={item.url} target="_blank" rel="noreferrer">
-          {displaySubjectName(item.name, item.nameCn)}
-        </a>
-        <p>{calendarSubjectMeta(item)}</p>
-      </div>
-    </article>
-  );
-}
-
-function calendarSubjectMeta(item: CalendarSubject): string {
-  const parts = [formatCalendarAirDateTime(item.airDate, item.airTime)];
-  if (item.ratingScore !== null) parts.push(`评分 ${item.ratingScore.toFixed(1)}`);
-  if (item.rank !== null) parts.push(`Rank ${item.rank}`);
-  if (item.collectionDoing !== null) parts.push(`${item.collectionDoing} 人在看`);
-  return parts.join(' · ');
-}
-
-function formatCalendarAirDateTime(airDate: string, airTime: string): string {
-  if (airDate && airTime) return `${airDate} ${airTime}`;
-  if (airDate) return `${airDate} 具体时间未知`;
-  return '播出时间未定';
-}
-
-function formatShanghaiToday(): string {
-  const parts = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    weekday: 'long'
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}年${values.month}月${values.day}日 ${values.weekday}`;
-}
-
-function getShanghaiWeekdayId(): number {
-  const weekday = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Shanghai',
-    weekday: 'short'
-  }).format(new Date());
-  return { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 }[weekday] ?? -1;
 }
