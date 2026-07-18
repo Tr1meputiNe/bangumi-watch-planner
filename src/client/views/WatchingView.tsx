@@ -35,7 +35,7 @@ export default function WatchingView({ dashboard, disabled, onChanged, onError }
     <div className="workspace">
       <section className="panel backlog-panel" aria-label="待补新集">
         <div className="panel-title">
-          <div><span className="panel-eyebrow">Queue</span><h1>待补新集</h1></div>
+          <div><span className="panel-eyebrow">今日待看</span><h1>待补新集</h1></div>
           <strong>{pendingEpisodes.length}</strong>
         </div>
         {pendingEpisodes.length > 0 ? (
@@ -57,7 +57,7 @@ export default function WatchingView({ dashboard, disabled, onChanged, onError }
 
       <section className="panel watching-panel" aria-label="在看动画">
         <div className="panel-title compact">
-          <div><span className="panel-eyebrow">Watching</span><h2>在看动画</h2></div>
+          <div><span className="panel-eyebrow">本季追番</span><h2>在看动画</h2></div>
           <strong>{dashboard.subjects.length}</strong>
         </div>
         <div className="subject-list">

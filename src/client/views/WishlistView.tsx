@@ -67,7 +67,7 @@ export default function WishlistView({ disabled, onChanged, onError }: WishlistV
     <section className="panel wishlist-panel" aria-label="想看">
       <div className="panel-title">
         <div>
-          <span className="panel-eyebrow">Wishlist</span>
+          <span className="panel-eyebrow">我的片单</span>
           <h1>想看</h1>
         </div>
         <strong>{data.items.length}</strong>

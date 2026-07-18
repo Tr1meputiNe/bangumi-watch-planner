@@ -255,7 +255,7 @@ function SettingsPanel({
   return (
     <section className="panel settings-panel" aria-label="设置">
       <div className="panel-title compact">
-        <div><span className="panel-eyebrow">Settings</span><h2>设置</h2></div>
+        <div><span className="panel-eyebrow">偏好与连接</span><h2>设置</h2></div>
         <strong>{auth?.authenticated ? auth.username : '未连接'}</strong>
       </div>
 

@@ -18,7 +18,7 @@ export default function CalendarView({ state, onRetry }: { state: CalendarViewSt
     <section className="panel calendar-panel" aria-label="每日放送">
       <div className="panel-title calendar-title">
         <div>
-          <span className="panel-eyebrow">Calendar</span>
+          <span className="panel-eyebrow">放送日历</span>
           <h1>每日放送</h1>
           <p>{formatShanghaiToday()} · 本周 {totalCount} 部，今日 {today?.items.length ?? 0} 部</p>
         </div>

@@ -44,7 +44,7 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
       <section className="panel backlog-today" aria-label="今日任务">
         <div className="panel-title">
           <div>
-            <span className="panel-eyebrow">Today</span>
+            <span className="panel-eyebrow">今天</span>
             <h1>今日任务</h1>
             <p>今天安排 {data.todayTasks.length} 集</p>
           </div>
@@ -91,7 +91,7 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
       <section className="panel backlog-week" aria-label="未来 7 天">
         <div className="panel-title compact">
           <div>
-            <span className="panel-eyebrow">Next</span>
+            <span className="panel-eyebrow">接下来</span>
             <h2>未来 7 天</h2>
           </div>
         </div>
