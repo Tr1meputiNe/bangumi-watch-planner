@@ -153,6 +153,7 @@ function episode(overrides: Partial<EpisodeRow> = {}): EpisodeRow {
     airTime: '20:00',
     collectionType: 0,
     dismissedAt: null,
+    snoozedUntil: null,
     ...overrides
   };
 }

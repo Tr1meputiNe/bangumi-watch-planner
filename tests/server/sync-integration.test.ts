@@ -139,6 +139,38 @@ describe('collection sync integration', () => {
     expect(withExtras?.unwatchedMainEpisodeCount).toBe(2);
   });
 
+  it('keeps an out-of-season title in watching while its main episodes are still updating', async () => {
+    const updatingEpisode = episodeCollection(1501, 150, 1);
+    updatingEpisode.episode.airdate = '2026-07-25';
+    const finishedEpisode = episodeCollection(1511, 151, 1);
+    finishedEpisode.episode.airdate = '2025-01-01';
+    const client = clientFor({
+      1: [],
+      3: [collection(150, 3, 12, '2024-01-01'), collection(151, 3, 12, '2024-01-01')],
+      4: []
+    }, catalogFor('2026-07-19'), {
+      getSubjectEpisodes: vi.fn(async (subjectId) => ({
+        total: 1,
+        data: subjectId === 150 ? [updatingEpisode] : [finishedEpisode]
+      }))
+    });
+
+    await repository.upsertSubject({ ...subjectWrite(150, 3), plannerMode: 'backlog' });
+    await repository.replaceSubjectEpisodes(150, [episodeRow(1501, 150, '2026-07-25')]);
+    await repository.replaceBacklogTasks({
+      fromDate: '2026-07-19',
+      throughDate: '2026-07-19',
+      preserveLocked: false,
+      tasks: [{ episodeId: 1501, subjectId: 150, plannedDate: '2026-07-19', slot: 0, locked: false }]
+    });
+
+    await syncAnimeCollections({ username: 'sai', client, repository, today: '2026-07-19' });
+
+    await expect(repository.getSubject(150)).resolves.toMatchObject({ plannerMode: 'seasonal' });
+    await expect(repository.getSubject(151)).resolves.toMatchObject({ plannerMode: 'backlog' });
+    expect((await repository.listBacklogTasks('2026-07-19', '2026-07-25')).some((item) => item.subjectId === 150)).toBe(false);
+  });
+
   it('rebuilds tomorrow through day six while preserving locked today and planner overrides', async () => {
     await repository.upsertSubject({ ...subjectWrite(1, 3), plannerMode: 'seasonal' });
     await repository.replaceSubjectEpisodes(1, [episodeRow(11, 1, '2026-07-26')]);
@@ -297,7 +329,8 @@ function episodeRow(id: number, subjectId: number, airdate: string) {
     airdate,
     airTime: '',
     collectionType: 0,
-    dismissedAt: null
+    dismissedAt: null,
+    snoozedUntil: null
   };
 }
 

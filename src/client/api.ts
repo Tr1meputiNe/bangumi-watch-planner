@@ -124,3 +124,7 @@ export function replanBacklogToday(): Promise<void> {
 export function dismissReminder(episodeId: number): Promise<void> {
   return api<void>(`/api/reminders/${episodeId}/dismiss`, { method: 'POST' });
 }
+
+export function snoozeReminderUntilTomorrow(episodeId: number): Promise<void> {
+  return api<void>(`/api/reminders/${episodeId}/tomorrow`, { method: 'POST' });
+}

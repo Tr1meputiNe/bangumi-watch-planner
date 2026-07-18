@@ -17,6 +17,7 @@ export function buildReminderCandidates(episodes: EpisodeRow[], today = todayInS
       if (episode.episodeType !== 0) return false;
       if (episode.collectionType === 2) return false;
       if (episode.dismissedAt) return false;
+      if (episode.snoozedUntil && isValidDateString(episode.snoozedUntil) && episode.snoozedUntil > today) return false;
       if (!isValidDateString(episode.airdate)) return false;
       return episode.airdate <= today;
     })

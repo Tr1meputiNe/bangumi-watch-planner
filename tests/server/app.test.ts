@@ -192,6 +192,22 @@ describe('HTTP API', () => {
     await app.close();
   });
 
+  it('snoozes one seasonal reminder until tomorrow', async () => {
+    const snoozeEpisodeUntilTomorrow = vi.fn(async () => undefined);
+    const app = testApp({ snoozeEpisodeUntilTomorrow });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/reminders/42/tomorrow',
+      headers: { 'x-bwp-token': 'test-token' }
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(snoozeEpisodeUntilTomorrow).toHaveBeenCalledWith(42);
+
+    await app.close();
+  });
+
   it('marks all episodes through a selected episode', async () => {
     const markSubjectEpisodesWatchedThrough = vi.fn(async () => undefined);
     const app = buildApp({
@@ -655,7 +671,8 @@ describe('HTTP API', () => {
     '/api/backlog/101/complete',
     '/api/backlog/tasks/501/swap',
     '/api/backlog/today/skip',
-    '/api/backlog/today/replan'
+    '/api/backlog/today/replan',
+    '/api/reminders/501/tomorrow'
   ])('protects planner write route %s with the local token', async (url) => {
     const app = testApp();
 
@@ -693,6 +710,7 @@ function testApp(dashboardOverrides: Record<string, unknown> = {}) {
       replanBacklogToday: vi.fn(),
       searchAnimeSubjects: vi.fn(),
       dismissEpisode: vi.fn(),
+      snoozeEpisodeUntilTomorrow: vi.fn(),
       ...dashboardOverrides
     },
     settings: { saveOAuthConfig: vi.fn() },

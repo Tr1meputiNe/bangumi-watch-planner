@@ -24,7 +24,8 @@ const dashboard = {
       airdate: '2026-07-08',
       airTime: '22:30',
       collectionType: 0,
-      dismissedAt: null
+      dismissedAt: null,
+      snoozedUntil: null
     }
   ],
   subjects: [
@@ -50,7 +51,8 @@ const dashboard = {
           airdate: '2026-07-08',
           airTime: '22:30',
           collectionType: 2,
-          dismissedAt: null
+          dismissedAt: null,
+          snoozedUntil: null
         },
         {
           id: 12,
@@ -66,7 +68,8 @@ const dashboard = {
           airdate: '2026-07-09',
           airTime: '23:00',
           collectionType: 0,
-          dismissedAt: null
+          dismissedAt: null,
+          snoozedUntil: null
         }
       ],
       unwatchedMainEpisodes: [
@@ -84,7 +87,8 @@ const dashboard = {
           airdate: '2026-07-08',
           airTime: '22:30',
           collectionType: 0,
-          dismissedAt: null
+          dismissedAt: null,
+          snoozedUntil: null
         }
       ],
       image: 'cover.jpg',
@@ -103,7 +107,8 @@ const dashboard = {
         airdate: '2026-07-08',
         airTime: '22:30',
         collectionType: 0,
-        dismissedAt: null
+        dismissedAt: null,
+        snoozedUntil: null
       }
     }
   ],
@@ -266,6 +271,43 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/episodes/11/watched', {
+        method: 'POST'
+      });
+    });
+    await waitFor(() => {
+      expect(within(backlog).queryByText('第一集')).not.toBeInTheDocument();
+    });
+  });
+
+  it('can postpone a pending seasonal episode until tomorrow', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({
+          authenticated: true,
+          username: 'sai',
+          nickname: 'Sai',
+          lastSyncAt: dashboard.lastSyncAt
+        });
+      }
+      if (url === '/api/dashboard') {
+        return Response.json(dashboard);
+      }
+      if (url === '/api/reminders/11/tomorrow' && init?.method === 'POST') {
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    await screen.findByText('第一集');
+    const backlog = screen.getByLabelText('待补新集');
+    await userEvent.click(within(backlog).getByRole('button', { name: '明天再看' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/reminders/11/tomorrow', {
         method: 'POST'
       });
     });

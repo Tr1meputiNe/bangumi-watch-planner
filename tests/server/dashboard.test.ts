@@ -120,6 +120,24 @@ describe('dashboard service', () => {
     expect(getCalendar).toHaveBeenCalled();
   });
 
+  it('snoozes a seasonal reminder until the next Shanghai date', async () => {
+    const snoozeEpisodeUntil = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client(),
+      repository: repository({
+        getEpisode: vi.fn(async () => episode()),
+        getSubject: vi.fn(async () => subject({ plannerMode: 'seasonal' })),
+        snoozeEpisodeUntil
+      }),
+      clock: fixedClock
+    });
+
+    await service.snoozeEpisodeUntilTomorrow(11);
+
+    expect(snoozeEpisodeUntil).toHaveBeenCalledWith(11, '2026-07-20');
+  });
+
   it('keeps backlog, wishlist, held, and completed titles out of the seasonal dashboard', async () => {
     const seasonal = dashboardSubject({ id: 1, plannerMode: 'seasonal', collectionType: 3 });
     const seasonalEpisode = episode({ id: 11, subjectId: 1, airdate: '2026-07-19' });
@@ -830,6 +848,7 @@ function episode(overrides: Partial<EpisodeRow> = {}): EpisodeRow {
     airTime: '',
     collectionType: 0,
     dismissedAt: null,
+    snoozedUntil: null,
     ...overrides
   };
 }

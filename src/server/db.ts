@@ -26,6 +26,7 @@ export type Repository = SyncRepository & {
   markEpisodeWatched(episodeId: number): Promise<void>;
   markEpisodeUnwatched(episodeId: number): Promise<void>;
   dismissEpisode(episodeId: number, dismissedAt: string): Promise<void>;
+  snoozeEpisodeUntil(episodeId: number, date: string): Promise<void>;
   getLastNotificationDate(): Promise<string | null>;
   setLastNotificationDate(date: string): Promise<void>;
 };
@@ -89,13 +90,14 @@ export function createRepository(dbPath: string): Repository {
     },
 
     async replaceSubjectEpisodes(subjectId, episodes) {
-      const existingDismissals = new Map<number, string | null>(
+      const existingReminderState = new Map<number, { dismissedAt: string | null; snoozedUntil: string | null }>(
         (
-          db.prepare('select id, dismissed_at as dismissedAt from episodes where subject_id = ?').all(subjectId) as {
+          db.prepare('select id, dismissed_at as dismissedAt, snoozed_until as snoozedUntil from episodes where subject_id = ?').all(subjectId) as {
             id: number;
             dismissedAt: string | null;
+            snoozedUntil: string | null;
           }[]
-        ).map((row) => [row.id, row.dismissedAt])
+        ).map((row) => [row.id, { dismissedAt: row.dismissedAt, snoozedUntil: row.snoozedUntil }])
       );
       const tx = db.transaction((rows: EpisodeRow[]) => {
         if (rows.length === 0) {
@@ -109,10 +111,10 @@ export function createRepository(dbPath: string): Repository {
         const upsert = db.prepare(
           `insert into episodes (
             id, subject_id, subject_name, subject_name_cn, subject_url,
-            episode_type, sort, ep, name, name_cn, airdate, air_time, collection_type, dismissed_at
+            episode_type, sort, ep, name, name_cn, airdate, air_time, collection_type, dismissed_at, snoozed_until
           ) values (
             @id, @subjectId, @subjectName, @subjectNameCn, @subjectUrl,
-            @episodeType, @sort, @ep, @name, @nameCn, @airdate, @airTime, @collectionType, @dismissedAt
+            @episodeType, @sort, @ep, @name, @nameCn, @airdate, @airTime, @collectionType, @dismissedAt, @snoozedUntil
           ) on conflict(id) do update set
             subject_id = excluded.subject_id,
             subject_name = excluded.subject_name,
@@ -126,10 +128,17 @@ export function createRepository(dbPath: string): Repository {
             airdate = excluded.airdate,
             air_time = excluded.air_time,
             collection_type = excluded.collection_type,
-            dismissed_at = excluded.dismissed_at`
+            dismissed_at = excluded.dismissed_at,
+            snoozed_until = excluded.snoozed_until`
         );
         for (const row of rows) {
-          upsert.run({ ...row, airTime: row.airTime ?? '', dismissedAt: existingDismissals.get(row.id) ?? row.dismissedAt });
+          const existing = existingReminderState.get(row.id);
+          upsert.run({
+            ...row,
+            airTime: row.airTime ?? '',
+            dismissedAt: existing?.dismissedAt ?? row.dismissedAt,
+            snoozedUntil: existing?.snoozedUntil ?? row.snoozedUntil ?? null
+          });
         }
       });
       tx(episodes);
@@ -282,7 +291,7 @@ export function createRepository(dbPath: string): Repository {
       const episode = selectEpisodes(db, 'where id = ?', [episodeId])[0] ?? null;
       const progress = episode ? Number(episode.ep ?? episode.sort) : NaN;
       const markWatched = db.transaction(() => {
-        db.prepare('update episodes set collection_type = 2 where id = ?').run(episodeId);
+        db.prepare('update episodes set collection_type = 2, snoozed_until = null where id = ?').run(episodeId);
         if (episode && Number.isFinite(progress) && progress > 0) {
           db.prepare('update subjects set ep_status = max(ep_status, ?) where id = ?').run(
             Math.floor(progress),
@@ -296,7 +305,7 @@ export function createRepository(dbPath: string): Repository {
     async markEpisodeUnwatched(episodeId) {
       const episode = selectEpisodes(db, 'where id = ?', [episodeId])[0] ?? null;
       const markUnwatched = db.transaction(() => {
-        db.prepare('update episodes set collection_type = 0 where id = ?').run(episodeId);
+        db.prepare('update episodes set collection_type = 0, snoozed_until = null where id = ?').run(episodeId);
         if (episode) {
           db.prepare('update subjects set ep_status = ? where id = ?').run(
             highestWatchedMainEpisodeProgress(db, episode.subjectId),
@@ -308,7 +317,11 @@ export function createRepository(dbPath: string): Repository {
     },
 
     async dismissEpisode(episodeId, dismissedAt) {
-      db.prepare('update episodes set dismissed_at = ? where id = ?').run(dismissedAt, episodeId);
+      db.prepare('update episodes set dismissed_at = ?, snoozed_until = null where id = ?').run(dismissedAt, episodeId);
+    },
+
+    async snoozeEpisodeUntil(episodeId, date) {
+      db.prepare('update episodes set snoozed_until = ? where id = ?').run(date, episodeId);
     },
 
     async getLastNotificationDate() {
@@ -354,6 +367,7 @@ function migrate(db: Database.Database): void {
       air_time text not null default '',
       collection_type integer not null,
       dismissed_at text,
+      snoozed_until text,
       foreign key(subject_id) references subjects(id) on delete cascade
     );
 
@@ -361,6 +375,7 @@ function migrate(db: Database.Database): void {
     create index if not exists episodes_airdate_idx on episodes(airdate);
   `);
   addColumnIfMissing(db, 'episodes', 'air_time', "text not null default ''");
+  addColumnIfMissing(db, 'episodes', 'snoozed_until', 'text');
   addColumnIfMissing(db, 'subjects', 'collection_type', 'integer not null default 3');
   addColumnIfMissing(db, 'subjects', 'planner_mode', "text default 'seasonal'");
   addColumnIfMissing(db, 'subjects', 'season_key', 'text');
@@ -463,7 +478,8 @@ function selectEpisodes(db: Database.Database, whereClause: string, params: unkn
         airdate,
         air_time as airTime,
         collection_type as collectionType,
-        dismissed_at as dismissedAt
+        dismissed_at as dismissedAt,
+        snoozed_until as snoozedUntil
        from episodes
        ${whereClause}
        order by airdate, case when air_time = '' then 1 else 0 end, air_time, subject_name_cn, subject_name, sort`

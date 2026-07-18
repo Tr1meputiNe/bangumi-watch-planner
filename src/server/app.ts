@@ -144,6 +144,11 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
     return reply.code(204).send();
   });
 
+  app.post<{ Params: { episodeId: string } }>('/api/reminders/:episodeId/tomorrow', async (request, reply) => {
+    await dashboard.snoozeEpisodeUntilTomorrow(parsePositiveInteger(request.params.episodeId));
+    return reply.code(204).send();
+  });
+
   app.setErrorHandler((error, _request, reply) => {
     app.log.error(error);
     const typedError = error as Error & { expose?: boolean; statusCode?: number };

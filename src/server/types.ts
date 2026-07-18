@@ -85,6 +85,7 @@ export type EpisodeRow = {
   airTime: string;
   collectionType: number;
   dismissedAt: string | null;
+  snoozedUntil: string | null;
 };
 
 export type DashboardSubject = SubjectRow & {
@@ -329,6 +330,7 @@ export type DashboardService = {
   replanBacklogToday(): Promise<void>;
   searchAnimeSubjects(keyword: string): Promise<AnimeSearchResult[]>;
   dismissEpisode(episodeId: number): Promise<void>;
+  snoozeEpisodeUntilTomorrow(episodeId: number): Promise<void>;
 };
 
 export type OAuthConfigInput = {

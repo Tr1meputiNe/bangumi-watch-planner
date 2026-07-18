@@ -16,7 +16,8 @@ const baseEpisode: EpisodeRow = {
   airdate: '2026-07-08',
   airTime: '',
   collectionType: 0,
-  dismissedAt: null
+  dismissedAt: null,
+  snoozedUntil: null
 };
 
 describe('buildReminderCandidates', () => {
@@ -47,6 +48,13 @@ describe('buildReminderCandidates', () => {
     );
 
     expect(candidates).toEqual([]);
+  });
+
+  it('hides a snoozed episode until the selected Shanghai date', () => {
+    const snoozed = { ...baseEpisode, snoozedUntil: '2026-07-09' };
+
+    expect(buildReminderCandidates([snoozed], '2026-07-08')).toEqual([]);
+    expect(buildReminderCandidates([snoozed], '2026-07-09')).toEqual([snoozed]);
   });
 });
 

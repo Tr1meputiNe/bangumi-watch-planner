@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { dismissReminder, markUnwatched, markWatched, markWatchedThrough } from '../api.js';
+import { dismissReminder, markUnwatched, markWatched, markWatchedThrough, snoozeReminderUntilTomorrow } from '../api.js';
 import type { DashboardData, DashboardSubject, EpisodeRow } from '../../server/types.js';
 import { displayEpisodeTitle, displaySubjectName } from '../../shared/format.js';
 
@@ -49,6 +49,7 @@ export default function WatchingView({ dashboard, disabled, onChanged, onError }
                 disabled={disabled || busyEpisodeId === episode.id}
                 processing={busyEpisodeId === episode.id}
                 onWatched={() => void runEpisodeAction(episode.id, () => markWatched(episode.id), true)}
+                onSnooze={() => void runEpisodeAction(episode.id, () => snoozeReminderUntilTomorrow(episode.id), true)}
                 onDismiss={() => void runEpisodeAction(episode.id, () => dismissReminder(episode.id), true)}
               />
             ))}
@@ -170,12 +171,14 @@ function EpisodeItem({
   disabled,
   processing,
   onWatched,
+  onSnooze,
   onDismiss
 }: {
   episode: EpisodeRow;
   disabled: boolean;
   processing: boolean;
   onWatched: () => void;
+  onSnooze: () => void;
   onDismiss: () => void;
 }) {
   return (
@@ -191,6 +194,7 @@ function EpisodeItem({
       </div>
       <div className="episode-actions">
         <button type="button" onClick={onWatched} disabled={disabled}>{processing ? '处理中' : '已看'}</button>
+        <button type="button" className="secondary" onClick={onSnooze} disabled={disabled}>明天再看</button>
         <button type="button" className="ghost" onClick={onDismiss} disabled={disabled}>忽略</button>
       </div>
     </article>

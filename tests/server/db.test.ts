@@ -262,6 +262,20 @@ describe('repository', () => {
     ]);
   });
 
+  it('stores an episode snooze date and preserves it across synchronization', async () => {
+    await repository.upsertSubject(baseSubject());
+    await repository.replaceSubjectEpisodes(1, [episode({ id: 11 })]);
+
+    await repository.snoozeEpisodeUntil(11, '2026-07-20');
+    await expect(repository.getEpisode(11)).resolves.toMatchObject({ snoozedUntil: '2026-07-20' });
+
+    await repository.replaceSubjectEpisodes(1, [episode({ id: 11, name: 'updated episode' })]);
+    await expect(repository.getEpisode(11)).resolves.toMatchObject({
+      name: 'updated episode',
+      snoozedUntil: '2026-07-20'
+    });
+  });
+
   it('stores planner overrides by Shanghai date', async () => {
     await repository.upsertSubject(baseSubject());
     await repository.replaceSubjectEpisodes(1, [episode({ id: 21 })]);
@@ -294,7 +308,8 @@ function baseEpisode() {
     airdate: '2026-07-08',
     airTime: '',
     collectionType: 0,
-    dismissedAt: null
+    dismissedAt: null,
+    snoozedUntil: null
   };
 }
 

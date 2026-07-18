@@ -148,7 +148,8 @@ function episode(): EpisodeRow {
     airdate: '2026-07-19',
     airTime: '20:00',
     collectionType: 0,
-    dismissedAt: null
+    dismissedAt: null,
+    snoozedUntil: null
   };
 }
 

@@ -367,6 +367,18 @@ export function createDashboardService({
         throw Object.assign(new Error(`Episode ${episodeId} was not found`), { statusCode: 404 });
       }
       await repository.dismissEpisode(episodeId, `${todayInShanghai(clock())}T00:00:00+08:00`);
+    },
+
+    async snoozeEpisodeUntilTomorrow(episodeId) {
+      const episode = await repository.getEpisode(episodeId);
+      if (!episode) {
+        throw Object.assign(new Error(`Episode ${episodeId} was not found`), { statusCode: 404 });
+      }
+      const subject = await repository.getSubject(episode.subjectId);
+      if (!subject || subject.plannerMode !== 'seasonal' || subject.collectionType !== 3) {
+        throw Object.assign(new Error('Only seasonal reminders can be snoozed'), { statusCode: 400 });
+      }
+      await repository.snoozeEpisodeUntil(episodeId, shiftAirDate(todayInShanghai(clock()), 1));
     }
   };
 

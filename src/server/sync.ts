@@ -60,9 +60,14 @@ export async function syncAnimeCollections({
 
         const episodes = await getAllSubjectEpisodes(client, subject, broadcastCatalog.schedules);
         const apiTotal = collection.subject.eps ?? 0;
+        const resolvedClassification = collectionType === 3
+          && classification.plannerMode === 'backlog'
+          && isStillUpdating(episodes, today)
+          ? { ...classification, plannerMode: 'seasonal' as const }
+          : classification;
         await repository.upsertSubject({
           ...subject,
-          ...classification,
+          ...resolvedClassification,
           eps: Math.max(apiTotal, collection.ep_status, mainEpisodeCount(episodes), highestMainEpisodeNumber(episodes)),
           airYear: getAirYear(collection.subject.date),
           totalEpisodesKnown: apiTotal > 0,
@@ -132,7 +137,6 @@ async function rebuildPlan({ repository, today, includeToday }: {
   today: string;
   includeToday: boolean;
 }): Promise<void> {
-  const tomorrow = addDays(today, 1);
   const throughDate = addDays(today, 6);
   await repository.prunePlannerState(today);
   if (!includeToday) await repository.lockBacklogDate(today);
@@ -147,6 +151,7 @@ async function rebuildPlan({ repository, today, includeToday }: {
   ]);
   const seasonalEpisodes = seasonal.flatMap((subject) => subject.mainEpisodes)
     .filter((episode) => episode.airdate >= today && episode.airdate <= throughDate);
+  const backlogEpisodeIds = new Set(backlog.flatMap((subject) => subject.unwatchedMainEpisodes).map((episode) => episode.id));
   const seasonalLoadByDate = new Map(dateRange(today, throughDate).map((date) => [date, countSeasonalLoad(seasonalEpisodes, date)]));
   const skippedDates = new Set(skipped);
   if (!includeToday) skippedDates.add(today);
@@ -163,18 +168,17 @@ async function rebuildPlan({ repository, today, includeToday }: {
     seasonalLoadByDate,
     subjects: backlog.map((subject) => ({ subjectId: subject.id, episodes: subject.unwatchedMainEpisodes })),
     fixedTasks: currentTasks
-      .filter((task) => task.locked)
+      .filter((task) => task.locked && backlogEpisodeIds.has(task.episodeId))
       .map(({ episodeId, subjectId, plannedDate, slot }) => ({ episodeId, subjectId, plannedDate, slot, locked: true as const })),
     skippedDates,
     exclusions: exclusionsByDate,
     rotationCursorSubjectId: parseCursor(cursorValue)
   });
-  const fromDate = includeToday ? today : tomorrow;
   await repository.replaceBacklogTasks({
-    fromDate,
+    fromDate: today,
     throughDate,
-    preserveLocked: true,
-    tasks: plan.tasks.filter((task) => task.plannedDate >= fromDate)
+    preserveLocked: false,
+    tasks: plan.tasks
   });
   await repository.setSetting('backlog_rotation_cursor', plan.rotationCursorSubjectId === null ? '' : String(plan.rotationCursorSubjectId));
 }
@@ -236,6 +240,14 @@ function classifySubject(
   };
 }
 
+function isStillUpdating(episodes: EpisodeRow[], today: string): boolean {
+  return episodes.some((episode) => (
+    episode.episodeType === 0
+    && isValidDateString(episode.airdate)
+    && episode.airdate >= today
+  ));
+}
+
 function mapSubject(collection: BangumiSubjectCollection): SyncedSubject {
   const subject = collection.subject;
   const id = subject.id ?? collection.subject_id;
@@ -270,7 +282,8 @@ function mapEpisode(
     airdate: shiftAirDate(episode.airdate || '', schedule?.dayOffset ?? 0),
     airTime: schedule?.airTime ?? '',
     collectionType: collection.type,
-    dismissedAt: null
+    dismissedAt: null,
+    snoozedUntil: null
   };
 }
 
