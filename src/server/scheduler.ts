@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { createNotificationSummary, shouldNotifyToday, todayInShanghai } from './reminders.js';
+import { createDailyNotificationSummary, shouldNotifyToday, todayInShanghai } from './reminders.js';
 import type { DashboardService } from './types.js';
 import type { Notifier } from './notifier.js';
 import type { Repository } from './db.js';
@@ -10,6 +10,7 @@ type SchedulerDeps = {
   notifier: Notifier;
   cronExpression: string;
   notificationsEnabled: () => Promise<boolean>;
+  clock?: () => Date;
 };
 
 export function startScheduler(deps: SchedulerDeps): { stop(): void } {
@@ -33,13 +34,17 @@ export async function runReminderCheck(deps: Omit<SchedulerDeps, 'cronExpression
   await deps.dashboard.syncNow();
 
   const dashboard = await deps.dashboard.getDashboard();
-  if (dashboard.pendingEpisodes.length === 0) return;
+  const backlog = await deps.dashboard.getBacklog();
+  const today = todayInShanghai(deps.clock?.());
+  const summary = createDailyNotificationSummary(
+    dashboard.pendingEpisodes,
+    backlog.todayTasks.filter((task) => task.plannedDate === today)
+  );
+  if (!summary) return;
 
-  const today = todayInShanghai();
   const lastNotificationDate = await deps.repository.getLastNotificationDate();
   if (!shouldNotifyToday(lastNotificationDate, today)) return;
 
-  const summary = createNotificationSummary(dashboard.pendingEpisodes);
   await deps.notifier.notify(summary.title, summary.body);
   await deps.repository.setLastNotificationDate(today);
 }

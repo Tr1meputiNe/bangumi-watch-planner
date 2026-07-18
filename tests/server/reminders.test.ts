@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { EpisodeRow } from '../../src/server/types.js';
-import { buildReminderCandidates, shouldNotifyToday } from '../../src/server/reminders.js';
+import type { BacklogTaskRow, EpisodeRow } from '../../src/server/types.js';
+import { buildReminderCandidates, createDailyNotificationSummary, shouldNotifyToday } from '../../src/server/reminders.js';
 
 const baseEpisode: EpisodeRow = {
   id: 10,
@@ -57,3 +57,53 @@ describe('shouldNotifyToday', () => {
     expect(shouldNotifyToday('2026-07-08', '2026-07-08')).toBe(false);
   });
 });
+
+describe('createDailyNotificationSummary', () => {
+  it('builds two labeled sections when both kinds have tasks', () => {
+    expect(createDailyNotificationSummary(
+      [{ ...baseEpisode, subjectNameCn: '测试新番', ep: 3 }],
+      [backlogTask({ episode: { ...baseEpisode, subjectNameCn: '旧番', ep: 2 } })]
+    )).toEqual({
+      title: '今日追番计划',
+      body: '今日新番待看：测试新番 第 3 集\n今日补番计划：旧番 第 2 集'
+    });
+  });
+
+  it('omits the backlog section when today has no backlog task', () => {
+    expect(createDailyNotificationSummary(
+      [{ ...baseEpisode, subjectNameCn: '测试新番', ep: 3 }],
+      []
+    )?.body).toBe('今日新番待看：测试新番 第 3 集');
+  });
+
+  it('returns null when both sections are empty', () => {
+    expect(createDailyNotificationSummary([], [])).toBeNull();
+  });
+
+  it('limits each section to three titles and reports the full title count', () => {
+    const episodes = Array.from({ length: 4 }, (_, index) => ({
+      ...baseEpisode,
+      id: index + 1,
+      subjectId: index + 1,
+      subjectNameCn: `番剧 ${index + 1}`,
+      ep: index + 1
+    }));
+
+    expect(createDailyNotificationSummary(episodes, [])?.body).toBe(
+      '今日新番待看：番剧 1 第 1 集、番剧 2 第 2 集、番剧 3 第 3 集 等 4 部'
+    );
+  });
+});
+
+function backlogTask(overrides: Partial<BacklogTaskRow> = {}): BacklogTaskRow {
+  return {
+    id: 1,
+    episodeId: overrides.episode?.id ?? 10,
+    subjectId: overrides.episode?.subjectId ?? 1,
+    plannedDate: '2026-07-19',
+    slot: 0,
+    locked: true,
+    episode: baseEpisode,
+    ...overrides
+  };
+}

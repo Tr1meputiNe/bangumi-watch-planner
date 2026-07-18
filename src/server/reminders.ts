@@ -1,4 +1,4 @@
-import type { EpisodeRow } from './types.js';
+import type { BacklogTaskRow, EpisodeRow } from './types.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -58,6 +58,35 @@ export function createNotificationSummary(episodes: EpisodeRow[]): { title: stri
     title,
     body: preview ? `${preview}${suffix} 已有新集可看` : '打开追番计划查看待补列表'
   };
+}
+
+export function createDailyNotificationSummary(
+  seasonalEpisodes: EpisodeRow[],
+  backlogTasks: BacklogTaskRow[]
+): { title: string; body: string } | null {
+  const sections: string[] = [];
+  if (seasonalEpisodes.length > 0) {
+    sections.push(`今日新番待看：${formatEpisodes(seasonalEpisodes)}`);
+  }
+  if (backlogTasks.length > 0) {
+    sections.push(`今日补番计划：${formatEpisodes(backlogTasks.map((task) => task.episode))}`);
+  }
+  return sections.length === 0 ? null : { title: '今日追番计划', body: sections.join('\n') };
+}
+
+function formatEpisodes(episodes: EpisodeRow[]): string {
+  const bySubject = new Map<number, EpisodeRow>();
+  for (const episode of episodes) {
+    if (!bySubject.has(episode.subjectId)) {
+      bySubject.set(episode.subjectId, episode);
+    }
+  }
+  const preview = [...bySubject.values()]
+    .slice(0, 3)
+    .map((episode) => `${displaySubject(episode)} 第 ${episode.ep ?? episode.sort} 集`)
+    .join('、');
+  const suffix = bySubject.size > 3 ? ` 等 ${bySubject.size} 部` : '';
+  return `${preview}${suffix}`;
 }
 
 function displaySubject(episode: EpisodeRow): string {
