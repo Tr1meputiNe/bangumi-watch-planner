@@ -90,7 +90,7 @@ describe('collection sync integration', () => {
   });
 
   it('keeps previous-quarter watching seasonal through overlap day 14, then moves it to backlog on day 15', async () => {
-    const collections = { 1: [], 3: [collection(103, 3)], 4: [] };
+    const collections = { 1: [collection(203, 1)], 3: [collection(103, 3)], 4: [] };
 
     await syncAnimeCollections({
       username: 'sai',
@@ -99,6 +99,9 @@ describe('collection sync integration', () => {
       client: clientFor(collections, catalogFor('2026-07-17'))
     });
     await expect(repository.getSubject(103)).resolves.toMatchObject({ plannerMode: 'seasonal', seasonKey: '2026Q2' });
+    await expect(repository.listWishlist('', null)).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: 203, isCurrentSeason: true })]
+    });
 
     await syncAnimeCollections({
       username: 'sai',
@@ -107,6 +110,9 @@ describe('collection sync integration', () => {
       client: clientFor(collections, catalogFor('2026-07-18'))
     });
     await expect(repository.getSubject(103)).resolves.toMatchObject({ plannerMode: 'backlog', seasonKey: null, seasonKind: null });
+    await expect(repository.listWishlist('', null)).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: 203, isCurrentSeason: false })]
+    });
   });
 
   it('uses only fetched main episodes to correct display totals and known-total safety', async () => {
@@ -198,7 +204,10 @@ function catalogFor(today: string): BroadcastCatalog {
     seasonEntry(101, '2026Q3', 'new', '2026-07-04'),
     seasonEntry(102, '2026Q3', 'continuing', '2026-07-06')
   ]);
-  const previous = seasonCatalog('2026Q2', [seasonEntry(103, '2026Q2', 'new', '2026-04-02')]);
+  const previous = seasonCatalog('2026Q2', [
+    seasonEntry(103, '2026Q2', 'new', '2026-04-02'),
+    seasonEntry(203, '2026Q2', 'new', '2026-04-03')
+  ]);
   return { schedules: new Map(), seasonWindow: buildSeasonWindow(today, current, previous) };
 }
 

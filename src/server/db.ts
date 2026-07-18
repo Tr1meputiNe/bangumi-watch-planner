@@ -176,9 +176,8 @@ export function createRepository(dbPath: string): Repository {
         where.push('air_year = ?');
         params.push(year);
       }
-      const currentSeason = seasonKeyForToday();
       const items = selectSubjects(db, `where ${where.join(' and ')}`, params)
-        .map((subject) => ({ ...subject, isCurrentSeason: subject.seasonKey === currentSeason }));
+        .map((subject) => ({ ...subject, isCurrentSeason: subject.seasonKey !== null }));
       const years = (db.prepare(
         'select distinct air_year as airYear from subjects where collection_type = 1 and air_year is not null order by air_year desc'
       ).all() as Array<{ airYear: number }>).map((row) => row.airYear);
@@ -445,12 +444,6 @@ function selectDashboardSubjects(db: Database.Database, whereClause = '', params
 
 function placeholders(values: { length: number }): string {
   return Array.from({ length: values.length }, () => '?').join(', ');
-}
-
-function seasonKeyForToday(): string {
-  const month = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', month: 'numeric' }).format());
-  const year = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', year: 'numeric' }).format();
-  return `${year}Q${Math.ceil(month / 3)}`;
 }
 
 function selectEpisodes(db: Database.Database, whereClause: string, params: unknown[] = []): EpisodeRow[] {

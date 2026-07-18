@@ -290,6 +290,9 @@ export function createDashboardService({
 
     async completeBacklogSubject(subjectId) {
       const subject = await requireSubject(subjectId);
+      if (subject.plannerMode !== 'backlog' || ![3, 4].includes(subject.collectionType)) {
+        throw Object.assign(new Error('Only unfinished backlog subjects can be completed manually'), { statusCode: 400 });
+      }
       if (subject.totalEpisodesKnown) {
         throw Object.assign(new Error('Manual completion is only available when the episode total is unknown'), { statusCode: 400 });
       }

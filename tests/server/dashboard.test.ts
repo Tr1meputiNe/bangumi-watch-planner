@@ -548,6 +548,26 @@ describe('dashboard service', () => {
     expect(setSubjectState).not.toHaveBeenCalled();
   });
 
+  it('rejects manual backlog completion for a seasonal title', async () => {
+    const setSubjectCollectionType = vi.fn(async () => undefined);
+    const setSubjectState = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ setSubjectCollectionType }),
+      repository: repository({
+        getSubject: vi.fn(async () => subject({ plannerMode: 'seasonal', totalEpisodesKnown: false })),
+        setSubjectState
+      }),
+      rebuildPlan: vi.fn(async () => undefined),
+      clock: fixedClock
+    });
+
+    await expect(service.completeBacklogSubject(1)).rejects.toMatchObject({ statusCode: 400 });
+
+    expect(setSubjectCollectionType).not.toHaveBeenCalled();
+    expect(setSubjectState).not.toHaveBeenCalled();
+  });
+
   it('swaps a task by excluding it today and rebuilding all seven dates', async () => {
     const deleteBacklogTask = vi.fn(async () => undefined);
     const excludeEpisodeOnDate = vi.fn(async () => undefined);
