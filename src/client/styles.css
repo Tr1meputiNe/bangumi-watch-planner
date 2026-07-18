@@ -14,8 +14,8 @@
   --surface-soft: #f9fafc;
   --line: #e3e5eb;
   --line-strong: #cfd3dc;
-  --pink: #e97995;
-  --pink-dark: #c95273;
+  --pink: #b94669;
+  --pink-dark: #96314f;
   --blue: #4f86c9;
   --green: #498d73;
   --yellow: #b57d2c;
@@ -128,7 +128,7 @@ p {
   border-radius: 8px;
   display: grid;
   place-items: center;
-  background: #df7691;
+  background: var(--pink);
   color: #ffffff;
   font-weight: 900;
   letter-spacing: 0;
@@ -555,7 +555,7 @@ button.ghost:hover {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #e67995;
+  background: var(--pink);
 }
 
 .subject-detail p {
@@ -1182,18 +1182,17 @@ body {
   position: static;
   grid-template-columns: 1fr;
   gap: 16px;
-  border-color: #e0e3ea;
-  border-left: 5px solid var(--pink);
+  border-color: #e3cbd3;
   background: rgba(255, 255, 255, 0.94);
   padding: 16px;
-  box-shadow: 0 14px 36px rgba(46, 42, 61, 0.09), 0 2px 5px rgba(46, 42, 61, 0.05);
+  box-shadow: 0 4px 8px rgba(46, 42, 61, 0.09);
 }
 
 .brand-mark {
   width: 52px;
   height: 52px;
-  background: #29263b;
-  box-shadow: inset 0 -5px 0 var(--pink), 0 7px 16px rgba(41, 38, 59, 0.18);
+  background: var(--pink);
+  box-shadow: inset 0 -4px 0 rgba(255, 255, 255, 0.2), 0 4px 8px rgba(150, 49, 79, 0.18);
 }
 
 .brand-lockup p {
@@ -1233,7 +1232,7 @@ body {
   border: 1px solid #dfe2e9;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 8px 22px rgba(46, 42, 61, 0.07);
+  box-shadow: none;
   padding: 6px;
 }
 
@@ -1253,7 +1252,7 @@ body {
 .page-tabs button[aria-selected="true"] {
   border-color: #efc1cc;
   background: #fff0f4;
-  box-shadow: inset 4px 0 0 var(--pink);
+  box-shadow: none;
 }
 
 .workspace {
@@ -1270,7 +1269,7 @@ body {
 .backlog-panel > .panel-title {
   min-height: 96px;
   border-bottom: 0;
-  background: #ce5f7f;
+  background: var(--pink);
   padding: 20px 22px;
 }
 
@@ -1311,7 +1310,7 @@ body {
   background: #ffffff;
   padding: 0;
   overflow: hidden;
-  box-shadow: 0 7px 18px rgba(58, 47, 65, 0.07);
+  box-shadow: 0 4px 8px rgba(58, 47, 65, 0.07);
   transition: border-color 160ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 
@@ -1322,7 +1321,7 @@ body {
 .episode-row:hover {
   border-color: #e7adbd;
   background: #ffffff;
-  box-shadow: 0 12px 26px rgba(58, 47, 65, 0.12);
+  box-shadow: 0 5px 8px rgba(58, 47, 65, 0.12);
   transform: translateY(-2px);
 }
 
@@ -1436,7 +1435,7 @@ body {
   border: 1px solid #dde1e9;
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 6px 16px rgba(46, 42, 61, 0.06);
+  box-shadow: 0 3px 8px rgba(46, 42, 61, 0.06);
 }
 
 .watching-panel .subject-row:last-child {
@@ -1685,12 +1684,12 @@ body {
   .page-tabs {
     border-color: #393b47;
     background: rgba(35, 36, 45, 0.94);
-    box-shadow: var(--shadow);
+    box-shadow: none;
   }
 
   .brand-mark {
-    background: #4a3040;
-    box-shadow: inset 0 -5px 0 #d66d8c, 0 7px 16px rgba(7, 8, 13, 0.28);
+    background: #b94669;
+    box-shadow: inset 0 -4px 0 rgba(255, 255, 255, 0.16);
   }
 
   .brand-lockup strong,
@@ -1712,7 +1711,7 @@ body {
   .page-tabs button[aria-selected="true"] {
     border-color: #6c4050;
     background: #3a2730;
-    box-shadow: inset 4px 0 0 #d66d8c;
+    box-shadow: none;
   }
 
   button:hover,
@@ -1789,7 +1788,7 @@ body {
   .episode-row:hover {
     border-color: #493b44;
     background: #25252f;
-    box-shadow: 0 10px 24px rgba(7, 8, 13, 0.24);
+    box-shadow: none;
   }
 
   .episode-row:hover {
@@ -1813,7 +1812,7 @@ body {
   .watching-panel .subject-row:hover {
     border-color: #3f424e;
     background: #23242d;
-    box-shadow: 0 7px 18px rgba(7, 8, 13, 0.22);
+    box-shadow: none;
   }
 
   .watching-panel .subject-row:hover {
