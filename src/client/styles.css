@@ -130,6 +130,7 @@ p {
   place-items: center;
   background: var(--pink);
   color: #ffffff;
+  font-size: 1.35rem;
   font-weight: 900;
   letter-spacing: 0;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 5px 12px rgba(201, 82, 115, 0.2);
@@ -1191,8 +1192,10 @@ body {
 .brand-mark {
   width: 52px;
   height: 52px;
-  background: var(--pink);
-  box-shadow: inset 0 -4px 0 rgba(255, 255, 255, 0.2), 0 4px 8px rgba(150, 49, 79, 0.18);
+  border: 1px solid #e8b5c4;
+  background: #fff0f4;
+  color: var(--pink-dark);
+  box-shadow: none;
 }
 
 .brand-lockup p {
@@ -1268,26 +1271,26 @@ body {
 
 .backlog-panel > .panel-title {
   min-height: 96px;
-  border-bottom: 0;
-  background: var(--pink);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
   padding: 20px 22px;
 }
 
 .backlog-panel > .panel-title .panel-eyebrow {
-  color: #ffe5ed;
+  color: var(--pink-dark);
 }
 
 .backlog-panel > .panel-title h1 {
-  color: #ffffff;
+  color: var(--ink);
   font-size: 1.8rem;
 }
 
 .backlog-panel > .panel-title strong {
   min-width: 44px;
   min-height: 44px;
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  background: rgba(255, 255, 255, 0.18);
-  color: #ffffff;
+  border: 1px solid #efc1cc;
+  background: #fff0f4;
+  color: var(--pink-dark);
   font-size: 1rem;
 }
 
@@ -1331,7 +1334,7 @@ body {
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: #f2e7ec;
+  background: #f0eef2;
   color: var(--ink);
   text-decoration: none;
   font-weight: 800;
@@ -1688,8 +1691,10 @@ body {
   }
 
   .brand-mark {
-    background: #b94669;
-    box-shadow: inset 0 -4px 0 rgba(255, 255, 255, 0.16);
+    border-color: #704356;
+    background: #352730;
+    color: #f0a0b8;
+    box-shadow: none;
   }
 
   .brand-lockup strong,
@@ -1773,11 +1778,17 @@ body {
   }
 
   .backlog-panel > .panel-title {
-    background: #a63c5e;
+    background: #2b2730;
   }
 
   .backlog-panel > .panel-title .panel-eyebrow {
-    color: #ffd5e1;
+    color: #f0a0b8;
+  }
+
+  .backlog-panel > .panel-title strong {
+    border-color: #6c4050;
+    background: #3a2730;
+    color: #f0a0b8;
   }
 
   .episode-list {
@@ -1800,7 +1811,7 @@ body {
   }
 
   .episode-visual {
-    background: #49343f;
+    background: #34313b;
   }
 
   .episode-index {

@@ -164,7 +164,7 @@ export default function App() {
       <aside className="app-sidebar" aria-label="应用导航">
         <header className="topbar">
           <div className="brand-lockup">
-            <span className="brand-mark" aria-hidden="true">bgm</span>
+            <span className="brand-mark" aria-hidden="true">番</span>
             <div><p>Bangumi Watch Planner</p><strong>{accountLabel}</strong></div>
           </div>
           <div className="topbar-stats" aria-live="polite">
