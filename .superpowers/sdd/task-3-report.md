@@ -80,3 +80,49 @@ git diff --check: exit 0
 ## Concerns
 
 - The brief's sample timestamp `1783177200000` is `2026-07-04 23:00` in `Asia/Shanghai`, not the stated `2026-07-05 00:00`. The regression uses `1783180800000`, which is the timestamp matching the required Shanghai date/time and existing ACG correction behavior.
+
+## Review Fix: Cross-Quarter Continuation Anchor
+
+### Red
+
+Command before the fix:
+
+```sh
+npm test -- tests/server/broadcast-schedule.test.ts tests/server/season-window.test.ts
+```
+
+Output:
+
+```text
+Test Files  1 failed | 1 passed (2)
+Tests  1 failed | 6 passed (7)
+expected 'new' to be 'continuing'
+```
+
+The production-shaped `anime-type-new acgs-anime-continue` card with `datetoday="跨季續播"` was incorrectly classified as new, making its historical timestamp eligible as the current-quarter anchor.
+
+### Green
+
+Command after giving continuation markers precedence:
+
+```sh
+npm test -- tests/server/broadcast-schedule.test.ts tests/server/season-window.test.ts tests/server/sync.test.ts
+```
+
+Output:
+
+```text
+Test Files  3 passed (3)
+Tests  11 passed (11)
+```
+
+The fixture proves the production continuation and a normal `anime-type-continue` card remain in current entries as `continuing`, while the real current new title supplies the anchor.
+
+Additional verification:
+
+```text
+npm run build: exit 0
+npm run lint: exit 0
+```
+
+The full `npm test` command was also run while Task 5 was modifying shared sync contracts. It reported 4 failures in legacy dashboard/OAuth tests because their mocks still use the pre-Task-5 collection API; the 12 other test files passed. No Task 5 file was changed as part of this fix.

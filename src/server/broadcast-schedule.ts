@@ -162,9 +162,11 @@ export function parseAcgSecretsSeason(html: string, seasonKey: string): SeasonCa
     const animeId = tag.match(/acgs-bangumi-data-id="([^"]+)"/)?.[1];
     const timestamp = Number(tag.match(/onairtime="(\d+)"/)?.[1]);
     const weekday = tag.match(/weektoday="([^"]+)"/)?.[1];
-    const seasonKind = classes.includes('anime-type-new')
-      ? 'new'
-      : classes.includes('anime-type-continue') ? 'continuing' : null;
+    const seasonKind = classes.includes('anime-type-continue')
+      || classes.includes('acgs-anime-continue')
+      || tag.includes('datetoday="跨季續播"')
+      ? 'continuing'
+      : classes.includes('anime-type-new') ? 'new' : null;
     if (animeId && Number.isFinite(timestamp) && weekday && seasonKind) {
       cards.set(animeId, { timestamp, weekday, seasonKind });
     }

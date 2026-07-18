@@ -4,6 +4,7 @@ import {
   fetchBroadcastTimes,
   parseAcgSecretsSeason
 } from '../../src/server/broadcast-schedule.js';
+import { buildSeasonWindow } from '../../src/server/season-window.js';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -42,6 +43,28 @@ describe('broadcast schedule', () => {
       dayOffset: 0
     });
     expect(catalog.entries.has(303)).toBe(false);
+  });
+
+  it('keeps cross-quarter continuations out of the current-quarter anchor', () => {
+    const current = parseAcgSecretsSeason(`
+      <div class="CV-search acgs-card anime-type-new acgs-anime-continue" acgs-bangumi-data-id="historical"
+        onairtime="1751644800000" weektoday="六" datetoday="跨季續播"></div>
+      <div class="CV-search acgs-card anime-type-new" acgs-bangumi-data-id="new"
+        onairtime="1783180800000" weektoday="六" datetoday="7月4日"></div>
+      <div class="CV-search acgs-card anime-type-continue" acgs-bangumi-data-id="continuing"
+        onairtime="1784298600000" weektoday="五" datetoday="7月17日"></div>
+      <div acgs-bangumi-anime-id="historical"><a href="https://bangumi.tv/subject/101">Bangumi</a></div>
+      <div acgs-bangumi-anime-id="new"><a href="https://bangumi.tv/subject/202">Bangumi</a></div>
+      <div acgs-bangumi-anime-id="continuing"><a href="https://bangumi.tv/subject/303">Bangumi</a></div>
+    `, '2026Q3');
+
+    expect(current.entries.get(101)?.seasonKind).toBe('continuing');
+    expect(current.entries.get(303)?.seasonKind).toBe('continuing');
+    expect([...current.entries.keys()]).toEqual([101, 202, 303]);
+    expect(buildSeasonWindow('2026-07-01', current, {
+      seasonKey: '2026Q2',
+      entries: new Map()
+    }).anchorDate).toBe('2026-07-05');
   });
 
   it('fetches only current and previous ACG quarters for the broadcast catalog', async () => {
