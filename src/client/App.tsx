@@ -161,64 +161,68 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">bgm</span>
-          <div><p>Bangumi Watch Planner</p><strong>{accountLabel}</strong></div>
-        </div>
-        <div className="topbar-stats" aria-live="polite">
-          <span>{pendingEpisodes.length} 集待补</span>
-          <span>{subjects.length} 部在看</span>
-          <span>{syncTime}</span>
-        </div>
-        <div className="topbar-actions">
-          <button type="button" onClick={() => void runAction(syncNow)} disabled={isPending || !state.auth?.authenticated}>立即同步</button>
-        </div>
-      </header>
+      <aside className="app-sidebar" aria-label="应用导航">
+        <header className="topbar">
+          <div className="brand-lockup">
+            <span className="brand-mark" aria-hidden="true">bgm</span>
+            <div><p>Bangumi Watch Planner</p><strong>{accountLabel}</strong></div>
+          </div>
+          <div className="topbar-stats" aria-live="polite">
+            <span>{pendingEpisodes.length} 集待补</span>
+            <span>{subjects.length} 部在看</span>
+            <span>{syncTime}</span>
+          </div>
+          <div className="topbar-actions">
+            <button type="button" onClick={() => void runAction(syncNow)} disabled={isPending || !state.auth?.authenticated}>立即同步</button>
+          </div>
+        </header>
 
-      {state.error ? <div className="notice error">{state.error}</div> : null}
-      {state.dashboard?.lastError ? <div className="notice warning">同步错误：{state.dashboard.lastError}</div> : null}
+        <div className="page-tabs" role="tablist" aria-label="视图">
+          <Tab active={activeView === 'watching'} onClick={() => setActiveView('watching')}>追番提醒</Tab>
+          <Tab active={activeView === 'backlog'} onClick={() => setActiveView('backlog')}>补番计划</Tab>
+          <Tab active={activeView === 'wishlist'} onClick={() => setActiveView('wishlist')}>想看</Tab>
+          <Tab active={activeView === 'calendar'} onClick={() => setActiveView('calendar')}>每日放送</Tab>
+        </div>
+      </aside>
 
-      <div className="page-tabs" role="tablist" aria-label="视图">
-        <Tab active={activeView === 'watching'} onClick={() => setActiveView('watching')}>追番提醒</Tab>
-        <Tab active={activeView === 'backlog'} onClick={() => setActiveView('backlog')}>补番计划</Tab>
-        <Tab active={activeView === 'wishlist'} onClick={() => setActiveView('wishlist')}>想看</Tab>
-        <Tab active={activeView === 'calendar'} onClick={() => setActiveView('calendar')}>每日放送</Tab>
+      <div className="app-content">
+        {state.error ? <div className="notice error">{state.error}</div> : null}
+        {state.dashboard?.lastError ? <div className="notice warning">同步错误：{state.dashboard.lastError}</div> : null}
+
+        {activeView === 'watching' ? (
+          <>
+            {state.dashboard ? (
+              <WatchingView dashboard={state.dashboard} disabled={isPending} onChanged={load} onError={showError} />
+            ) : <div className="empty">正在加载追番提醒。</div>}
+            <SettingsPanel
+              auth={state.auth}
+              disabled={isPending}
+              oauthForm={oauthForm}
+              setOauthForm={setOauthForm}
+              animeSearch={animeSearch}
+              setAnimeSearch={setAnimeSearch}
+              addingSubjectId={addingSubjectId}
+              onSearch={runAnimeSearch}
+              onAdd={addAnimeToWatching}
+              onSaveOAuth={saveOAuthSettings}
+            />
+          </>
+        ) : null}
+
+        {activeView === 'backlog' ? (
+          backlogState.data ? (
+            <BacklogView
+              data={backlogState.data}
+              disabled={isPending || backlogState.loading}
+              onChanged={refreshBacklogAndDashboard}
+              onError={showError}
+            />
+          ) : <div className="empty">{backlogState.error || '正在加载补番计划。'}</div>
+        ) : null}
+
+        {activeView === 'wishlist' ? <WishlistView disabled={isPending} onChanged={load} onError={showError} /> : null}
+        {activeView === 'calendar' ? <CalendarView state={calendarState} onRetry={() => void loadCalendar()} /> : null}
       </div>
-
-      {activeView === 'watching' ? (
-        <>
-          {state.dashboard ? (
-            <WatchingView dashboard={state.dashboard} disabled={isPending} onChanged={load} onError={showError} />
-          ) : <div className="empty">正在加载追番提醒。</div>}
-          <SettingsPanel
-            auth={state.auth}
-            disabled={isPending}
-            oauthForm={oauthForm}
-            setOauthForm={setOauthForm}
-            animeSearch={animeSearch}
-            setAnimeSearch={setAnimeSearch}
-            addingSubjectId={addingSubjectId}
-            onSearch={runAnimeSearch}
-            onAdd={addAnimeToWatching}
-            onSaveOAuth={saveOAuthSettings}
-          />
-        </>
-      ) : null}
-
-      {activeView === 'backlog' ? (
-        backlogState.data ? (
-          <BacklogView
-            data={backlogState.data}
-            disabled={isPending || backlogState.loading}
-            onChanged={refreshBacklogAndDashboard}
-            onError={showError}
-          />
-        ) : <div className="empty">{backlogState.error || '正在加载补番计划。'}</div>
-      ) : null}
-
-      {activeView === 'wishlist' ? <WishlistView disabled={isPending} onChanged={load} onError={showError} /> : null}
-      {activeView === 'calendar' ? <CalendarView state={calendarState} onRetry={() => void loadCalendar()} /> : null}
     </main>
   );
 }

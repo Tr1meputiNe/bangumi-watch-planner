@@ -183,6 +183,7 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findAllByText('测试番剧')).toHaveLength(2);
+    expect(screen.getByLabelText('待补新集').querySelector('img')).toHaveAttribute('src', 'cover.jpg');
     expect(screen.getByText('第一集')).toBeInTheDocument();
     expect(screen.getByText('22:30')).toBeInTheDocument();
     expect(screen.getByText('1 / 12')).toBeInTheDocument();

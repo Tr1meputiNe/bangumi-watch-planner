@@ -13,6 +13,10 @@ type WatchingViewProps = {
 export default function WatchingView({ dashboard, disabled, onChanged, onError }: WatchingViewProps) {
   const [busyEpisodeId, setBusyEpisodeId] = useState<number | null>(null);
   const pendingEpisodes = dashboard.pendingEpisodes;
+  const subjectsById = useMemo(
+    () => new Map(dashboard.subjects.map((subject) => [subject.id, subject])),
+    [dashboard.subjects]
+  );
   const pendingBySubject = useMemo(() => {
     const counts = new Map<number, number>();
     for (const episode of pendingEpisodes) counts.set(episode.subjectId, (counts.get(episode.subjectId) ?? 0) + 1);
@@ -44,6 +48,7 @@ export default function WatchingView({ dashboard, disabled, onChanged, onError }
               <EpisodeItem
                 key={episode.id}
                 episode={episode}
+                subject={subjectsById.get(episode.subjectId)}
                 disabled={disabled || busyEpisodeId === episode.id}
                 processing={busyEpisodeId === episode.id}
                 onWatched={() => void runEpisodeAction(episode.id, () => markWatched(episode.id))}
@@ -166,6 +171,7 @@ function WatchProgressGrid({
 
 function EpisodeItem({
   episode,
+  subject,
   disabled,
   processing,
   onWatched,
@@ -173,20 +179,26 @@ function EpisodeItem({
   onDismiss
 }: {
   episode: EpisodeRow;
+  subject?: DashboardSubject;
   disabled: boolean;
   processing: boolean;
   onWatched: () => void;
   onSnooze: () => void;
   onDismiss: () => void;
 }) {
+  const subjectTitle = displaySubjectName(episode.subjectName, episode.subjectNameCn);
+
   return (
     <article className="episode-row">
-      <div className="episode-index" title={formatEpisodeAirdate(episode.airdate, episode.airTime)}>
-        <span>{episode.airTime || episode.airdate.slice(5) || '--'}</span>
-        <strong>{episode.airTime && episode.airdate ? `${episode.airdate.slice(5)} · ` : ''}第 {episode.sort} 集</strong>
-      </div>
+      <a className="episode-visual" href={episode.subjectUrl} target="_blank" rel="noreferrer" aria-label={subjectTitle}>
+        {subject?.image ? <img src={subject.image} alt="" /> : <span>{subjectTitle}</span>}
+        <span className="episode-index" title={formatEpisodeAirdate(episode.airdate, episode.airTime)}>
+          <span>{episode.airTime || episode.airdate.slice(5) || '--'}</span>
+          <strong>{episode.airTime && episode.airdate ? `${episode.airdate.slice(5)} · ` : ''}第 {episode.sort} 集</strong>
+        </span>
+      </a>
       <div className="episode-main">
-        <a className="episode-subject" href={episode.subjectUrl} target="_blank" rel="noreferrer">{displaySubjectName(episode.subjectName, episode.subjectNameCn)}</a>
+        <a className="episode-subject" href={episode.subjectUrl} target="_blank" rel="noreferrer">{subjectTitle}</a>
         <h3>{displayEpisodeTitle(episode.name, episode.nameCn, episode.sort)}</h3>
         <a href={episode.subjectUrl} target="_blank" rel="noreferrer">打开 Bangumi</a>
       </div>
