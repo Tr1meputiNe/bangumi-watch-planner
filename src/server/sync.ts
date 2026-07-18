@@ -184,7 +184,7 @@ async function getBroadcastCatalog(client: BangumiClient): Promise<BroadcastCata
     throw new Error('Anime collection sync requires an authoritative season window');
   }
   const catalog = await client.getBroadcastCatalog();
-  if (catalog.seasonWindow.entries.size === 0) {
+  if (!catalog.seasonWindow.authoritative || catalog.seasonWindow.entries.size === 0) {
     throw new Error('Anime collection sync requires a non-empty authoritative season window');
   }
   return catalog;

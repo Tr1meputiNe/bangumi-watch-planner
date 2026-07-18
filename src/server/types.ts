@@ -32,6 +32,7 @@ export type SeasonEntry = {
 export type SeasonCatalog = {
   seasonKey: string;
   entries: Map<number, SeasonEntry>;
+  available?: boolean;
 };
 
 export type SeasonWindow = {
@@ -39,6 +40,7 @@ export type SeasonWindow = {
   previousSeasonKey: string;
   anchorDate: string;
   overlapThrough: string;
+  authoritative: boolean;
   activeSubjectIds: Set<number>;
   entries: Map<number, SeasonEntry>;
 };

@@ -117,6 +117,33 @@ describe('broadcast schedule', () => {
     expect([...catalog.seasonWindow.activeSubjectIds]).toEqual([101, 303]);
   });
 
+  it('marks a partial ACG fetch as non-authoritative even when the other quarter has entries', async () => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url === 'https://acgsecrets.hk/bangumi/202607/') return { ok: false };
+      if (url === 'https://acgsecrets.hk/bangumi/202604/') {
+        return {
+          ok: true,
+          text: async () => `
+            <div class="CV-search acgs-card anime-type-new" acgs-bangumi-data-id="previous"
+              onairtime="1775404800000" weektoday="日"></div>
+            <div acgs-bangumi-anime-id="previous"><a href="https://bangumi.tv/subject/303">Bangumi</a></div>
+          `
+        };
+      }
+      if (url === 'https://bgm.tv/index/99544') return { ok: false };
+      return { ok: true, json: async () => ({ items: [] }) };
+    });
+
+    const catalog = await fetchBroadcastCatalog(
+      fetch as typeof globalThis.fetch,
+      'tester/bangumi-watch-planner',
+      new Date('2026-07-10T12:00:00+08:00')
+    );
+
+    expect(catalog.seasonWindow.entries.has(303)).toBe(true);
+    expect(catalog.seasonWindow.authoritative).toBe(false);
+  });
+
   it('prefers ACG Secrets Shanghai schedules and falls back to Bangumi sources', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-18T12:00:00+08:00'));

@@ -104,10 +104,10 @@ async function fetchAcgSecretsSeason(fetchImpl: typeof fetch, userAgent: string,
         'User-Agent': userAgent
       }
     });
-    if (!response.ok) return { seasonKey, entries: new Map() };
+    if (!response.ok) return { seasonKey, entries: new Map(), available: false };
     return parseAcgSecretsSeason(await response.text(), seasonKey);
   } catch {
-    return { seasonKey, entries: new Map() };
+    return { seasonKey, entries: new Map(), available: false };
   }
 }
 
@@ -197,7 +197,7 @@ export function parseAcgSecretsSeason(html: string, seasonKey: string): SeasonCa
       dayOffset
     });
   }
-  return { seasonKey, entries };
+  return { seasonKey, entries, available: true };
 }
 
 function seasonSchedules(catalog: SeasonCatalog): Map<number, BroadcastSchedule> {

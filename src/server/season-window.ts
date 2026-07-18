@@ -32,9 +32,10 @@ export function buildSeasonWindow(today: string, current: SeasonCatalog, previou
     .sort();
   const anchorDate = normalDates[0] ?? firstDateOfSeason(current.seasonKey);
   const overlapThrough = shiftAirDate(anchorDate, 13);
+  const overlapActive = today <= overlapThrough;
   const entries = new Map(current.entries);
 
-  if (today <= overlapThrough) {
+  if (overlapActive) {
     for (const [subjectId, entry] of previous.entries) {
       if (!entries.has(subjectId)) entries.set(subjectId, entry);
     }
@@ -45,6 +46,7 @@ export function buildSeasonWindow(today: string, current: SeasonCatalog, previou
     previousSeasonKey: previous.seasonKey,
     anchorDate,
     overlapThrough,
+    authoritative: current.available !== false && (!overlapActive || previous.available !== false),
     activeSubjectIds: new Set(entries.keys()),
     entries
   };

@@ -187,6 +187,7 @@ function broadcastCatalog(schedules = new Map()): BroadcastCatalog {
       previousSeasonKey: '2026Q2',
       anchorDate: '2026-07-01',
       overlapThrough: '2026-07-14',
+      authoritative: true,
       activeSubjectIds: new Set([999]),
       entries: new Map([[999, {
         subjectId: 999,

@@ -47,4 +47,13 @@ describe('season window', () => {
     expect(window.anchorDate).toBe('2026-07-01');
     expect(window.overlapThrough).toBe('2026-07-14');
   });
+
+  it('requires every season source needed by the active overlap', () => {
+    const current = catalog('2026Q3', [entry(101, 'new', '2026-07-04')]);
+    const unavailablePrevious = { ...catalog('2026Q2', [entry(303, 'new', '2026-04-02')]), available: false };
+
+    expect(buildSeasonWindow('2026-07-10', current, unavailablePrevious).authoritative).toBe(false);
+    expect(buildSeasonWindow('2026-07-18', current, unavailablePrevious).authoritative).toBe(true);
+    expect(buildSeasonWindow('2026-07-18', { ...current, available: false }, catalog('2026Q2', [])).authoritative).toBe(false);
+  });
 });

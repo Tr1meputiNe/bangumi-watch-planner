@@ -22,7 +22,8 @@ describe('collection sync integration', () => {
 
   it.each([
     ['missing', undefined],
-    ['empty', async () => emptyCatalog('2026-07-17')]
+    ['empty', async () => emptyCatalog('2026-07-17')],
+    ['partial', async () => partialCatalog('2026-07-17')]
   ] as const)('preserves existing data when the authoritative season catalog is %s', async (_case, getBroadcastCatalog) => {
     await repository.upsertSubject({
       ...subjectWrite(101, 3),
@@ -209,9 +210,18 @@ function emptyCatalog(today: string): BroadcastCatalog {
       previousSeasonKey: '2026Q2',
       anchorDate: today,
       overlapThrough: today,
+      authoritative: true,
       activeSubjectIds: new Set(),
       entries: new Map()
     }
+  };
+}
+
+function partialCatalog(today: string): BroadcastCatalog {
+  const catalog = catalogFor(today);
+  return {
+    ...catalog,
+    seasonWindow: { ...catalog.seasonWindow, authoritative: false }
   };
 }
 
