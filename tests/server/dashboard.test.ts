@@ -120,6 +120,28 @@ describe('dashboard service', () => {
     expect(getCalendar).toHaveBeenCalled();
   });
 
+  it('keeps backlog, wishlist, held, and completed titles out of the seasonal dashboard', async () => {
+    const seasonal = dashboardSubject({ id: 1, plannerMode: 'seasonal', collectionType: 3 });
+    const seasonalEpisode = episode({ id: 11, subjectId: 1, airdate: '2026-07-19' });
+    const backlogEpisode = episode({ id: 21, subjectId: 2, airdate: '2026-07-19' });
+    const listSubjectsByMode = vi.fn(async () => [seasonal]);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client(),
+      repository: repository({
+        listEpisodes: vi.fn(async () => [seasonalEpisode, backlogEpisode]),
+        listSubjectsByMode
+      }),
+      clock: fixedClock
+    });
+
+    await expect(service.getDashboard()).resolves.toMatchObject({
+      subjects: [seasonal],
+      pendingEpisodes: [seasonalEpisode]
+    });
+    expect(listSubjectsByMode).toHaveBeenCalledWith('seasonal', [3]);
+  });
+
   it('deduplicates concurrent manual sync requests', async () => {
     let releaseSync: (() => void) | null = null;
     let resolveSyncStarted: (() => void) | null = null;
@@ -317,6 +339,33 @@ describe('dashboard service', () => {
     expect(rebuildPlan).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    ['pause', subject({ plannerMode: 'seasonal', collectionType: 3 })],
+    ['pause', subject({ plannerMode: 'backlog', collectionType: 4 })],
+    ['resume', subject({ plannerMode: 'seasonal', collectionType: 4 })],
+    ['resume', subject({ plannerMode: 'backlog', collectionType: 3 })]
+  ] as const)('rejects %s when the subject is not in the required backlog state', async (action, storedSubject) => {
+    const setSubjectCollectionType = vi.fn(async () => undefined);
+    const setSubjectState = vi.fn(async () => undefined);
+    const rebuildPlan = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ setSubjectCollectionType }),
+      repository: repository({ getSubject: vi.fn(async () => storedSubject), setSubjectState }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    const operation = action === 'pause'
+      ? service.pauseBacklogSubject(1)
+      : service.resumeBacklogSubject(1);
+    await expect(operation).rejects.toMatchObject({ statusCode: 400 });
+
+    expect(setSubjectCollectionType).not.toHaveBeenCalled();
+    expect(setSubjectState).not.toHaveBeenCalled();
+    expect(rebuildPlan).not.toHaveBeenCalled();
+  });
+
   it('marks the final main episode before completing the subject and replans once', async () => {
     const events: string[] = [];
     const markEpisodesWatched = vi.fn(async () => { events.push('remote episode'); });
@@ -506,7 +555,11 @@ describe('dashboard service', () => {
     const service = createDashboardService({
       auth: authStatus(),
       client: client(),
-      repository: repository({ deleteBacklogTask, excludeEpisodeOnDate }),
+      repository: repository({
+        listBacklogTasks: vi.fn(async () => [backlogTask()]),
+        deleteBacklogTask,
+        excludeEpisodeOnDate
+      }),
       rebuildPlan,
       clock: fixedClock
     });
@@ -517,6 +570,29 @@ describe('dashboard service', () => {
     expect(excludeEpisodeOnDate).toHaveBeenCalledWith('2026-07-19', 11);
     expect(rebuildPlan).toHaveBeenCalledWith(expect.objectContaining({ today: '2026-07-19', includeToday: true }));
     expect(rebuildPlan).toHaveBeenCalledOnce();
+  });
+
+  it('rejects swapping an episode that is not in today\'s backlog plan', async () => {
+    const deleteBacklogTask = vi.fn(async () => undefined);
+    const excludeEpisodeOnDate = vi.fn(async () => undefined);
+    const rebuildPlan = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client(),
+      repository: repository({
+        listBacklogTasks: vi.fn(async () => [backlogTask({ episodeId: 12 })]),
+        deleteBacklogTask,
+        excludeEpisodeOnDate
+      }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await expect(service.swapBacklogTask(11)).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(deleteBacklogTask).not.toHaveBeenCalled();
+    expect(excludeEpisodeOnDate).not.toHaveBeenCalled();
+    expect(rebuildPlan).not.toHaveBeenCalled();
   });
 
   it('skips today by clearing its tasks, setting the skip, and replanning once', async () => {

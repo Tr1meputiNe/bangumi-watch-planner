@@ -119,12 +119,16 @@ export function createDashboardService({
     async getDashboard(): Promise<DashboardData> {
       const [episodes, subjects, lastSyncAt, lastError] = await Promise.all([
         repository.listEpisodes(),
-        repository.listSubjects(),
+        repository.listSubjectsByMode('seasonal', [3]),
         repository.getSetting('last_sync_at'),
         repository.getSetting('last_error')
       ]);
+      const seasonalSubjectIds = new Set(subjects.map((subject) => subject.id));
       return {
-        pendingEpisodes: buildReminderCandidates(episodes, todayInShanghai(clock())),
+        pendingEpisodes: buildReminderCandidates(
+          episodes.filter((episode) => seasonalSubjectIds.has(episode.subjectId)),
+          todayInShanghai(clock())
+        ),
         subjects,
         lastSyncAt,
         lastError: lastError || null
@@ -257,7 +261,10 @@ export function createDashboardService({
     },
 
     async pauseBacklogSubject(subjectId) {
-      await requireSubject(subjectId);
+      const subject = await requireSubject(subjectId);
+      if (subject.plannerMode !== 'backlog' || subject.collectionType !== 3) {
+        throw Object.assign(new Error('Only active backlog subjects can be paused'), { statusCode: 400 });
+      }
       await client.setSubjectCollectionType(subjectId, 4);
       await repository.setSubjectState(subjectId, {
         collectionType: 4,
@@ -268,7 +275,10 @@ export function createDashboardService({
     },
 
     async resumeBacklogSubject(subjectId) {
-      await requireSubject(subjectId);
+      const subject = await requireSubject(subjectId);
+      if (subject.plannerMode !== 'backlog' || subject.collectionType !== 4) {
+        throw Object.assign(new Error('Only held backlog subjects can be resumed'), { statusCode: 400 });
+      }
       await client.setSubjectCollectionType(subjectId, 3);
       await repository.setSubjectState(subjectId, {
         collectionType: 3,
@@ -296,6 +306,10 @@ export function createDashboardService({
     async swapBacklogTask(episodeId) {
       const now = clock();
       const today = todayInShanghai(now);
+      const todayTasks = await repository.listBacklogTasks(today, today);
+      if (!todayTasks.some((task) => task.episodeId === episodeId)) {
+        throw Object.assign(new Error(`Episode ${episodeId} is not in today's backlog plan`), { statusCode: 404 });
+      }
       await repository.deleteBacklogTask(episodeId);
       await repository.excludeEpisodeOnDate(today, episodeId);
       await replan(true, now);
