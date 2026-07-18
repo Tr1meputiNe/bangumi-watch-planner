@@ -14,6 +14,40 @@ export type BangumiCollectionType = 1 | 2 | 3 | 4 | 5;
 export type PlannerMode = 'seasonal' | 'backlog' | null;
 export type SeasonKind = 'new' | 'continuing';
 
+export type BroadcastSchedule = {
+  airDate: string;
+  airTime: string;
+  dayOffset: number;
+};
+
+export type SeasonEntry = {
+  subjectId: number;
+  seasonKey: string;
+  seasonKind: SeasonKind;
+  normalPremiereDate: string;
+  airTime: string;
+  dayOffset: number;
+};
+
+export type SeasonCatalog = {
+  seasonKey: string;
+  entries: Map<number, SeasonEntry>;
+};
+
+export type SeasonWindow = {
+  currentSeasonKey: string;
+  previousSeasonKey: string;
+  anchorDate: string;
+  overlapThrough: string;
+  activeSubjectIds: Set<number>;
+  entries: Map<number, SeasonEntry>;
+};
+
+export type BroadcastCatalog = {
+  schedules: Map<number, BroadcastSchedule>;
+  seasonWindow: SeasonWindow;
+};
+
 export type SubjectRow = {
   id: number;
   name: string;
@@ -234,6 +268,7 @@ export type BangumiClient = {
   getAnimeCollections(username: string, type: 1 | 3 | 4, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getWatchingAnime(username: string, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getSubjectEpisodes(subjectId: number, limit?: number, offset?: number): Promise<BangumiEpisodePage>;
+  getBroadcastCatalog?(): Promise<BroadcastCatalog>;
   getBroadcastTimes?(): Promise<Map<number, { airDate: string; airTime: string; dayOffset: number }>>;
   markEpisodesWatched(subjectId: number, episodeIds: number[]): Promise<void>;
   markEpisodesUnwatched(subjectId: number, episodeIds: number[]): Promise<void>;

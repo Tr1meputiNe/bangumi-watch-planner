@@ -1,3 +1,17 @@
+import type {
+  BroadcastCatalog,
+  BroadcastSchedule as BroadcastScheduleContract,
+  SeasonCatalog,
+  SeasonEntry,
+  SeasonKind
+} from './types.js';
+import {
+  acgSecretsUrlForSeason,
+  buildSeasonWindow,
+  previousSeasonKey,
+  seasonKeyForDate
+} from './season-window.js';
+
 type BangumiData = {
   items?: Array<{
     begin?: string;
@@ -6,23 +20,38 @@ type BangumiData = {
   }>;
 };
 
-export type BroadcastSchedule = {
-  airDate: string;
-  airTime: string;
-  dayOffset: number;
-};
+export type BroadcastSchedule = BroadcastScheduleContract;
 
 const BANGUMI_DATA_URL = 'https://unpkg.com/bangumi-data@0.3/dist/data.json';
 const BANGUMI_INDEX_URL = 'https://bgm.tv/index/99544';
-const ACGSECRETS_BASE_URL = 'https://acgsecrets.hk/bangumi';
 
 export async function fetchBroadcastTimes(fetchImpl: typeof fetch, userAgent: string): Promise<Map<number, BroadcastSchedule>> {
-  const [dataTimes, indexTimes, acgSecretsTimes] = await Promise.all([
+  return (await fetchBroadcastCatalog(fetchImpl, userAgent, new Date())).schedules;
+}
+
+export async function fetchBroadcastCatalog(
+  fetchImpl: typeof fetch,
+  userAgent: string,
+  now: Date
+): Promise<BroadcastCatalog> {
+  const currentSeasonKey = seasonKeyForDate(now);
+  const priorSeasonKey = previousSeasonKey(currentSeasonKey);
+  const [dataTimes, indexTimes, current, previous] = await Promise.all([
     fetchBangumiDataTimes(fetchImpl, userAgent),
     fetchBangumiIndexTimes(fetchImpl, userAgent),
-    fetchAcgSecretsTimes(fetchImpl, userAgent)
+    fetchAcgSecretsSeason(fetchImpl, userAgent, currentSeasonKey),
+    fetchAcgSecretsSeason(fetchImpl, userAgent, priorSeasonKey)
   ]);
-  return new Map([...dataTimes, ...indexTimes, ...acgSecretsTimes]);
+  const schedules = new Map([
+    ...dataTimes,
+    ...indexTimes,
+    ...seasonSchedules(previous),
+    ...seasonSchedules(current)
+  ]);
+  return {
+    schedules,
+    seasonWindow: buildSeasonWindow(shanghaiDate(now), current, previous)
+  };
 }
 
 export function shiftAirDate(airDate: string, days: number): string {
@@ -67,30 +96,19 @@ async function fetchBangumiIndexTimes(fetchImpl: typeof fetch, userAgent: string
   }
 }
 
-async function fetchAcgSecretsTimes(fetchImpl: typeof fetch, userAgent: string): Promise<Map<number, BroadcastSchedule>> {
+async function fetchAcgSecretsSeason(fetchImpl: typeof fetch, userAgent: string, seasonKey: string): Promise<SeasonCatalog> {
   try {
-    const response = await fetchImpl(currentAcgSecretsUrl(), {
+    const response = await fetchImpl(acgSecretsUrlForSeason(seasonKey), {
       headers: {
         Accept: 'text/html',
         'User-Agent': userAgent
       }
     });
-    if (!response.ok) return new Map();
-    return mapAcgSecretsTimes(await response.text());
+    if (!response.ok) return { seasonKey, entries: new Map() };
+    return parseAcgSecretsSeason(await response.text(), seasonKey);
   } catch {
-    return new Map();
+    return { seasonKey, entries: new Map() };
   }
-}
-
-function currentAcgSecretsUrl(): string {
-  const parts = new Intl.DateTimeFormat('en', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit'
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const seasonMonth = Math.floor((Number(values.month) - 1) / 3) * 3 + 1;
-  return `${ACGSECRETS_BASE_URL}/${values.year}${String(seasonMonth).padStart(2, '0')}/`;
 }
 
 function mapBroadcastTimes(data: BangumiData): Map<number, BroadcastSchedule> {
@@ -136,34 +154,56 @@ function mapIndexBroadcastTimes(html: string): Map<number, BroadcastSchedule> {
   return times;
 }
 
-function mapAcgSecretsTimes(html: string): Map<number, BroadcastSchedule> {
-  const cards = new Map<string, { timestamp: number; weekday: string }>();
-  for (const match of html.matchAll(/<div class="CV-search acgs-card\b[^>]*>/g)) {
+export function parseAcgSecretsSeason(html: string, seasonKey: string): SeasonCatalog {
+  const cards = new Map<string, { timestamp: number; weekday: string; seasonKind: SeasonKind }>();
+  for (const match of html.matchAll(/<div\b[^>]*class="([^"]*\bacgs-card\b[^"]*)"[^>]*>/g)) {
     const tag = match[0];
+    const classes = match[1];
     const animeId = tag.match(/acgs-bangumi-data-id="([^"]+)"/)?.[1];
     const timestamp = Number(tag.match(/onairtime="(\d+)"/)?.[1]);
     const weekday = tag.match(/weektoday="([^"]+)"/)?.[1];
-    if (animeId && Number.isFinite(timestamp) && weekday) cards.set(animeId, { timestamp, weekday });
+    const seasonKind = classes.includes('anime-type-new')
+      ? 'new'
+      : classes.includes('anime-type-continue') ? 'continuing' : null;
+    if (animeId && Number.isFinite(timestamp) && weekday && seasonKind) {
+      cards.set(animeId, { timestamp, weekday, seasonKind });
+    }
   }
 
-  const times = new Map<number, BroadcastSchedule>();
+  const entries = new Map<number, SeasonEntry>();
   const details = [...html.matchAll(/<div\b[^>]*acgs-bangumi-anime-id="([^"]+)"[^>]*>/g)];
   for (let index = 0; index < details.length; index += 1) {
     const card = cards.get(details[index][1]);
     if (!card) continue;
     const block = html.slice(details[index].index, details[index + 1]?.index ?? html.length);
     const subjectId = Number(block.match(/https:\/\/bangumi\.tv\/subject\/(\d+)/)?.[1]);
-    if (!Number.isInteger(subjectId)) continue;
+    if (!Number.isInteger(subjectId) || subjectId <= 0) continue;
 
     const date = new Date(card.timestamp);
-    const airDate = shanghaiDate(date);
+    if (Number.isNaN(date.getTime())) continue;
+    const normalPremiereDate = shanghaiDate(date);
     const airTime = extractShanghaiTime(date.toISOString());
     const sourceWeekday = '一二三四五六日'.indexOf(card.weekday) + 1;
-    const actualWeekday = new Date(`${airDate}T00:00:00+08:00`).getDay() || 7;
+    const actualWeekday = new Date(`${normalPremiereDate}T00:00:00+08:00`).getDay() || 7;
     const dayOffset = (actualWeekday - sourceWeekday + 7) % 7 === 1 ? 1 : 0;
-    times.set(subjectId, { airDate, airTime, dayOffset });
+    entries.set(subjectId, {
+      subjectId,
+      seasonKey,
+      seasonKind: card.seasonKind,
+      normalPremiereDate,
+      airTime,
+      dayOffset
+    });
   }
-  return times;
+  return { seasonKey, entries };
+}
+
+function seasonSchedules(catalog: SeasonCatalog): Map<number, BroadcastSchedule> {
+  return new Map([...catalog.entries].map(([subjectId, entry]) => [subjectId, {
+    airDate: entry.normalPremiereDate,
+    airTime: entry.airTime,
+    dayOffset: entry.dayOffset
+  }]));
 }
 
 function shanghaiDate(date: Date): string {
