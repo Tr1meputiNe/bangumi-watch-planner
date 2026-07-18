@@ -16,6 +16,8 @@ type SyncDeps = {
   pageSize?: number;
 };
 
+type SyncedSubject = Pick<SubjectRow, 'id' | 'name' | 'nameCn' | 'eps' | 'epStatus' | 'image' | 'url'>;
+
 export async function syncWatchingAnime({ username, client, repository, pageSize = 50 }: SyncDeps): Promise<SyncResult> {
   let offset = 0;
   let total = Number.POSITIVE_INFINITY;
@@ -50,7 +52,7 @@ export async function syncWatchingAnime({ username, client, repository, pageSize
   return { subjectsSynced, episodesSynced };
 }
 
-async function getAllSubjectEpisodes(client: BangumiClient, subject: SubjectRow, broadcastTimes: Map<number, BroadcastSchedule>): Promise<EpisodeRow[]> {
+async function getAllSubjectEpisodes(client: BangumiClient, subject: SyncedSubject, broadcastTimes: Map<number, BroadcastSchedule>): Promise<EpisodeRow[]> {
   const limit = 1000;
   let offset = 0;
   let total = Number.POSITIVE_INFINITY;
@@ -73,7 +75,7 @@ async function getAllSubjectEpisodes(client: BangumiClient, subject: SubjectRow,
   return episodes;
 }
 
-function mapSubject(collection: BangumiSubjectCollection): SubjectRow {
+function mapSubject(collection: BangumiSubjectCollection): SyncedSubject {
   const subject = collection.subject;
   return {
     id: subject.id ?? collection.subject_id,
@@ -86,7 +88,7 @@ function mapSubject(collection: BangumiSubjectCollection): SubjectRow {
   };
 }
 
-function mapEpisode(subject: SubjectRow, collection: BangumiEpisodeCollection, schedule?: BroadcastSchedule): EpisodeRow {
+function mapEpisode(subject: SyncedSubject, collection: BangumiEpisodeCollection, schedule?: BroadcastSchedule): EpisodeRow {
   const episode = collection.episode;
   return {
     id: episode.id,
@@ -106,7 +108,7 @@ function mapEpisode(subject: SubjectRow, collection: BangumiEpisodeCollection, s
   };
 }
 
-function getMainEpisodeTotal(subject: SubjectRow, episodes: EpisodeRow[]): number {
+function getMainEpisodeTotal(subject: SyncedSubject, episodes: EpisodeRow[]): number {
   const mainEpisodes = episodes.filter((episode) => episode.episodeType === 0);
   const knownMainEpisodeCount = mainEpisodes.length;
   const highestKnownMainEpisode = mainEpisodes.reduce((highest, episode) => {

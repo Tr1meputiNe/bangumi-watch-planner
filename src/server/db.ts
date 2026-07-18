@@ -48,7 +48,6 @@ export function createRepository(dbPath: string): Repository {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
   migrate(db);
 
   return {
@@ -113,18 +112,38 @@ export function createRepository(dbPath: string): Repository {
         ).map((row) => [row.id, row.dismissedAt])
       );
       const tx = db.transaction((rows: EpisodeRow[]) => {
-        db.prepare('delete from episodes where subject_id = ?').run(subjectId);
-        const insert = db.prepare(
+        if (rows.length === 0) {
+          db.prepare('delete from episodes where subject_id = ?').run(subjectId);
+        } else {
+          db.prepare(`delete from episodes where subject_id = ? and id not in (${placeholders(rows)})`).run(
+            subjectId,
+            ...rows.map((row) => row.id)
+          );
+        }
+        const upsert = db.prepare(
           `insert into episodes (
             id, subject_id, subject_name, subject_name_cn, subject_url,
             episode_type, sort, ep, name, name_cn, airdate, air_time, collection_type, dismissed_at
           ) values (
             @id, @subjectId, @subjectName, @subjectNameCn, @subjectUrl,
             @episodeType, @sort, @ep, @name, @nameCn, @airdate, @airTime, @collectionType, @dismissedAt
-          )`
+          ) on conflict(id) do update set
+            subject_id = excluded.subject_id,
+            subject_name = excluded.subject_name,
+            subject_name_cn = excluded.subject_name_cn,
+            subject_url = excluded.subject_url,
+            episode_type = excluded.episode_type,
+            sort = excluded.sort,
+            ep = excluded.ep,
+            name = excluded.name,
+            name_cn = excluded.name_cn,
+            airdate = excluded.airdate,
+            air_time = excluded.air_time,
+            collection_type = excluded.collection_type,
+            dismissed_at = excluded.dismissed_at`
         );
         for (const row of rows) {
-          insert.run({ ...row, airTime: row.airTime ?? '', dismissedAt: existingDismissals.get(row.id) ?? row.dismissedAt });
+          upsert.run({ ...row, airTime: row.airTime ?? '', dismissedAt: existingDismissals.get(row.id) ?? row.dismissedAt });
         }
       });
       tx(episodes);
@@ -198,6 +217,14 @@ export function createRepository(dbPath: string): Repository {
 
     async replaceBacklogTasks(input) {
       const replace = db.transaction((value: typeof input) => {
+        const preservedEpisodeIds = new Set<number>();
+        if (value.preserveLocked) {
+          for (const row of db.prepare(
+            'select episode_id as episodeId from backlog_tasks where planned_date between ? and ? and locked = 1'
+          ).all(value.fromDate, value.throughDate) as Array<{ episodeId: number }>) {
+            preservedEpisodeIds.add(row.episodeId);
+          }
+        }
         const lockedClause = value.preserveLocked ? ' and locked = 0' : '';
         db.prepare(`delete from backlog_tasks where planned_date between ? and ?${lockedClause}`).run(value.fromDate, value.throughDate);
         const insert = db.prepare(
@@ -205,6 +232,7 @@ export function createRepository(dbPath: string): Repository {
            values (@episodeId, @subjectId, @plannedDate, @slot, @locked, datetime('now'))`
         );
         for (const task of value.tasks) {
+          if (preservedEpisodeIds.has(task.episodeId)) continue;
           insert.run({ ...task, locked: task.locked ? 1 : 0 });
         }
       });

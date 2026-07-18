@@ -22,15 +22,17 @@ export type SubjectRow = {
   epStatus: number;
   image: string | null;
   url: string;
-  // Optional until the next sync persists planner metadata for legacy callers.
-  collectionType?: BangumiCollectionType;
-  plannerMode?: PlannerMode;
-  seasonKey?: string | null;
-  seasonKind?: SeasonKind | null;
-  airYear?: number | null;
-  totalEpisodesKnown?: boolean;
-  completedAt?: string | null;
+  collectionType: BangumiCollectionType;
+  plannerMode: PlannerMode;
+  seasonKey: string | null;
+  seasonKind: SeasonKind | null;
+  airYear: number | null;
+  totalEpisodesKnown: boolean;
+  completedAt: string | null;
 };
+
+export type SubjectWrite = Omit<SubjectRow, 'collectionType' | 'plannerMode' | 'seasonKey' | 'seasonKind' | 'airYear' | 'totalEpisodesKnown' | 'completedAt'>
+  & Partial<Pick<SubjectRow, 'collectionType' | 'plannerMode' | 'seasonKey' | 'seasonKind' | 'airYear' | 'totalEpisodesKnown' | 'completedAt'>>;
 
 export type EpisodeRow = {
   id: number;
@@ -238,7 +240,7 @@ export type BangumiClient = {
 };
 
 export type SyncRepository = {
-  upsertSubject(subject: SubjectRow): Promise<void>;
+  upsertSubject(subject: SubjectWrite): Promise<void>;
   replaceSubjectEpisodes(subjectId: number, episodes: EpisodeRow[]): Promise<void>;
   setSetting(key: string, value: string): Promise<void>;
 };

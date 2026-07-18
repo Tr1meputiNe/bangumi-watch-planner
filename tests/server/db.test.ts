@@ -219,6 +219,49 @@ describe('repository', () => {
     ]);
   });
 
+  it('does not reinsert a preserved locked task included in replacement input', async () => {
+    await repository.upsertSubject(baseSubject());
+    await repository.replaceSubjectEpisodes(1, [episode({ id: 11, airdate: '2026-07-20' })]);
+    await repository.replaceBacklogTasks({
+      fromDate: '2026-07-20',
+      throughDate: '2026-07-20',
+      preserveLocked: false,
+      tasks: [task({ episodeId: 11, plannedDate: '2026-07-20', locked: true })]
+    });
+
+    await repository.replaceBacklogTasks({
+      fromDate: '2026-07-20',
+      throughDate: '2026-07-20',
+      preserveLocked: true,
+      tasks: [task({ episodeId: 11, plannedDate: '2026-07-20', locked: true })]
+    });
+
+    await expect(repository.listBacklogTasks('2026-07-20', '2026-07-20')).resolves.toEqual([
+      expect.objectContaining({ episodeId: 11, plannedDate: '2026-07-20', locked: true })
+    ]);
+  });
+
+  it('preserves planner state when replacing stable episode ids', async () => {
+    await repository.upsertSubject(baseSubject());
+    await repository.replaceSubjectEpisodes(1, [episode({ id: 11 })]);
+    await repository.replaceBacklogTasks({
+      fromDate: '2026-07-20',
+      throughDate: '2026-07-20',
+      preserveLocked: false,
+      tasks: [task({ episodeId: 11, plannedDate: '2026-07-20' })]
+    });
+    await repository.excludeEpisodeOnDate('2026-07-20', 11);
+
+    await repository.replaceSubjectEpisodes(1, [episode({ id: 11, name: 'updated episode' })]);
+
+    await expect(repository.listBacklogTasks('2026-07-20', '2026-07-20')).resolves.toEqual([
+      expect.objectContaining({ episodeId: 11, episode: expect.objectContaining({ name: 'updated episode' }) })
+    ]);
+    await expect(repository.listBacklogExclusions('2026-07-20', '2026-07-20')).resolves.toEqual([
+      { plannedDate: '2026-07-20', episodeId: 11 }
+    ]);
+  });
+
   it('stores planner overrides by Shanghai date', async () => {
     await repository.upsertSubject(baseSubject());
     await repository.replaceSubjectEpisodes(1, [episode({ id: 21 })]);
