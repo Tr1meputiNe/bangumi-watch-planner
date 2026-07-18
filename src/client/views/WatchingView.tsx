@@ -12,19 +12,17 @@ type WatchingViewProps = {
 
 export default function WatchingView({ dashboard, disabled, onChanged, onError }: WatchingViewProps) {
   const [busyEpisodeId, setBusyEpisodeId] = useState<number | null>(null);
-  const [hiddenEpisodeIds, setHiddenEpisodeIds] = useState<Set<number>>(() => new Set());
-  const pendingEpisodes = dashboard.pendingEpisodes.filter((episode) => !hiddenEpisodeIds.has(episode.id));
+  const pendingEpisodes = dashboard.pendingEpisodes;
   const pendingBySubject = useMemo(() => {
     const counts = new Map<number, number>();
     for (const episode of pendingEpisodes) counts.set(episode.subjectId, (counts.get(episode.subjectId) ?? 0) + 1);
     return counts;
   }, [pendingEpisodes]);
 
-  async function runEpisodeAction(episodeId: number, action: () => Promise<unknown>, hide = false) {
+  async function runEpisodeAction(episodeId: number, action: () => Promise<unknown>) {
     setBusyEpisodeId(episodeId);
     try {
       await action();
-      if (hide) setHiddenEpisodeIds((current) => new Set(current).add(episodeId));
       await onChanged();
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
@@ -48,9 +46,9 @@ export default function WatchingView({ dashboard, disabled, onChanged, onError }
                 episode={episode}
                 disabled={disabled || busyEpisodeId === episode.id}
                 processing={busyEpisodeId === episode.id}
-                onWatched={() => void runEpisodeAction(episode.id, () => markWatched(episode.id), true)}
-                onSnooze={() => void runEpisodeAction(episode.id, () => snoozeReminderUntilTomorrow(episode.id), true)}
-                onDismiss={() => void runEpisodeAction(episode.id, () => dismissReminder(episode.id), true)}
+                onWatched={() => void runEpisodeAction(episode.id, () => markWatched(episode.id))}
+                onSnooze={() => void runEpisodeAction(episode.id, () => snoozeReminderUntilTomorrow(episode.id))}
+                onDismiss={() => void runEpisodeAction(episode.id, () => dismissReminder(episode.id))}
               />
             ))}
           </div>

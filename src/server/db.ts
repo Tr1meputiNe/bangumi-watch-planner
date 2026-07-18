@@ -90,14 +90,15 @@ export function createRepository(dbPath: string): Repository {
     },
 
     async replaceSubjectEpisodes(subjectId, episodes) {
-      const existingReminderState = new Map<number, { dismissedAt: string | null; snoozedUntil: string | null }>(
+      const existingReminderState = new Map<number, { collectionType: number; dismissedAt: string | null; snoozedUntil: string | null }>(
         (
-          db.prepare('select id, dismissed_at as dismissedAt, snoozed_until as snoozedUntil from episodes where subject_id = ?').all(subjectId) as {
+          db.prepare('select id, collection_type as collectionType, dismissed_at as dismissedAt, snoozed_until as snoozedUntil from episodes where subject_id = ?').all(subjectId) as {
             id: number;
+            collectionType: number;
             dismissedAt: string | null;
             snoozedUntil: string | null;
           }[]
-        ).map((row) => [row.id, { dismissedAt: row.dismissedAt, snoozedUntil: row.snoozedUntil }])
+        ).map((row) => [row.id, { collectionType: row.collectionType, dismissedAt: row.dismissedAt, snoozedUntil: row.snoozedUntil }])
       );
       const tx = db.transaction((rows: EpisodeRow[]) => {
         if (rows.length === 0) {
@@ -137,7 +138,9 @@ export function createRepository(dbPath: string): Repository {
             ...row,
             airTime: row.airTime ?? '',
             dismissedAt: existing?.dismissedAt ?? row.dismissedAt,
-            snoozedUntil: existing?.snoozedUntil ?? row.snoozedUntil ?? null
+            snoozedUntil: existing && existing.collectionType === row.collectionType
+              ? existing.snoozedUntil ?? row.snoozedUntil ?? null
+              : row.snoozedUntil ?? null
           });
         }
       });

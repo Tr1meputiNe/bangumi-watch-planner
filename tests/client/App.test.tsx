@@ -243,6 +243,7 @@ describe('App', () => {
   });
 
   it('can mark a pending episode as watched', async () => {
+    let pending = true;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -254,9 +255,10 @@ describe('App', () => {
         });
       }
       if (url === '/api/dashboard') {
-        return Response.json(dashboard);
+        return Response.json({ ...dashboard, pendingEpisodes: pending ? dashboard.pendingEpisodes : [] });
       }
       if (url === '/api/episodes/11/watched' && init?.method === 'POST') {
+        pending = false;
         return new Response(null, { status: 204 });
       }
       throw new Error(`Unexpected request ${url}`);
@@ -280,6 +282,7 @@ describe('App', () => {
   });
 
   it('can postpone a pending seasonal episode until tomorrow', async () => {
+    let pending = true;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -291,9 +294,10 @@ describe('App', () => {
         });
       }
       if (url === '/api/dashboard') {
-        return Response.json(dashboard);
+        return Response.json({ ...dashboard, pendingEpisodes: pending ? dashboard.pendingEpisodes : [] });
       }
       if (url === '/api/reminders/11/tomorrow' && init?.method === 'POST') {
+        pending = false;
         return new Response(null, { status: 204 });
       }
       throw new Error(`Unexpected request ${url}`);
@@ -314,6 +318,39 @@ describe('App', () => {
     await waitFor(() => {
       expect(within(backlog).queryByText('第一集')).not.toBeInTheDocument();
     });
+  });
+
+  it('shows a postponed episode again when a later dashboard refresh returns it', async () => {
+    let snoozed = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') {
+        return Response.json({ ...dashboard, pendingEpisodes: snoozed ? [] : dashboard.pendingEpisodes });
+      }
+      if (url === '/api/reminders/11/tomorrow' && init?.method === 'POST') {
+        snoozed = true;
+        return new Response(null, { status: 204 });
+      }
+      if (url === '/api/sync' && init?.method === 'POST') {
+        snoozed = false;
+        return Response.json({ subjectsSynced: 1, episodesSynced: 1 });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    const backlog = await screen.findByLabelText('待补新集');
+    await userEvent.click(within(backlog).getByRole('button', { name: '明天再看' }));
+    await waitFor(() => expect(within(backlog).queryByText('第一集')).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: '立即同步' }));
+
+    expect(await within(backlog).findByText('第一集')).toBeInTheDocument();
   });
 
   it('shows the total unwatched main episode count for a subject', async () => {

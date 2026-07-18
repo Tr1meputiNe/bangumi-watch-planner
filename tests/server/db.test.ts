@@ -149,6 +149,24 @@ describe('repository', () => {
         updated_at text not null
       );
       insert into subjects values (1, 'Test Anime', '测试番剧', 12, 3, null, 'https://bgm.tv/subject/1', '2026-07-19T00:00:00Z');
+      create table episodes (
+        id integer primary key,
+        subject_id integer not null,
+        subject_name text not null,
+        subject_name_cn text not null,
+        subject_url text not null,
+        episode_type integer not null,
+        sort real not null,
+        ep real,
+        name text not null,
+        name_cn text not null,
+        airdate text not null,
+        air_time text not null default '',
+        collection_type integer not null,
+        dismissed_at text,
+        foreign key(subject_id) references subjects(id) on delete cascade
+      );
+      insert into episodes values (11, 1, 'Test Anime', '测试番剧', 'https://bgm.tv/subject/1', 0, 1, 1, 'episode', '第 1 集', '2026-07-08', '', 0, null);
     `);
     db.close();
 
@@ -165,6 +183,7 @@ describe('repository', () => {
       totalEpisodesKnown: false,
       completedAt: null
     });
+    await expect(migrated.getEpisode(11)).resolves.toMatchObject({ id: 11, snoozedUntil: null });
   });
 
   it('separates seasonal, backlog, held, wishlist, and completed subjects', async () => {
@@ -273,6 +292,19 @@ describe('repository', () => {
     await expect(repository.getEpisode(11)).resolves.toMatchObject({
       name: 'updated episode',
       snoozedUntil: '2026-07-20'
+    });
+  });
+
+  it('clears an episode snooze when synchronization changes its watched state', async () => {
+    await repository.upsertSubject(baseSubject());
+    await repository.replaceSubjectEpisodes(1, [episode({ id: 11, collectionType: 0 })]);
+    await repository.snoozeEpisodeUntil(11, '2026-07-20');
+
+    await repository.replaceSubjectEpisodes(1, [episode({ id: 11, collectionType: 2 })]);
+
+    await expect(repository.getEpisode(11)).resolves.toMatchObject({
+      collectionType: 2,
+      snoozedUntil: null
     });
   });
 

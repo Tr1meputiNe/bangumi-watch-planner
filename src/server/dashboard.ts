@@ -378,7 +378,11 @@ export function createDashboardService({
       if (!subject || subject.plannerMode !== 'seasonal' || subject.collectionType !== 3) {
         throw Object.assign(new Error('Only seasonal reminders can be snoozed'), { statusCode: 400 });
       }
-      await repository.snoozeEpisodeUntil(episodeId, shiftAirDate(todayInShanghai(clock()), 1));
+      const today = todayInShanghai(clock());
+      if (buildReminderCandidates([episode], today).length !== 1) {
+        throw Object.assign(new Error('Only pending reminders can be snoozed'), { statusCode: 400 });
+      }
+      await repository.snoozeEpisodeUntil(episodeId, shiftAirDate(today, 1));
     }
   };
 
