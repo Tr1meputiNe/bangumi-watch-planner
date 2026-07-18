@@ -61,18 +61,19 @@ export function buildBacklogPlan(input: BacklogPlannerInput): BacklogPlannerOutp
     const fixedForDate = fixedTasks.filter((task) => task.plannedDate === date).sort((a, b) => a.slot - b.slot);
     const dayTasks: PlannerTask[] = fixedForDate.map((task) => ({ ...task }));
     const occupiedSlots = new Set(fixedForDate.map((task) => task.slot));
-    const freeSlots = Array.from({ length: capacity }, (_, slot) => slot).filter((slot) => !occupiedSlots.has(slot));
+    const freeSlots = availableSlots(Math.max(0, capacity - fixedForDate.length), occupiedSlots);
 
     if (!input.skippedDates.has(date)) {
       const contributed = new Set(fixedForDate.map((task) => task.subjectId));
       const excludedEpisodeIds = input.exclusions.get(date) ?? new Set<number>();
 
       while (freeSlots.length > 0) {
-        const eligible = queues.filter((queue) => queue.episodes.length > 0 && !excludedEpisodeIds.has(queue.episodes[0].id));
+        const eligible = queues.filter((queue) => queue.episodes.some((episode) => !excludedEpisodeIds.has(episode.id)));
         const queue = eligible.find((item) => !contributed.has(item.subjectId)) ?? eligible[0];
         if (!queue) break;
 
-        const episode = queue.episodes.shift();
+        const episodeIndex = queue.episodes.findIndex((episode) => !excludedEpisodeIds.has(episode.id));
+        const [episode] = queue.episodes.splice(episodeIndex, 1);
         if (!episode) break;
         const slot = freeSlots.shift();
         if (slot === undefined) break;
@@ -105,7 +106,7 @@ export function estimateBacklogCompletionDate(today: string, remainingEpisodeCou
 
   let remaining = remainingEpisodeCount;
   for (let offset = 0; offset < 1826; offset += 1) {
-    remaining -= capacities[offset % 7];
+    remaining -= capacities[(shanghaiWeekdayIndex(today) + offset) % 7];
     if (remaining <= 0) return addDays(today, offset);
   }
   return null;
@@ -122,6 +123,14 @@ function rotateQueues(queues: BacklogQueue[], cursorSubjectId: number | null): B
   return [...queues.slice(cursorIndex + 1), ...queues.slice(0, cursorIndex + 1)];
 }
 
+function availableSlots(count: number, occupiedSlots: Set<number>): number[] {
+  const slots: number[] = [];
+  for (let slot = 0; slots.length < count; slot += 1) {
+    if (!occupiedSlots.has(slot)) slots.push(slot);
+  }
+  return slots;
+}
+
 function dateRange(from: string, through: string): string[] {
   const dates: string[] = [];
   for (let offset = 0, date = from; date <= through; offset += 1, date = addDays(from, offset)) dates.push(date);
@@ -132,4 +141,9 @@ function addDays(date: string, offset: number): string {
   const [year, month, day] = date.split('-').map(Number);
   const value = new Date(Date.UTC(year, month - 1, day + offset));
   return value.toISOString().slice(0, 10);
+}
+
+function shanghaiWeekdayIndex(date: string): number {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }

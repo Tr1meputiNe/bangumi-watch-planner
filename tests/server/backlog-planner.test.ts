@@ -50,6 +50,19 @@ describe('backlog planner', () => {
     ]);
   });
 
+  it('counts a fixed task against capacity regardless of its slot number', () => {
+    const result = buildBacklogPlan({
+      ...input(),
+      throughDate: '2026-07-19',
+      seasonalLoadByDate: new Map([['2026-07-19', 2]]),
+      fixedTasks: [{ episodeId: 11, subjectId: 1, plannedDate: '2026-07-19', slot: 1, locked: true }]
+    });
+
+    expect(result.tasks).toEqual([
+      { episodeId: 11, subjectId: 1, plannedDate: '2026-07-19', slot: 1, locked: true }
+    ]);
+  });
+
   it('returns past tasks to their queue', () => {
     const result = buildBacklogPlan({
       ...input(),
@@ -81,6 +94,21 @@ describe('backlog planner', () => {
     ]);
   });
 
+  it('selects a later eligible episode without removing an excluded queue head', () => {
+    const result = buildBacklogPlan({
+      ...input(),
+      throughDate: '2026-07-20',
+      subjects: [queue('A', [11, 12]), queue('B', [21])],
+      exclusions: new Map([['2026-07-19', new Set([11])]])
+    });
+
+    expect(result.tasks.map((task) => [task.plannedDate, task.episodeId])).toEqual([
+      ['2026-07-19', 12],
+      ['2026-07-19', 21],
+      ['2026-07-20', 11]
+    ]);
+  });
+
   it('returns deterministic future plans without mutating inputs', () => {
     const plannerInput = input();
     const first = buildBacklogPlan(plannerInput);
@@ -92,6 +120,10 @@ describe('backlog planner', () => {
 
   it('estimates completion from repeated weekly seasonal loads', () => {
     expect(estimateBacklogCompletionDate('2026-07-19', 3, [0, 5, 0, 5, 5, 5, 5])).toBe('2026-07-21');
+  });
+
+  it('aligns repeated seasonal loads with the Shanghai weekday of the start date', () => {
+    expect(estimateBacklogCompletionDate('2026-07-20', 1, [0, 5, 0, 5, 5, 5, 5])).toBe('2026-07-21');
   });
 
   it('does not estimate when there is no remaining backlog or weekly capacity', () => {
