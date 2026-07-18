@@ -280,7 +280,20 @@ export type BangumiClient = {
 export type SyncRepository = {
   upsertSubject(subject: SubjectWrite): Promise<void>;
   replaceSubjectEpisodes(subjectId: number, episodes: EpisodeRow[]): Promise<void>;
+  getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string): Promise<void>;
+  listSubjectsByMode(mode: Exclude<PlannerMode, null>, types: BangumiCollectionType[]): Promise<DashboardSubject[]>;
+  listBacklogTasks(fromDate: string, throughDate: string): Promise<BacklogTaskRow[]>;
+  replaceBacklogTasks(input: {
+    fromDate: string;
+    throughDate: string;
+    preserveLocked: boolean;
+    tasks: Array<Omit<BacklogTaskRow, 'id' | 'episode'>>;
+  }): Promise<void>;
+  lockBacklogDate(date: string): Promise<void>;
+  listSkippedBacklogDates(fromDate: string, throughDate: string): Promise<string[]>;
+  listBacklogExclusions(fromDate: string, throughDate: string): Promise<Array<{ plannedDate: string; episodeId: number }>>;
+  prunePlannerState(beforeDate: string): Promise<void>;
 };
 
 export type SyncResult = {

@@ -6,36 +6,22 @@ import type {
   BangumiCollectionType,
   DashboardSubject,
   EpisodeRow,
-  PlannerMode,
   SubjectRow,
   SyncRepository,
   WishlistData
 } from './types.js';
 
 export type Repository = SyncRepository & {
-  getSetting(key: string): Promise<string | null>;
   listEpisodes(): Promise<EpisodeRow[]>;
   listSubjects(): Promise<DashboardSubject[]>;
   getSubject(subjectId: number): Promise<SubjectRow | null>;
   listSubjectsByCollection(types: BangumiCollectionType[]): Promise<DashboardSubject[]>;
-  listSubjectsByMode(mode: Exclude<PlannerMode, null>, types: BangumiCollectionType[]): Promise<DashboardSubject[]>;
   setSubjectState(subjectId: number, state: Pick<SubjectRow, 'collectionType' | 'plannerMode' | 'completedAt'>): Promise<void>;
   listWishlist(query: string, year: number | null | 'unknown'): Promise<WishlistData>;
-  listBacklogTasks(fromDate: string, throughDate: string): Promise<BacklogTaskRow[]>;
-  replaceBacklogTasks(input: {
-    fromDate: string;
-    throughDate: string;
-    preserveLocked: boolean;
-    tasks: Array<Omit<BacklogTaskRow, 'id' | 'episode'>>;
-  }): Promise<void>;
   deleteBacklogTask(episodeId: number): Promise<void>;
-  lockBacklogDate(date: string): Promise<void>;
   skipBacklogDate(date: string): Promise<void>;
   clearBacklogDateOverrides(date: string): Promise<void>;
   excludeEpisodeOnDate(date: string, episodeId: number): Promise<void>;
-  listSkippedBacklogDates(fromDate: string, throughDate: string): Promise<string[]>;
-  listBacklogExclusions(fromDate: string, throughDate: string): Promise<Array<{ plannedDate: string; episodeId: number }>>;
-  prunePlannerState(beforeDate: string): Promise<void>;
   getEpisode(episodeId: number): Promise<EpisodeRow | null>;
   markEpisodeWatched(episodeId: number): Promise<void>;
   markEpisodeUnwatched(episodeId: number): Promise<void>;
