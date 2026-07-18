@@ -9,8 +9,10 @@ describe('BacklogView', () => {
   it('renders the seven-day plan and all backlog states', () => {
     render(<BacklogView data={backlogData()} disabled={false} onChanged={vi.fn()} onError={vi.fn()} />);
 
+    expect(screen.getByRole('heading', { name: '补番计划' })).toBeInTheDocument();
+    expect(screen.getByLabelText('补番概览')).toHaveTextContent('进行中1 部');
     expect(screen.getByRole('heading', { name: '今日任务' })).toBeInTheDocument();
-    expect(screen.getByText('今天安排 1 集')).toBeInTheDocument();
+    expect(screen.getByLabelText('今日任务')).toHaveTextContent('安排 1 集');
     expect(screen.getByRole('heading', { name: '未来 7 天' })).toBeInTheDocument();
     expect(screen.getByText('新番 5 集 · 可补 0 集')).toBeInTheDocument();
     expect(screen.getByText('预计完成 2026-08-01')).toBeInTheDocument();
@@ -40,6 +42,7 @@ describe('BacklogView', () => {
     }
     const activeSection = screen.getByLabelText('进行中');
     expect(within(activeSection).getAllByRole('link', { name: '进行中的旧番' })[0]).toHaveClass('subject-cover');
+    expect(screen.getByLabelText('旧番 第 2 集')).toHaveClass('backlog-task-cover');
     expect(within(activeSection).getByText('1 / 12')).toBeInTheDocument();
     expect(within(activeSection).getByText('1 集未看')).toBeInTheDocument();
     expect(within(activeSection).getByText('下一集：第 2 集 · 播出时间：2020-01-08 20:00')).toBeInTheDocument();

@@ -100,6 +100,11 @@ export default function App() {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [activeView]);
+
+  useEffect(() => {
     if (activeView === 'backlog' && !backlogState.data && !backlogState.loading) void loadBacklog();
   }, [activeView, backlogState.data, backlogState.loading, loadBacklog]);
 
@@ -156,6 +161,7 @@ export default function App() {
 
   const pendingEpisodes = state.dashboard?.pendingEpisodes ?? [];
   const subjects = state.dashboard?.subjects ?? [];
+  const featuredSubjects = subjects.filter((subject) => subject.image).slice(0, 4);
   const accountLabel = state.auth?.authenticated ? state.auth.nickname || state.auth.username : '未连接';
   const syncTime = formatDateTime(state.dashboard?.lastSyncAt ?? state.auth?.lastSyncAt ?? null);
 
@@ -172,6 +178,24 @@ export default function App() {
             <span>{subjects.length} 部在看</span>
             <span>{syncTime}</span>
           </div>
+          {featuredSubjects.length > 0 ? (
+            <div className="sidebar-covers" aria-label="近期在看">
+              <span>近期在看</span>
+              <div className="sidebar-cover-list">
+                {featuredSubjects.map((subject) => (
+                  <a
+                    key={subject.id}
+                    href={subject.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={displaySubjectName(subject.name, subject.nameCn)}
+                  >
+                    <img src={subject.image} alt="" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="topbar-actions">
             <button type="button" onClick={() => void runAction(syncNow)} disabled={isPending || !state.auth?.authenticated}>立即同步</button>
           </div>
@@ -222,6 +246,12 @@ export default function App() {
 
         {activeView === 'wishlist' ? <WishlistView disabled={isPending} onChanged={load} onError={showError} /> : null}
         {activeView === 'calendar' ? <CalendarView state={calendarState} onRetry={() => void loadCalendar()} /> : null}
+
+        <div className="page-ambient-ornament" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
       </div>
     </main>
   );

@@ -150,6 +150,10 @@ describe('App', () => {
       '每日放送'
     ]);
     expect(fetchMock.mock.calls.some(([input]) => input.toString() === '/api/backlog')).toBe(false);
+    expect(screen.getByLabelText('近期在看').querySelector('img')).toHaveAttribute('src', 'cover.jpg');
+    expect(screen.getByLabelText('待补新集').querySelectorAll('.title-cover-reel img')).toHaveLength(1);
+    expect(document.querySelector('.page-ambient-covers')).not.toBeInTheDocument();
+    expect(document.querySelector('.page-ambient-ornament')).toBeInTheDocument();
     expect(screen.getAllByText('测试番剧').length).toBeGreaterThan(0);
     expect(screen.queryByText('旧番标题')).not.toBeInTheDocument();
 
@@ -589,9 +593,11 @@ describe('App', () => {
     ]);
     const friday = screen.getByLabelText('星期五 2 部');
     expect([...friday.querySelectorAll('.calendar-subject div > a')].map((link) => link.textContent)).toEqual(['周五早播', '周五放送']);
+    expect(friday).toHaveClass('is-today');
+    expect(screen.getByLabelText('2026-07-10 20:00')).toHaveClass('calendar-air');
     expect(screen.getAllByRole('link', { name: '测试放送' })[0]).toHaveAttribute('href', 'https://bgm.tv/subject/456');
     expect(screen.getAllByRole('link', { name: '周五放送' })[0]).toHaveAttribute('href', 'https://bgm.tv/subject/457');
-    expect(screen.getByText(/2026-07-09 22:30/)).toBeInTheDocument();
+    expect(screen.getByLabelText('2026-07-09 22:30')).toBeInTheDocument();
     expect(screen.getByText(/评分 7.2/)).toBeInTheDocument();
     expect(screen.getByText(/321 人在看/)).toBeInTheDocument();
   });

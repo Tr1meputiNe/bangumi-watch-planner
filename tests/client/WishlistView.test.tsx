@@ -17,6 +17,8 @@ describe('WishlistView', () => {
     render(<WishlistView disabled={false} onChanged={vi.fn()} onError={vi.fn()} />);
 
     expect(await screen.findByRole('option', { name: '2024' })).toBeInTheDocument();
+    expect(screen.getByText('2 部')).toHaveClass('wishlist-count');
+    expect(document.querySelectorAll('.wishlist-item')).toHaveLength(2);
     expect(screen.getByRole('option', { name: '全部年份' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '年份未知' })).toBeInTheDocument();
 

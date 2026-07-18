@@ -63,17 +63,25 @@ export default function WishlistView({ disabled, onChanged, onError }: WishlistV
     }
   }
 
+  const featuredItems = data.items.filter((subject) => subject.image).slice(0, 6);
+
   return (
-    <section className="panel wishlist-panel" aria-label="想看">
-      <div className="panel-title">
+    <section className="wishlist-panel" aria-label="想看">
+      <header className="wishlist-hero">
         <div>
           <span className="panel-eyebrow">我的片单</span>
           <h1>想看</h1>
+          <p>先收进片库，到合适的季度再开始。</p>
         </div>
-        <strong>{data.items.length}</strong>
-      </div>
+        {featuredItems.length > 0 ? (
+          <div className="wishlist-hero-covers" aria-hidden="true">
+            {featuredItems.map((subject) => <img key={subject.id} src={subject.image} alt="" />)}
+          </div>
+        ) : null}
+        <strong className="wishlist-count" aria-live="polite">{data.items.length} 部</strong>
+      </header>
 
-      <div className="wishlist-filters">
+      <div className="wishlist-filters" role="search">
         <label>
           <span>搜索想看</span>
           <input
@@ -98,18 +106,18 @@ export default function WishlistView({ disabled, onChanged, onError }: WishlistV
       {data.items.length > 0 ? (
         <div className="wishlist-list">
           {data.items.map((subject) => (
-            <article key={subject.id} className="wishlist-row">
+            <article key={subject.id} className="wishlist-item">
               <a className="wishlist-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={displaySubjectName(subject.name, subject.nameCn)}>
-                {subject.image ? <img src={subject.image} alt="" /> : <span>{subject.nameCn || subject.name}</span>}
+                {subject.image ? <img src={subject.image} alt="" /> : <span>暂无封面</span>}
               </a>
-              <div>
-                <div className="wishlist-heading">
-                  <a href={subject.url} target="_blank" rel="noreferrer">{displaySubjectName(subject.name, subject.nameCn)}</a>
-                  <span className={subject.isCurrentSeason ? 'status-pill' : 'status-pill muted'}>
+              <div className="wishlist-details">
+                <a className="wishlist-title" href={subject.url} target="_blank" rel="noreferrer">{displaySubjectName(subject.name, subject.nameCn)}</a>
+                <p className="wishlist-meta">
+                  <span className={subject.isCurrentSeason ? 'wishlist-season is-current' : 'wishlist-season'}>
                     {subject.isCurrentSeason ? '本季度' : '旧番'}
                   </span>
-                </div>
-                <p>{subject.airYear ?? '年份未知'} · {subject.totalEpisodesKnown ? `${subject.eps} 集` : '总集数未知'}</p>
+                  <span>{subject.airYear ?? '年份未知'} · {subject.totalEpisodesKnown ? `${subject.eps} 集` : '总集数未知'}</span>
+                </p>
               </div>
               <button
                 type="button"

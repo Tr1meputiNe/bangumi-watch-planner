@@ -13,17 +13,26 @@ export default function CalendarView({ state, onRetry }: { state: CalendarViewSt
   const days = orderCalendarDaysFromToday(rawDays, todayWeekdayId);
   const today = days.find((day) => day.weekday.id === todayWeekdayId);
   const totalCount = days.reduce((sum, day) => sum + day.items.length, 0);
+  const featuredItems = days.flatMap((day) => day.items).filter((item) => item.image).slice(0, 6);
 
   return (
-    <section className="panel calendar-panel" aria-label="每日放送">
-      <div className="panel-title calendar-title">
+    <section className="calendar-panel" aria-label="每日放送">
+      <header className="calendar-overview">
+        {featuredItems.length > 0 ? (
+          <div className="calendar-overview-covers" aria-hidden="true">
+            {featuredItems.map((item) => <img key={item.id} src={item.image} alt="" />)}
+          </div>
+        ) : null}
         <div>
           <span className="panel-eyebrow">放送日历</span>
           <h1>每日放送</h1>
           <p>{formatShanghaiToday()} · 本周 {totalCount} 部，今日 {today?.items.length ?? 0} 部</p>
         </div>
-        <button type="button" className="secondary" onClick={onRetry} disabled={state.loading}>刷新</button>
-      </div>
+        <div className="calendar-overview-actions">
+          <span><strong>{today?.items.length ?? 0}</strong> 今日放送</span>
+          <button type="button" className="secondary" onClick={onRetry} disabled={state.loading}>刷新</button>
+        </div>
+      </header>
 
       {state.error ? <div className="notice error calendar-notice">{state.error}</div> : null}
       {state.loading && days.length === 0 ? <div className="empty">正在加载每日放送。</div> : null}
@@ -37,9 +46,12 @@ export default function CalendarView({ state, onRetry }: { state: CalendarViewSt
               className={day.weekday.id === todayWeekdayId ? 'calendar-day is-today' : 'calendar-day'}
               aria-label={`${day.weekday.cn} ${day.items.length} 部`}
             >
-              <header>
-                <div><span>{day.weekday.en}</span><h2>{day.weekday.cn}</h2></div>
-                <strong>{day.items.length}</strong>
+              <header className="calendar-day-header">
+                <div className="calendar-day-heading"><span>{day.weekday.en}</span><h2>{day.weekday.cn}</h2></div>
+                <div className="calendar-day-summary">
+                  {day.weekday.id === todayWeekdayId ? <span className="calendar-today-label">今天</span> : null}
+                  <strong>{day.items.length} 部</strong>
+                </div>
               </header>
               <div className="calendar-items">
                 {orderCalendarItemsByBroadcastTime(day.items).map((item) => <CalendarSubjectItem key={item.id} item={item} />)}
@@ -80,21 +92,28 @@ function compareAirTime(a: string, b: string): number {
 }
 
 function CalendarSubjectItem({ item }: { item: CalendarSubject }) {
+  const stats = calendarSubjectStats(item);
+  const dateTime = item.airDate ? `${item.airDate}${item.airTime ? `T${item.airTime}` : ''}` : undefined;
+
   return (
     <article className="calendar-subject">
+      <time className="calendar-air" dateTime={dateTime} aria-label={formatCalendarAirDateTime(item.airDate, item.airTime)}>
+        <strong>{item.airTime || '待定'}</strong>
+        <span>{item.airDate || '日期待定'}</span>
+      </time>
       <a className="calendar-cover" href={item.url} target="_blank" rel="noreferrer" aria-label={displaySubjectName(item.name, item.nameCn)}>
         {item.image ? <img src={item.image} alt="" /> : <span>{item.nameCn || item.name}</span>}
       </a>
-      <div>
+      <div className="calendar-subject-main">
         <a href={item.url} target="_blank" rel="noreferrer">{displaySubjectName(item.name, item.nameCn)}</a>
-        <p>{calendarSubjectMeta(item)}</p>
+        {stats ? <p>{stats}</p> : null}
       </div>
     </article>
   );
 }
 
-function calendarSubjectMeta(item: CalendarSubject): string {
-  const parts = [formatCalendarAirDateTime(item.airDate, item.airTime)];
+function calendarSubjectStats(item: CalendarSubject): string {
+  const parts: string[] = [];
   if (item.ratingScore !== null) parts.push(`评分 ${item.ratingScore.toFixed(1)}`);
   if (item.rank !== null) parts.push(`Rank ${item.rank}`);
   if (item.collectionDoing !== null) parts.push(`${item.collectionDoing} 人在看`);
