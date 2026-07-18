@@ -1,10 +1,10 @@
-import type { AnimeSearchResult, AuthStatus, CalendarDay, DashboardData, SyncResult } from '../server/types.js';
+import type { AnimeSearchResult, AuthStatus, BacklogData, CalendarDay, DashboardData, SyncResult, WishlistData } from '../server/types.js';
 
 async function api<T>(input: RequestInfo | URL, init?: RequestInit, retryOnInvalidToken = true): Promise<T> {
   const headers = new Headers(init?.headers);
   const headerEntries = [...headers.entries()];
   const requestInit = headerEntries.length > 0 ? { ...init, headers: Object.fromEntries(headerEntries) } : init;
-  const response = await fetch(input, requestInit);
+  const response = requestInit ? await fetch(input, requestInit) : await fetch(input);
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: response.statusText }));
     if (isInvalidLocalToken(response, body) && retryOnInvalidToken && init?.method && init.method !== 'GET') {
@@ -37,6 +37,15 @@ export function getAuthStatus(): Promise<AuthStatus> {
 
 export function getDashboard(): Promise<DashboardData> {
   return api<DashboardData>('/api/dashboard');
+}
+
+export function getBacklog(): Promise<BacklogData> {
+  return api<BacklogData>('/api/backlog');
+}
+
+export function getWishlist(query: string, year: number | null | 'unknown'): Promise<WishlistData> {
+  const params = new URLSearchParams({ q: query, year: year === null ? 'all' : String(year) });
+  return api<WishlistData>(`/api/wishlist?${params}`);
 }
 
 export function getCalendar(): Promise<CalendarDay[]> {
@@ -82,6 +91,34 @@ export async function searchAnime(keyword: string): Promise<AnimeSearchResult[]>
 
 export function addSubjectToWatching(subjectId: number): Promise<SyncResult> {
   return api<SyncResult>(`/api/subjects/${subjectId}/watching`, { method: 'POST' });
+}
+
+export function startSubject(subjectId: number): Promise<SyncResult> {
+  return api<SyncResult>(`/api/subjects/${subjectId}/start`, { method: 'POST' });
+}
+
+export function pauseBacklog(subjectId: number): Promise<void> {
+  return api<void>(`/api/backlog/${subjectId}/pause`, { method: 'POST' });
+}
+
+export function resumeBacklog(subjectId: number): Promise<void> {
+  return api<void>(`/api/backlog/${subjectId}/resume`, { method: 'POST' });
+}
+
+export function completeBacklog(subjectId: number): Promise<void> {
+  return api<void>(`/api/backlog/${subjectId}/complete`, { method: 'POST' });
+}
+
+export function swapBacklogTask(episodeId: number): Promise<void> {
+  return api<void>(`/api/backlog/tasks/${episodeId}/swap`, { method: 'POST' });
+}
+
+export function skipBacklogToday(): Promise<void> {
+  return api<void>('/api/backlog/today/skip', { method: 'POST' });
+}
+
+export function replanBacklogToday(): Promise<void> {
+  return api<void>('/api/backlog/today/replan', { method: 'POST' });
 }
 
 export function dismissReminder(episodeId: number): Promise<void> {

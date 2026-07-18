@@ -6,6 +6,59 @@ afterEach(() => {
 });
 
 describe('Bangumi client', () => {
+  it('returns the concrete broadcast catalog from current and previous ACG pages', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
+    const getAccessToken = vi.fn(async () => 'token-1');
+    const fetch = vi.fn(async (url: string) => {
+      if (url === 'https://unpkg.com/bangumi-data@0.3/dist/data.json') {
+        return { ok: true, status: 200, json: async () => ({ items: [] }) };
+      }
+      if (url === 'https://bgm.tv/index/99544') {
+        return { ok: true, status: 200, text: async () => '' };
+      }
+      const current = url === 'https://acgsecrets.hk/bangumi/202607/';
+      return {
+        ok: true,
+        status: 200,
+        text: async () => `
+          <div class="CV-search acgs-card anime-type-new" acgs-bangumi-data-id="anime"
+            onairtime="${Date.parse(current ? '2026-07-04T20:00:00+08:00' : '2026-04-04T20:00:00+08:00')}"
+            weektoday="六"></div>
+          <div acgs-bangumi-anime-id="anime"><a href="https://bangumi.tv/subject/${current ? 101 : 202}">Bangumi</a></div>
+        `
+      };
+    });
+    const client = createBangumiClient({
+      fetch,
+      getAccessToken,
+      userAgent: 'tester/bangumi-watch-planner'
+    });
+
+    expect(client.getBroadcastCatalog).toBeTypeOf('function');
+    const catalog = await client.getBroadcastCatalog!();
+
+    expect(catalog.seasonWindow).toMatchObject({
+      currentSeasonKey: '2026Q3',
+      previousSeasonKey: '2026Q2',
+      anchorDate: '2026-07-04',
+      overlapThrough: '2026-07-17'
+    });
+    expect([...catalog.seasonWindow.activeSubjectIds]).toEqual([101, 202]);
+    expect(catalog.schedules.get(101)).toMatchObject({ airDate: '2026-07-04', airTime: '20:00' });
+    expect(catalog.schedules.get(202)).toMatchObject({ airDate: '2026-04-04', airTime: '20:00' });
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(expect.arrayContaining([
+      'https://acgsecrets.hk/bangumi/202607/',
+      'https://acgsecrets.hk/bangumi/202604/'
+    ]));
+    for (const [, init] of fetch.mock.calls) {
+      expect(init).toEqual(expect.objectContaining({
+        headers: expect.objectContaining({ 'User-Agent': 'tester/bangumi-watch-planner' })
+      }));
+    }
+    expect(getAccessToken).not.toHaveBeenCalled();
+  });
+
   it('fetches public calendar data without an access token', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-09T12:00:00+08:00'));
@@ -187,6 +240,51 @@ describe('Bangumi client', () => {
         airDate: '2026-07-18'
       })
     ]);
+  });
+
+  it.each([1, 3, 4] as const)('loads anime collection type %s with pagination', async (type) => {
+    const fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        total: 1,
+        data: [{
+          subject_id: 456,
+          type,
+          ep_status: 0,
+          subject: { id: 456, name: 'Test Anime', date: '2026-07-01' }
+        }]
+      })
+    }));
+    const client = createBangumiClient({
+      fetch,
+      getAccessToken: async () => 'token',
+      userAgent: 'tester/bangumi-watch-planner'
+    });
+
+    const page = await client.getAnimeCollections('sai', type, 50, 100);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `https://api.bgm.tv/v0/users/sai/collections?subject_type=2&type=${type}&limit=50&offset=100`,
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer token' }) })
+    );
+    expect(page.data[0]?.subject.date).toBe('2026-07-01');
+  });
+
+  it.each([2, 3, 4] as const)('writes collection type %s with PATCH', async (type) => {
+    const fetch = vi.fn(async () => ({ ok: true, status: 204, text: async () => '' }));
+    const client = createBangumiClient({
+      fetch,
+      getAccessToken: async () => 'token',
+      userAgent: 'tester/bangumi-watch-planner'
+    });
+
+    await client.setSubjectCollectionType(456, type);
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.bgm.tv/v0/users/-/collections/456',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ type }) })
+    );
   });
 
   it('sends the expected watched episode patch request', async () => {

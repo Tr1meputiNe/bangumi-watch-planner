@@ -10,6 +10,46 @@ export type AuthStatus = {
   launchAgentInstalled?: boolean;
 };
 
+export type BangumiCollectionType = 1 | 2 | 3 | 4 | 5;
+export type PlannerMode = 'seasonal' | 'backlog' | null;
+export type SeasonKind = 'new' | 'continuing';
+
+export type BroadcastSchedule = {
+  airDate: string;
+  airTime: string;
+  dayOffset: number;
+};
+
+export type SeasonEntry = {
+  subjectId: number;
+  seasonKey: string;
+  seasonKind: SeasonKind;
+  normalPremiereDate: string;
+  airTime: string;
+  dayOffset: number;
+};
+
+export type SeasonCatalog = {
+  seasonKey: string;
+  entries: Map<number, SeasonEntry>;
+  available?: boolean;
+};
+
+export type SeasonWindow = {
+  currentSeasonKey: string;
+  previousSeasonKey: string;
+  anchorDate: string;
+  overlapThrough: string;
+  authoritative: boolean;
+  activeSubjectIds: Set<number>;
+  entries: Map<number, SeasonEntry>;
+};
+
+export type BroadcastCatalog = {
+  schedules: Map<number, BroadcastSchedule>;
+  seasonWindow: SeasonWindow;
+};
+
 export type SubjectRow = {
   id: number;
   name: string;
@@ -18,7 +58,17 @@ export type SubjectRow = {
   epStatus: number;
   image: string | null;
   url: string;
+  collectionType: BangumiCollectionType;
+  plannerMode: PlannerMode;
+  seasonKey: string | null;
+  seasonKind: SeasonKind | null;
+  airYear: number | null;
+  totalEpisodesKnown: boolean;
+  completedAt: string | null;
 };
+
+export type SubjectWrite = Omit<SubjectRow, 'collectionType' | 'plannerMode' | 'seasonKey' | 'seasonKind' | 'airYear' | 'totalEpisodesKnown' | 'completedAt'>
+  & Partial<Pick<SubjectRow, 'collectionType' | 'plannerMode' | 'seasonKey' | 'seasonKind' | 'airYear' | 'totalEpisodesKnown' | 'completedAt'>>;
 
 export type EpisodeRow = {
   id: number;
@@ -51,6 +101,31 @@ export type DashboardData = {
   lastError: string | null;
 };
 
+export type BacklogTaskRow = {
+  id: number;
+  episodeId: number;
+  subjectId: number;
+  plannedDate: string;
+  slot: number;
+  locked: boolean;
+  episode: EpisodeRow;
+};
+
+export type BacklogData = {
+  today: string;
+  todayTasks: BacklogTaskRow[];
+  futureDays: Array<{ date: string; seasonalLoad: number; capacity: number; tasks: BacklogTaskRow[] }>;
+  active: DashboardSubject[];
+  held: DashboardSubject[];
+  completed: DashboardSubject[];
+  estimatedCompletionDate: string | null;
+};
+
+export type WishlistData = {
+  items: Array<SubjectRow & { isCurrentSeason: boolean }>;
+  years: number[];
+};
+
 export type BangumiUser = {
   id: number;
   username: string;
@@ -65,6 +140,7 @@ export type BangumiSubjectCollection = {
     id: number;
     name: string;
     name_cn?: string;
+    date?: string;
     eps?: number;
     images?: {
       common?: string;
@@ -191,19 +267,35 @@ export type CalendarDay = {
 export type BangumiClient = {
   getMe(): Promise<BangumiUser>;
   getCalendar(): Promise<CalendarDay[]>;
+  getAnimeCollections(username: string, type: 1 | 3 | 4, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getWatchingAnime(username: string, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getSubjectEpisodes(subjectId: number, limit?: number, offset?: number): Promise<BangumiEpisodePage>;
+  getBroadcastCatalog?(): Promise<BroadcastCatalog>;
   getBroadcastTimes?(): Promise<Map<number, { airDate: string; airTime: string; dayOffset: number }>>;
   markEpisodesWatched(subjectId: number, episodeIds: number[]): Promise<void>;
   markEpisodesUnwatched(subjectId: number, episodeIds: number[]): Promise<void>;
+  setSubjectCollectionType(subjectId: number, type: 2 | 3 | 4): Promise<void>;
   addSubjectToWatching(subjectId: number): Promise<void>;
   searchAnimeSubjects(keyword: string): Promise<AnimeSearchResult[]>;
 };
 
 export type SyncRepository = {
-  upsertSubject(subject: SubjectRow): Promise<void>;
+  upsertSubject(subject: SubjectWrite): Promise<void>;
   replaceSubjectEpisodes(subjectId: number, episodes: EpisodeRow[]): Promise<void>;
+  getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string): Promise<void>;
+  listSubjectsByMode(mode: Exclude<PlannerMode, null>, types: BangumiCollectionType[]): Promise<DashboardSubject[]>;
+  listBacklogTasks(fromDate: string, throughDate: string): Promise<BacklogTaskRow[]>;
+  replaceBacklogTasks(input: {
+    fromDate: string;
+    throughDate: string;
+    preserveLocked: boolean;
+    tasks: Array<Omit<BacklogTaskRow, 'id' | 'episode'>>;
+  }): Promise<void>;
+  lockBacklogDate(date: string): Promise<void>;
+  listSkippedBacklogDates(fromDate: string, throughDate: string): Promise<string[]>;
+  listBacklogExclusions(fromDate: string, throughDate: string): Promise<Array<{ plannedDate: string; episodeId: number }>>;
+  prunePlannerState(beforeDate: string): Promise<void>;
 };
 
 export type SyncResult = {
@@ -220,12 +312,21 @@ export type OAuthManager = {
 
 export type DashboardService = {
   getDashboard(): Promise<DashboardData>;
+  getBacklog(): Promise<BacklogData>;
+  getWishlist(query: string, year: number | null | 'unknown'): Promise<WishlistData>;
   getCalendar(): Promise<CalendarDay[]>;
   syncNow(): Promise<SyncResult>;
   markEpisodeWatched(episodeId: number): Promise<void>;
   markEpisodeUnwatched(episodeId: number): Promise<void>;
   markSubjectEpisodesWatchedThrough(subjectId: number, episodeId: number): Promise<void>;
   addSubjectToWatching(subjectId: number): Promise<SyncResult>;
+  startSubject(subjectId: number): Promise<SyncResult>;
+  pauseBacklogSubject(subjectId: number): Promise<void>;
+  resumeBacklogSubject(subjectId: number): Promise<void>;
+  completeBacklogSubject(subjectId: number): Promise<void>;
+  swapBacklogTask(episodeId: number): Promise<void>;
+  skipBacklogToday(): Promise<void>;
+  replanBacklogToday(): Promise<void>;
   searchAnimeSubjects(keyword: string): Promise<AnimeSearchResult[]>;
   dismissEpisode(episodeId: number): Promise<void>;
 };

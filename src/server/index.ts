@@ -11,6 +11,7 @@ import { isLaunchAgentInstalled } from './launch-agent.js';
 import { createMacNotifier } from './notifier.js';
 import { createOAuthManager } from './oauth.js';
 import { startScheduler } from './scheduler.js';
+import { rebuildBacklogPlan, syncAnimeCollections } from './sync.js';
 
 const config = loadConfig();
 const apiToken = randomBytes(32).toString('base64url');
@@ -39,7 +40,14 @@ const client = createBangumiClient({
   userAgent: config.userAgent
 });
 
-const dashboard = createDashboardService({ auth, client, repository });
+const dashboard = createDashboardService({
+  auth,
+  client,
+  repository,
+  clock: () => new Date(),
+  syncCollections: syncAnimeCollections,
+  rebuildPlan: rebuildBacklogPlan
+});
 const staticRoot = resolve(process.cwd(), 'dist/client');
 
 const app = buildApp({

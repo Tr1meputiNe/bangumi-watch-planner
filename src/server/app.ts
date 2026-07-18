@@ -60,6 +60,10 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
 
   app.post('/api/sync', async () => dashboard.syncNow());
   app.get('/api/dashboard', async () => dashboard.getDashboard());
+  app.get('/api/backlog', async () => dashboard.getBacklog());
+  app.get<{ Querystring: { q?: string; year?: string } }>('/api/wishlist', async (request) =>
+    dashboard.getWishlist(request.query.q ?? '', parseWishlistYear(request.query.year))
+  );
   app.get('/api/calendar', async () => dashboard.getCalendar());
   app.get<{ Querystring: { q?: string } }>('/api/search/anime', async (request) => ({
     results: await dashboard.searchAnimeSubjects(request.query.q ?? '')
@@ -101,6 +105,40 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
     dashboard.addSubjectToWatching(parsePositiveInteger(request.params.subjectId))
   );
 
+  app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/start', async (request) =>
+    dashboard.startSubject(parsePositiveInteger(request.params.subjectId))
+  );
+
+  app.post<{ Params: { subjectId: string } }>('/api/backlog/:subjectId/pause', async (request, reply) => {
+    await dashboard.pauseBacklogSubject(parsePositiveInteger(request.params.subjectId));
+    return reply.code(204).send();
+  });
+
+  app.post<{ Params: { subjectId: string } }>('/api/backlog/:subjectId/resume', async (request, reply) => {
+    await dashboard.resumeBacklogSubject(parsePositiveInteger(request.params.subjectId));
+    return reply.code(204).send();
+  });
+
+  app.post<{ Params: { subjectId: string } }>('/api/backlog/:subjectId/complete', async (request, reply) => {
+    await dashboard.completeBacklogSubject(parsePositiveInteger(request.params.subjectId));
+    return reply.code(204).send();
+  });
+
+  app.post<{ Params: { episodeId: string } }>('/api/backlog/tasks/:episodeId/swap', async (request, reply) => {
+    await dashboard.swapBacklogTask(parsePositiveInteger(request.params.episodeId));
+    return reply.code(204).send();
+  });
+
+  app.post('/api/backlog/today/skip', async (_request, reply) => {
+    await dashboard.skipBacklogToday();
+    return reply.code(204).send();
+  });
+
+  app.post('/api/backlog/today/replan', async (_request, reply) => {
+    await dashboard.replanBacklogToday();
+    return reply.code(204).send();
+  });
+
   app.post<{ Params: { episodeId: string } }>('/api/reminders/:episodeId/dismiss', async (request, reply) => {
     await dashboard.dismissEpisode(parsePositiveInteger(request.params.episodeId));
     return reply.code(204).send();
@@ -131,8 +169,18 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
 }
 
 function parsePositiveInteger(value: string): number {
-  if (!/^[1-9]\d*$/.test(value)) {
-    throw Object.assign(new Error('Episode id must be a positive integer'), { statusCode: 400 });
+  const parsed = Number(value);
+  if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(parsed)) {
+    throw Object.assign(new Error('Id must be a positive integer'), { statusCode: 400 });
+  }
+  return parsed;
+}
+
+function parseWishlistYear(value: string | undefined): number | null | 'unknown' {
+  if (!value || value === 'all') return null;
+  if (value === 'unknown') return 'unknown';
+  if (!/^\d{4}$/.test(value)) {
+    throw Object.assign(new Error('Year must be all, unknown, or a four-digit year'), { statusCode: 400 });
   }
   return Number(value);
 }
