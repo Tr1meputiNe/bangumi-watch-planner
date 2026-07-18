@@ -2,14 +2,16 @@ import { useState } from 'react';
 import {
   completeBacklog,
   markWatched,
+  markUnwatched,
+  markWatchedThrough,
   pauseBacklog,
   replanBacklogToday,
   resumeBacklog,
   skipBacklogToday,
   swapBacklogTask
 } from '../api.js';
-import type { BacklogData, BacklogTaskRow, DashboardSubject } from '../../server/types.js';
-import { displaySubjectName } from '../../shared/format.js';
+import type { BacklogData, BacklogTaskRow, DashboardSubject, EpisodeRow } from '../../server/types.js';
+import { displayEpisodeTitle, displaySubjectName } from '../../shared/format.js';
 
 type BacklogViewProps = {
   data: BacklogData;
@@ -34,6 +36,8 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
   }
 
   const actionDisabled = (key: string) => disabled || busyAction === key;
+  const markThrough = (subjectId: number, episodeId: number) => void runAction(`watched-through-${episodeId}`, () => markWatchedThrough(subjectId, episodeId));
+  const markUnwatchedEpisode = (episodeId: number) => void runAction(`unwatched-${episodeId}`, () => markUnwatched(episodeId));
 
   return (
     <div className="backlog-workspace">
@@ -114,6 +118,9 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
         title="进行中"
         subjects={data.active}
         empty="没有进行中的补番。"
+        disabled={disabled || busyAction !== null}
+        onWatchedThrough={markThrough}
+        onUnwatched={markUnwatchedEpisode}
         renderActions={(subject) => (
           <>
             <button
@@ -141,6 +148,9 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
         title="搁置"
         subjects={data.held}
         empty="没有搁置的补番。"
+        disabled={disabled || busyAction !== null}
+        onWatchedThrough={markThrough}
+        onUnwatched={markUnwatchedEpisode}
         renderActions={(subject) => (
           <button
             type="button"
@@ -152,7 +162,14 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
           </button>
         )}
       />
-      <SubjectSection title="已完成" subjects={data.completed} empty="还没有完成的补番。" />
+      <SubjectSection
+        title="已完成"
+        subjects={data.completed}
+        empty="还没有完成的补番。"
+        disabled={disabled || busyAction !== null}
+        onWatchedThrough={markThrough}
+        onUnwatched={markUnwatchedEpisode}
+      />
     </div>
   );
 }
@@ -202,11 +219,17 @@ function SubjectSection({
   title,
   subjects,
   empty,
+  disabled,
+  onWatchedThrough,
+  onUnwatched,
   renderActions
 }: {
   title: string;
   subjects: DashboardSubject[];
   empty: string;
+  disabled: boolean;
+  onWatchedThrough: (subjectId: number, episodeId: number) => void;
+  onUnwatched: (episodeId: number) => void;
   renderActions?: (subject: DashboardSubject) => React.ReactNode;
 }) {
   return (
@@ -218,18 +241,14 @@ function SubjectSection({
       {subjects.length > 0 ? (
         <div className="backlog-subject-list">
           {subjects.map((subject) => (
-            <article key={subject.id} className="backlog-subject-row">
-              <div>
-                <a href={subject.url} target="_blank" rel="noreferrer">
-                  {displaySubjectName(subject.name, subject.nameCn)}
-                </a>
-                <p>
-                  <span>{subject.totalEpisodesKnown ? `${subject.epStatus} / ${subject.eps} 集` : '总集数未知'}</span>
-                  {subject.unwatchedMainEpisodeCount > 0 ? <span> · {subject.unwatchedMainEpisodeCount} 集未看</span> : null}
-                </p>
-              </div>
-              {renderActions ? <div className="backlog-subject-actions">{renderActions(subject)}</div> : null}
-            </article>
+            <BacklogSubjectItem
+              key={subject.id}
+              subject={subject}
+              disabled={disabled}
+              renderActions={renderActions}
+              onWatchedThrough={onWatchedThrough}
+              onUnwatched={onUnwatched}
+            />
           ))}
         </div>
       ) : (
@@ -239,10 +258,118 @@ function SubjectSection({
   );
 }
 
+function BacklogSubjectItem({
+  subject,
+  disabled,
+  renderActions,
+  onWatchedThrough,
+  onUnwatched
+}: {
+  subject: DashboardSubject;
+  disabled: boolean;
+  renderActions?: (subject: DashboardSubject) => React.ReactNode;
+  onWatchedThrough: (subjectId: number, episodeId: number) => void;
+  onUnwatched: (episodeId: number) => void;
+}) {
+  const subjectTitle = displaySubjectName(subject.name, subject.nameCn);
+  const progressText = `${subject.epStatus} / ${subject.eps || '?'}`;
+  const progressPercent = subject.eps > 0 ? Math.min(100, Math.round((subject.epStatus / subject.eps) * 100)) : 0;
+  const episodeOptions = subject.mainEpisodes.length > 0 ? subject.mainEpisodes : subject.unwatchedMainEpisodes;
+
+  return (
+    <article className="subject-row">
+      <a className="subject-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={subjectTitle}>
+        {subject.image ? <img src={subject.image} alt="" /> : <span>{subject.nameCn || subject.name}</span>}
+      </a>
+      <div className="subject-detail">
+        <div className="subject-heading">
+          <a href={subject.url} target="_blank" rel="noreferrer">{subjectTitle}</a>
+          <span>{subject.unwatchedMainEpisodeCount > 0 ? `${subject.unwatchedMainEpisodeCount} 集未看` : '已同步'}</span>
+        </div>
+        <div className="progress-row">
+          <span>{progressText}</span>
+          <div className="progress-track" aria-hidden="true"><i style={{ width: `${progressPercent}%` }} /></div>
+        </div>
+        {subject.nextEpisode ? (
+          <p>下一集：{displayEpisodeTitle(subject.nextEpisode.name, subject.nextEpisode.nameCn, subject.nextEpisode.sort)} · {formatEpisodeAirdate(subject.nextEpisode.airdate, subject.nextEpisode.airTime)}</p>
+        ) : <p>暂无未看的本篇集数</p>}
+        {episodeOptions.length > 0 ? (
+          <WatchProgressGrid
+            subjectTitle={subjectTitle}
+            episodes={episodeOptions}
+            disabled={disabled}
+            onWatchedThrough={(episodeId) => onWatchedThrough(subject.id, episodeId)}
+            onUnwatched={onUnwatched}
+          />
+        ) : null}
+        {renderActions ? <div className="backlog-subject-actions">{renderActions(subject)}</div> : null}
+      </div>
+    </article>
+  );
+}
+
+function WatchProgressGrid({
+  subjectTitle,
+  episodes,
+  disabled,
+  onWatchedThrough,
+  onUnwatched
+}: {
+  subjectTitle: string;
+  episodes: EpisodeRow[];
+  disabled: boolean;
+  onWatchedThrough: (episodeId: number) => void;
+  onUnwatched: (episodeId: number) => void;
+}) {
+  return (
+    <div className="watch-progress-grid" aria-label={`${subjectTitle}集数进度`}>
+      {episodes.map((episode) => {
+        const progress = Number(episode.ep ?? episode.sort);
+        const watched = episode.collectionType === 2;
+        const aired = hasAired(episode.airdate);
+        return (
+          <button
+            key={episode.id}
+            type="button"
+            className={['watch-episode-button', watched ? 'is-watched' : aired ? 'is-aired' : 'is-unaired'].join(' ')}
+            onClick={() => (watched ? onUnwatched(episode.id) : onWatchedThrough(episode.id))}
+            disabled={disabled}
+            aria-label={watched ? `${subjectTitle} 第 ${progress} 集 取消看过` : `${subjectTitle} 第 ${progress} 集 标为看过`}
+            title={`${displayEpisodeTitle(episode.name, episode.nameCn, episode.sort)}${episode.airdate ? ` · ${episode.airdate}` : ''}`}
+          >
+            {formatEpisodeProgress(progress)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function taskLabel(task: BacklogTaskRow): string {
   return `${task.episode.subjectNameCn || task.episode.subjectName} 第 ${episodeNumber(task)} 集`;
 }
 
 function episodeNumber(task: BacklogTaskRow): number {
   return task.episode.ep ?? task.episode.sort;
+}
+
+function hasAired(airdate: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(airdate) && airdate <= todayInShanghai();
+}
+
+function todayInShanghai(): string {
+  const parts = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function formatEpisodeProgress(progress: number): string {
+  if (!Number.isFinite(progress)) return '?';
+  return Number.isInteger(progress) ? String(progress).padStart(2, '0') : String(progress);
+}
+
+function formatEpisodeAirdate(airdate: string, airTime = ''): string {
+  if (airdate && airTime) return `播出时间：${airdate} ${airTime}`;
+  if (airdate) return `播出日期：${airdate} · 具体时间未知`;
+  return '播出时间未知';
 }

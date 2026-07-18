@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import BacklogView from '../../src/client/views/BacklogView.js';
@@ -17,7 +17,43 @@ describe('BacklogView', () => {
     expect(screen.getByRole('heading', { name: '进行中' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '搁置' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '已完成' })).toBeInTheDocument();
-    expect(screen.getByText('总集数未知')).toBeInTheDocument();
+    expect(screen.getByText('1 / ?')).toBeInTheDocument();
+  });
+
+  it('renders watching-style progress cards and updates backlog episode progress', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const onChanged = vi.fn(async () => undefined);
+    const data = backlogData();
+    data.active[0] = subject({
+      id: 101,
+      nameCn: '进行中的旧番',
+      image: 'https://example.test/active.jpg',
+      mainEpisodes: [episode({ id: 10, ep: 1, sort: 1, collectionType: 2 }), episode()],
+      unwatchedMainEpisodes: [episode()],
+      unwatchedMainEpisodeCount: 1
+    });
+    render(<BacklogView data={data} disabled={false} onChanged={onChanged} onError={vi.fn()} />);
+
+    for (const title of ['进行中的旧番', '搁置的旧番', '完成的旧番']) {
+      expect(screen.getByLabelText(`${title}集数进度`)).toBeInTheDocument();
+    }
+    const activeSection = screen.getByLabelText('进行中');
+    expect(within(activeSection).getAllByRole('link', { name: '进行中的旧番' })[0]).toHaveClass('subject-cover');
+    expect(within(activeSection).getByText('1 / 12')).toBeInTheDocument();
+    expect(within(activeSection).getByText('1 集未看')).toBeInTheDocument();
+    expect(within(activeSection).getByText('下一集：第 2 集 · 播出时间：2020-01-08 20:00')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '进行中的旧番 第 1 集 取消看过' }));
+    await userEvent.click(screen.getByRole('button', { name: '进行中的旧番 第 2 集 标为看过' }));
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenCalledWith('/api/episodes/10/unwatched', { method: 'POST' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/subjects/101/watched-through', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ episodeId: 11 })
+    });
   });
 
   it('sends every backlog action and refreshes after each success', async () => {
@@ -101,7 +137,7 @@ function subject(overrides: Partial<DashboardSubject> = {}): DashboardSubject {
   };
 }
 
-function episode(): EpisodeRow {
+function episode(overrides: Partial<EpisodeRow> = {}): EpisodeRow {
   return {
     id: 11,
     subjectId: 101,
@@ -116,6 +152,7 @@ function episode(): EpisodeRow {
     airdate: '2020-01-08',
     airTime: '20:00',
     collectionType: 0,
-    dismissedAt: null
+    dismissedAt: null,
+    ...overrides
   };
 }
