@@ -3218,9 +3218,9 @@ select[data-state="success"] {
 }
 
 .watch-episode-button.is-aired {
-  border-color: var(--color-cyan);
-  background: var(--color-cyan-soft);
-  color: var(--color-cyan);
+  border-color: var(--color-rule-2);
+  background: transparent;
+  color: var(--color-ink-2);
 }
 
 .watch-episode-button.is-unaired {
@@ -3883,6 +3883,14 @@ select[data-state="success"] {
     border-color: var(--color-rule-2);
     background: var(--color-paper-2);
     color: var(--color-muted);
+    box-shadow: none;
+    transform: translateY(-1px);
+  }
+
+  .watch-episode-button.is-aired:hover {
+    border-color: var(--color-cyan);
+    background: var(--color-cyan-hover);
+    color: var(--color-cyan);
     box-shadow: none;
     transform: translateY(-1px);
   }

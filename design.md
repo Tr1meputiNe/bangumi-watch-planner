@@ -58,8 +58,8 @@ science-fiction chrome, or decorative character art.
   surface on hover.
 - Selected navigation: pale-pink surface with pink text and a pink focus ring;
   never a cyan selected outline.
-- Episode progress: watched is solid pink, aired-but-unwatched is pale blue,
-  and unaired stays neutral.
+- Episode progress: watched is solid pink; aired-but-unwatched is neutral until
+  its pale-blue hover; unaired stays neutral.
 - Every control keeps visible focus, active, disabled, and hover states.
 
 ## Content Rules
