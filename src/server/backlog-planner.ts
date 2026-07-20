@@ -68,12 +68,14 @@ export function buildBacklogPlan(input: BacklogPlannerInput): BacklogPlannerOutp
       const excludedEpisodeIds = input.exclusions.get(date) ?? new Set<number>();
 
       while (freeSlots.length > 0) {
-        const eligible = queues.filter((queue) => queue.episodes.some((episode) => !excludedEpisodeIds.has(episode.id)));
+        const eligible = queues.filter((queue) => {
+          const episode = queue.episodes[0];
+          return episode && !excludedEpisodeIds.has(episode.id);
+        });
         const queue = eligible.find((item) => !contributed.has(item.subjectId)) ?? eligible[0];
         if (!queue) break;
 
-        const episodeIndex = queue.episodes.findIndex((episode) => !excludedEpisodeIds.has(episode.id));
-        const [episode] = queue.episodes.splice(episodeIndex, 1);
+        const episode = queue.episodes.shift();
         if (!episode) break;
         const slot = freeSlots.shift();
         if (slot === undefined) break;

@@ -94,7 +94,7 @@ describe('backlog planner', () => {
     ]);
   });
 
-  it('selects a later eligible episode without removing an excluded queue head', () => {
+  it('does not skip an excluded queue head to schedule a later episode', () => {
     const result = buildBacklogPlan({
       ...input(),
       throughDate: '2026-07-20',
@@ -103,7 +103,6 @@ describe('backlog planner', () => {
     });
 
     expect(result.tasks.map((task) => [task.plannedDate, task.episodeId])).toEqual([
-      ['2026-07-19', 12],
       ['2026-07-19', 21],
       ['2026-07-20', 11]
     ]);
