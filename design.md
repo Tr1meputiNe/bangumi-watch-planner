@@ -19,7 +19,8 @@ science-fiction chrome, or decorative character art.
 ## Theme
 
 - Anchor: sakura pink for active state and primary actions.
-- Secondary: cyan for alternate actions and pear for warnings/status.
+- Secondary: the original muted blue for alternate actions and pear for
+  warnings/status.
 - Surfaces: lightly pink-tinted paper in light mode and violet-tinted ink in
   dark mode.
 - Canonical values live in `tokens.css`; components consume semantic tokens
@@ -41,15 +42,24 @@ science-fiction chrome, or decorative character art.
 
 ## Motion
 
-- Short button press and subtle content-cover lift only.
+- Short button hover lift, button press, and subtle content-cover lift only.
 - No ambient animation, gradients, bouncy easing, or automatic movement.
 - `prefers-reduced-motion` removes transforms and transitions.
 
 ## Interaction Voice
 
-- Primary command: sakura fill with high-contrast ink.
-- Secondary command: cyan-tinted surface with a cyan edge.
-- Ghost command: transparent surface and neutral rule.
+- Primary command: the original solid sakura fill with white text and a soft
+  shadow.
+- Secondary command: the original pale-blue surface, blue text, and no raised
+  shadow.
+- Ghost command: transparent surface and neutral rule; hover shifts to a more
+  opaque pale pink.
+- Transparent navigation and unaired episode controls gain an opaque tinted
+  surface on hover.
+- Selected navigation: pale-pink surface with pink text and a pink focus ring;
+  never a cyan selected outline.
+- Episode progress: watched is solid pink, aired-but-unwatched is pale blue,
+  and unaired stays neutral.
 - Every control keeps visible focus, active, disabled, and hover states.
 
 ## Content Rules
