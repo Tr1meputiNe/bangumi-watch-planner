@@ -3889,7 +3889,7 @@ select[data-state="success"] {
 
   .watch-episode-button.is-aired:hover {
     border-color: var(--color-cyan);
-    background: var(--color-cyan-hover);
+    background: var(--color-episode-hover);
     color: var(--color-cyan);
     box-shadow: none;
     transform: translateY(-1px);

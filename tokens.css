@@ -21,6 +21,7 @@
   --color-cyan: #356aa7;
   --color-cyan-soft: #edf5fd;
   --color-cyan-hover: #e3f0fb;
+  --color-episode-hover: #cfe4f7;
   --color-pear: oklch(73% 0.13 125);
   --color-pear-soft: oklch(93% 0.045 125);
   --color-coral: oklch(66% 0.15 28);
@@ -92,6 +93,7 @@
     --color-cyan: #9bc6ef;
     --color-cyan-soft: #273847;
     --color-cyan-hover: #30485c;
+    --color-episode-hover: #365b78;
     --color-pear: oklch(78% 0.12 125);
     --color-pear-soft: oklch(27% 0.04 125);
     --color-coral: oklch(74% 0.13 28);
