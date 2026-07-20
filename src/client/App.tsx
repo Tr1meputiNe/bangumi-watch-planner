@@ -166,7 +166,7 @@ export default function App() {
   const syncTime = formatDateTime(state.dashboard?.lastSyncAt ?? state.auth?.lastSyncAt ?? null);
 
   return (
-    <main className="app-shell">
+    <main className="app-shell hallmark-workbench">
       <aside className="app-sidebar" aria-label="应用导航">
         <header className="topbar">
           <div className="brand-lockup">
@@ -202,11 +202,16 @@ export default function App() {
         </header>
 
         <div className="page-tabs" role="tablist" aria-label="视图">
-          <Tab active={activeView === 'watching'} onClick={() => setActiveView('watching')}>追番提醒</Tab>
-          <Tab active={activeView === 'backlog'} onClick={() => setActiveView('backlog')}>补番计划</Tab>
-          <Tab active={activeView === 'wishlist'} onClick={() => setActiveView('wishlist')}>想看</Tab>
-          <Tab active={activeView === 'calendar'} onClick={() => setActiveView('calendar')}>每日放送</Tab>
+          <Tab mark="追" active={activeView === 'watching'} onClick={() => setActiveView('watching')}>追番提醒</Tab>
+          <Tab mark="补" active={activeView === 'backlog'} onClick={() => setActiveView('backlog')}>补番计划</Tab>
+          <Tab mark="想" active={activeView === 'wishlist'} onClick={() => setActiveView('wishlist')}>想看</Tab>
+          <Tab mark="播" active={activeView === 'calendar'} onClick={() => setActiveView('calendar')}>每日放送</Tab>
         </div>
+
+        <footer className="app-footer">
+          <span>Bangumi Planner</span>
+          <span>2026</span>
+        </footer>
       </aside>
 
       <div className="app-content">
@@ -257,8 +262,13 @@ export default function App() {
   );
 }
 
-function Tab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return <button type="button" role="tab" aria-selected={active} onClick={onClick}>{children}</button>;
+function Tab({ mark, active, onClick, children }: { mark: string; active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" role="tab" aria-selected={active} onClick={onClick}>
+      <span className="tab-mark" data-mark={mark} aria-hidden="true" />
+      <span className="tab-label">{children}</span>
+    </button>
+  );
 }
 
 type SearchState = { error: string | null; keyword: string; results: AnimeSearchResult[] };

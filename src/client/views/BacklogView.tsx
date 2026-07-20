@@ -25,7 +25,6 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
   const subjectsById = new Map(
     [...data.active, ...data.held, ...data.completed].map((subject) => [subject.id, subject])
   );
-  const overviewSubjects = [...data.active, ...data.held].filter((subject) => subject.image).slice(0, 5);
 
   async function runAction(key: string, action: () => Promise<unknown>) {
     setBusyAction(key);
@@ -46,11 +45,6 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
   return (
     <div className="backlog-workspace">
       <header className="backlog-overview" aria-label="补番概览">
-        {overviewSubjects.length > 0 ? (
-          <div className="backlog-overview-covers" aria-hidden="true">
-            {overviewSubjects.map((subject) => <img key={subject.id} src={subject.image} alt="" />)}
-          </div>
-        ) : null}
         <div className="backlog-overview-copy">
           <span className="panel-eyebrow">旧番进度</span>
           <h1>补番计划</h1>
@@ -106,11 +100,6 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
         ) : (
           <div className="empty backlog-today-empty">
             <span>今天没有补番任务。</span>
-            {overviewSubjects.length > 0 ? (
-              <div className="backlog-empty-covers" aria-hidden="true">
-                {overviewSubjects.slice(0, 4).map((subject) => <img key={subject.id} src={subject.image} alt="" />)}
-              </div>
-            ) : null}
           </div>
         )}
         <p className="completion-estimate">

@@ -11,6 +11,7 @@ describe('BacklogView', () => {
 
     expect(screen.getByRole('heading', { name: '补番计划' })).toBeInTheDocument();
     expect(screen.getByLabelText('补番概览')).toHaveTextContent('进行中1 部');
+    expect(document.querySelector('.backlog-overview-covers')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '今日任务' })).toBeInTheDocument();
     expect(screen.getByLabelText('今日任务')).toHaveTextContent('安排 1 集');
     expect(screen.getByRole('heading', { name: '未来 7 天' })).toBeInTheDocument();

@@ -13,16 +13,10 @@ export default function CalendarView({ state, onRetry }: { state: CalendarViewSt
   const days = orderCalendarDaysFromToday(rawDays, todayWeekdayId);
   const today = days.find((day) => day.weekday.id === todayWeekdayId);
   const totalCount = days.reduce((sum, day) => sum + day.items.length, 0);
-  const featuredItems = days.flatMap((day) => day.items).filter((item) => item.image).slice(0, 6);
 
   return (
     <section className="calendar-panel" aria-label="每日放送">
       <header className="calendar-overview">
-        {featuredItems.length > 0 ? (
-          <div className="calendar-overview-covers" aria-hidden="true">
-            {featuredItems.map((item) => <img key={item.id} src={item.image} alt="" />)}
-          </div>
-        ) : null}
         <div>
           <span className="panel-eyebrow">放送日历</span>
           <h1>每日放送</h1>

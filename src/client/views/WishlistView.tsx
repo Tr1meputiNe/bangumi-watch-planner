@@ -63,8 +63,6 @@ export default function WishlistView({ disabled, onChanged, onError }: WishlistV
     }
   }
 
-  const featuredItems = data.items.filter((subject) => subject.image).slice(0, 6);
-
   return (
     <section className="wishlist-panel" aria-label="想看">
       <header className="wishlist-hero">
@@ -73,11 +71,6 @@ export default function WishlistView({ disabled, onChanged, onError }: WishlistV
           <h1>想看</h1>
           <p>先收进片库，到合适的季度再开始。</p>
         </div>
-        {featuredItems.length > 0 ? (
-          <div className="wishlist-hero-covers" aria-hidden="true">
-            {featuredItems.map((subject) => <img key={subject.id} src={subject.image} alt="" />)}
-          </div>
-        ) : null}
         <strong className="wishlist-count" aria-live="polite">{data.items.length} 部</strong>
       </header>
 

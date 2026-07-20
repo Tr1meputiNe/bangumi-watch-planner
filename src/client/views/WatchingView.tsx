@@ -14,7 +14,6 @@ export default function WatchingView({ dashboard, disabled, onChanged, onError }
   const [busyEpisodeId, setBusyEpisodeId] = useState<number | null>(null);
   const pendingEpisodes = dashboard.pendingEpisodes;
   const todayLabel = useMemo(() => formatTodayLabel(), []);
-  const decorativeSubjects = useMemo(() => dashboard.subjects.filter((subject) => subject.image).slice(0, 6), [dashboard.subjects]);
   const subjectsById = useMemo(
     () => new Map(dashboard.subjects.map((subject) => [subject.id, subject])),
     [dashboard.subjects]
@@ -41,11 +40,6 @@ export default function WatchingView({ dashboard, disabled, onChanged, onError }
     <div className="workspace">
       <section className="panel backlog-panel" aria-label="待补新集">
         <div className="panel-title">
-          {decorativeSubjects.length > 0 ? (
-            <div className="title-cover-reel" aria-hidden="true">
-              {decorativeSubjects.map((subject) => <img key={subject.id} src={subject.image} alt="" />)}
-            </div>
-          ) : null}
           <div><span className="panel-eyebrow">今日待看</span><h1>待补新集</h1><p className="today-date">{todayLabel}</p></div>
           <strong>{pendingEpisodes.length}</strong>
         </div>

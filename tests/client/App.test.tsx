@@ -150,8 +150,11 @@ describe('App', () => {
       '每日放送'
     ]);
     expect(fetchMock.mock.calls.some(([input]) => input.toString() === '/api/backlog')).toBe(false);
+    expect(document.querySelector('.hallmark-workbench')).toBeInTheDocument();
+    expect(document.querySelectorAll('.page-tabs .tab-mark')).toHaveLength(4);
+    expect(document.querySelector('.app-footer')).toBeInTheDocument();
     expect(screen.getByLabelText('近期在看').querySelector('img')).toHaveAttribute('src', 'cover.jpg');
-    expect(screen.getByLabelText('待补新集').querySelectorAll('.title-cover-reel img')).toHaveLength(1);
+    expect(screen.getByLabelText('待补新集').querySelector('.title-cover-reel')).not.toBeInTheDocument();
     expect(document.querySelector('.page-ambient-covers')).not.toBeInTheDocument();
     expect(document.querySelector('.page-ambient-ornament')).toBeInTheDocument();
     expect(screen.getAllByText('测试番剧').length).toBeGreaterThan(0);
@@ -592,6 +595,7 @@ describe('App', () => {
       '星期四'
     ]);
     const friday = screen.getByLabelText('星期五 2 部');
+    expect(document.querySelector('.calendar-overview-covers')).not.toBeInTheDocument();
     expect([...friday.querySelectorAll('.calendar-subject div > a')].map((link) => link.textContent)).toEqual(['周五早播', '周五放送']);
     expect(friday).toHaveClass('is-today');
     expect(screen.getByLabelText('2026-07-10 20:00')).toHaveClass('calendar-air');

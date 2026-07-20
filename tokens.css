@@ -1,0 +1,94 @@
+/* Hallmark · tokens: Hum workbench · tone: restrained anime · light/dark */
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap");
+
+:root {
+  --color-paper: oklch(97.5% 0.012 342);
+  --color-paper-2: oklch(94.5% 0.022 342);
+  --color-paper-3: oklch(92.5% 0.026 218);
+  --color-surface: oklch(99% 0.006 342);
+  --color-ink: oklch(24% 0.028 304);
+  --color-ink-2: oklch(42% 0.028 304);
+  --color-muted: oklch(50% 0.024 304);
+  --color-rule: oklch(86% 0.024 330);
+  --color-rule-2: oklch(76% 0.038 330);
+  --color-accent: oklch(62% 0.18 352);
+  --color-accent-deep: oklch(49% 0.16 352);
+  --color-accent-soft: oklch(92% 0.045 352);
+  --color-accent-ink: oklch(18% 0.02 304);
+  --color-cyan: oklch(68% 0.105 218);
+  --color-cyan-soft: oklch(92% 0.04 218);
+  --color-pear: oklch(73% 0.13 125);
+  --color-pear-soft: oklch(93% 0.045 125);
+  --color-coral: oklch(66% 0.15 28);
+  --color-coral-soft: oklch(93% 0.04 28);
+  --color-warning: oklch(58% 0.13 78);
+  --color-error: oklch(54% 0.19 25);
+  --color-focus: oklch(52% 0.17 232);
+
+  --font-display: "Bricolage Grotesque", "Noto Sans SC", sans-serif;
+  --font-body: "Noto Sans SC", "PingFang SC", sans-serif;
+
+  --space-3xs: 0.25rem;
+  --space-2xs: 0.5rem;
+  --space-xs: 0.75rem;
+  --space-sm: 1rem;
+  --space-md: 1.5rem;
+  --space-lg: 2rem;
+  --space-xl: 3rem;
+  --space-2xl: 4.5rem;
+  --space-3xl: 7rem;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.625rem;
+  --text-2xl: 2.125rem;
+  --text-display: clamp(2.2rem, 4vw, 4rem);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-short: 140ms;
+  --dur-medium: 240ms;
+  --dur-long: 420ms;
+
+  --rule-hair: 1px;
+  --radius-card: 8px;
+  --radius-pill: 999px;
+  --radius-input: 7px;
+  --shadow-card: 0 3px 0 var(--color-rule);
+  --shadow-button: 0 3px 0 var(--color-accent-deep);
+  --page-max: 92rem;
+  --sidebar-width: 15rem;
+  --page-gutter: clamp(0.75rem, 2.4vw, 2rem);
+  --z-sticky: 10;
+  --z-sticky-nav: 20;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper: oklch(18% 0.02 304);
+    --color-paper-2: oklch(22% 0.024 304);
+    --color-paper-3: oklch(25% 0.028 235);
+    --color-surface: oklch(21% 0.018 304);
+    --color-ink: oklch(95% 0.012 342);
+    --color-ink-2: oklch(79% 0.02 342);
+    --color-muted: oklch(72% 0.018 342);
+    --color-rule: oklch(32% 0.025 320);
+    --color-rule-2: oklch(43% 0.035 320);
+    --color-accent: oklch(72% 0.155 352);
+    --color-accent-deep: oklch(70% 0.15 352);
+    --color-accent-soft: oklch(28% 0.055 352);
+    --color-accent-ink: oklch(18% 0.02 304);
+    --color-cyan: oklch(74% 0.095 218);
+    --color-cyan-soft: oklch(27% 0.045 218);
+    --color-pear: oklch(78% 0.12 125);
+    --color-pear-soft: oklch(27% 0.04 125);
+    --color-coral: oklch(74% 0.13 28);
+    --color-coral-soft: oklch(28% 0.045 28);
+    --color-warning: oklch(76% 0.12 78);
+    --color-error: oklch(72% 0.16 25);
+    --color-focus: oklch(76% 0.12 232);
+  }
+}
