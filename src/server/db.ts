@@ -51,15 +51,15 @@ export function createRepository(dbPath: string): Repository {
 
     async upsertSubject(subject) {
       const hasPlannerState = [
-        'collectionType', 'plannerMode', 'seasonKey', 'seasonKind', 'airYear', 'totalEpisodesKnown', 'completedAt'
+        'collectionType', 'plannerMode', 'seasonKey', 'seasonKind', 'airDate', 'airYear', 'totalEpisodesKnown', 'completedAt'
       ].some((key) => Object.hasOwn(subject, key));
       db.prepare(
         `insert into subjects (
            id, name, name_cn, eps, ep_status, image, url, collection_type, planner_mode,
-           season_key, season_kind, air_year, total_episodes_known, completed_at, updated_at
+           season_key, season_kind, air_date, air_year, total_episodes_known, completed_at, updated_at
          ) values (
            @id, @name, @nameCn, @eps, @epStatus, @image, @url, @collectionType, @plannerMode,
-           @seasonKey, @seasonKind, @airYear, @totalEpisodesKnown, @completedAt, datetime('now')
+           @seasonKey, @seasonKind, @airDate, @airYear, @totalEpisodesKnown, @completedAt, datetime('now')
          )
          on conflict(id) do update set
            name = excluded.name,
@@ -72,6 +72,7 @@ export function createRepository(dbPath: string): Repository {
            planner_mode = case when @hasPlannerState then excluded.planner_mode else planner_mode end,
            season_key = case when @hasPlannerState then excluded.season_key else season_key end,
            season_kind = case when @hasPlannerState then excluded.season_kind else season_kind end,
+           air_date = case when @hasPlannerState then excluded.air_date else air_date end,
            air_year = case when @hasPlannerState then excluded.air_year else air_year end,
            total_episodes_known = case when @hasPlannerState then excluded.total_episodes_known else total_episodes_known end,
            completed_at = case when @hasPlannerState then excluded.completed_at else completed_at end,
@@ -82,6 +83,7 @@ export function createRepository(dbPath: string): Repository {
         plannerMode: hasPlannerState ? subject.plannerMode ?? null : 'seasonal',
         seasonKey: subject.seasonKey ?? null,
         seasonKind: subject.seasonKind ?? null,
+        airDate: subject.airDate ?? null,
         airYear: subject.airYear ?? null,
         totalEpisodesKnown: subject.totalEpisodesKnown ? 1 : 0,
         completedAt: subject.completedAt ?? null,
@@ -189,7 +191,7 @@ export function createRepository(dbPath: string): Repository {
         params.push(year);
       }
       const items = selectSubjects(db, `where ${where.join(' and ')}`, params)
-        .map((subject) => ({ ...subject, isCurrentSeason: subject.seasonKey !== null }));
+        .map((subject) => ({ ...subject, isCurrentSeason: subject.seasonKey !== null, isUpcoming: false }));
       const years = (db.prepare(
         'select distinct air_year as airYear from subjects where collection_type = 1 and air_year is not null order by air_year desc'
       ).all() as Array<{ airYear: number }>).map((row) => row.airYear);
@@ -383,6 +385,7 @@ function migrate(db: Database.Database): void {
   addColumnIfMissing(db, 'subjects', 'planner_mode', "text default 'seasonal'");
   addColumnIfMissing(db, 'subjects', 'season_key', 'text');
   addColumnIfMissing(db, 'subjects', 'season_kind', 'text');
+  addColumnIfMissing(db, 'subjects', 'air_date', 'text');
   addColumnIfMissing(db, 'subjects', 'air_year', 'integer');
   addColumnIfMissing(db, 'subjects', 'total_episodes_known', 'integer not null default 0');
   addColumnIfMissing(db, 'subjects', 'completed_at', 'text');
@@ -420,7 +423,7 @@ function selectSubjects(db: Database.Database, whereClause = '', params: unknown
     `select
        id, name, name_cn as nameCn, eps, ep_status as epStatus, image, url,
        collection_type as collectionType, planner_mode as plannerMode, season_key as seasonKey,
-       season_kind as seasonKind, air_year as airYear, total_episodes_known as totalEpisodesKnown,
+       season_kind as seasonKind, air_date as airDate, air_year as airYear, total_episodes_known as totalEpisodesKnown,
        completed_at as completedAt
      from subjects
      ${whereClause}

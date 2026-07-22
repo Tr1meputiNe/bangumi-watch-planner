@@ -249,8 +249,7 @@ describe('dashboard service', () => {
   it.each([
     [true, '2026-07-01', 'seasonal'],
     [false, '2026-07-01', 'backlog'],
-    [false, '2026-07-19', 'seasonal'],
-    [false, '2026-08-01', 'seasonal']
+    [false, '2026-07-19', 'seasonal']
   ] as const)('starts a wishlist title and syncs it into the correct planning mode', async (isActive, subjectDate, plannerMode) => {
     const setSubjectCollectionType = vi.fn(async () => undefined);
     const getAnimeCollections = vi.fn(async (_username: string, type: 1 | 3 | 4) => ({
@@ -301,6 +300,31 @@ describe('dashboard service', () => {
     expect(setSubjectCollectionType).toHaveBeenCalledWith(1, 3);
     expect(setSubjectCollectionType.mock.invocationCallOrder[0]).toBeLessThan(getAnimeCollections.mock.invocationCallOrder[0]);
     expect(upsertSubject).toHaveBeenCalledWith(expect.objectContaining({ id: 1, collectionType: 3, plannerMode }));
+  });
+
+  it('keeps an upcoming wishlist title in wishlist when start is requested', async () => {
+    const setSubjectCollectionType = vi.fn(async () => undefined);
+    const syncCollections = vi.fn(async () => ({ subjectsSynced: 1, episodesSynced: 0 }));
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ setSubjectCollectionType }),
+      repository: repository({
+        getSubject: vi.fn(async () => subject({
+          collectionType: 1,
+          plannerMode: null,
+          ...{ airDate: '2026-08-01' }
+        }))
+      }),
+      clock: () => new Date('2026-07-19T04:00:00.000Z'),
+      syncCollections
+    });
+
+    await expect(service.startSubject(1)).rejects.toMatchObject({
+      message: '尚未播出，已保留在想看',
+      statusCode: 400
+    });
+    expect(setSubjectCollectionType).not.toHaveBeenCalled();
+    expect(syncCollections).not.toHaveBeenCalled();
   });
 
   it('never promotes an old wishlist title during sync alone', async () => {

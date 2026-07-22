@@ -187,8 +187,16 @@ export function createDashboardService({
       };
     },
 
-    getWishlist(query, year) {
-      return repository.listWishlist(query.trim(), year);
+    async getWishlist(query, year) {
+      const data = await repository.listWishlist(query.trim(), year);
+      const today = todayInShanghai(clock());
+      return {
+        ...data,
+        items: data.items.map((subject) => ({
+          ...subject,
+          isUpcoming: Boolean(subject.airDate && subject.airDate > today)
+        }))
+      };
     },
 
     getCalendar() {
@@ -273,6 +281,9 @@ export function createDashboardService({
       const subject = await requireSubject(subjectId);
       if (subject.collectionType !== 1) {
         throw Object.assign(new Error('Only wishlist subjects can be started'), { statusCode: 400 });
+      }
+      if (subject.airDate && subject.airDate > todayInShanghai(clock())) {
+        throw Object.assign(new Error('尚未播出，已保留在想看'), { statusCode: 400 });
       }
       await client.setSubjectCollectionType(subjectId, 3);
       return service.syncNow();

@@ -50,6 +50,7 @@ export async function syncAnimeCollections({
           await repository.upsertSubject({
             ...subject,
             ...classification,
+            airDate: getAirDate(collection.subject.date),
             airYear: getAirYear(collection.subject.date),
             totalEpisodesKnown: subject.eps > 0,
             completedAt: null
@@ -70,6 +71,7 @@ export async function syncAnimeCollections({
           ...subject,
           ...resolvedClassification,
           eps: Math.max(apiTotal, collection.ep_status, mainEpisodeCount(episodes), highestMainEpisodeNumber(episodes)),
+          airDate: getAirDate(collection.subject.date),
           airYear: getAirYear(collection.subject.date),
           totalEpisodesKnown: apiTotal > 0,
           completedAt: null
@@ -302,6 +304,10 @@ function highestMainEpisodeNumber(episodes: EpisodeRow[]): number {
 
 function getAirYear(date: string | undefined): number | null {
   return date && isValidDateString(date) ? Number(date.slice(0, 4)) : null;
+}
+
+function getAirDate(date: string | undefined): string | null {
+  return date && isValidDateString(date) ? date : null;
 }
 
 function parseCursor(value: string | null): number | null {

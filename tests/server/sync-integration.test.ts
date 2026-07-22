@@ -82,7 +82,7 @@ describe('collection sync integration', () => {
     await expect(repository.getSubject(101)).resolves.toMatchObject({ plannerMode: 'seasonal', seasonKind: 'new', seasonKey: '2026Q3' });
     await expect(repository.getSubject(102)).resolves.toMatchObject({ plannerMode: 'seasonal', seasonKind: 'continuing', seasonKey: '2026Q3' });
     await expect(repository.getSubject(104)).resolves.toMatchObject({ collectionType: 3, plannerMode: 'backlog', seasonKey: null });
-    await expect(repository.getSubject(201)).resolves.toMatchObject({ collectionType: 1, plannerMode: null, airYear: 2024 });
+    await expect(repository.getSubject(201)).resolves.toMatchObject({ collectionType: 1, plannerMode: null, airDate: '2024-10-03', airYear: 2024 });
     await expect(repository.getSubject(401)).resolves.toMatchObject({ collectionType: 4, plannerMode: 'backlog' });
     await expect(repository.getSubject(999)).resolves.toMatchObject({ collectionType: 2, completedAt: '2026-07-01T00:00:00+08:00' });
     expect(client.getSubjectEpisodes).not.toHaveBeenCalledWith(201, expect.anything(), expect.anything());

@@ -17,8 +17,8 @@ describe('WishlistView', () => {
     render(<WishlistView disabled={false} onChanged={vi.fn()} onError={vi.fn()} />);
 
     expect(await screen.findByRole('option', { name: '2024' })).toBeInTheDocument();
-    expect(screen.getByText('2 部')).toHaveClass('wishlist-count');
-    expect(document.querySelectorAll('.wishlist-item')).toHaveLength(2);
+    expect(screen.getByText('3 部')).toHaveClass('wishlist-count');
+    expect(document.querySelectorAll('.wishlist-item')).toHaveLength(3);
     expect(document.querySelector('.wishlist-hero-covers')).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: '全部年份' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '年份未知' })).toBeInTheDocument();
@@ -36,7 +36,7 @@ describe('WishlistView', () => {
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
   });
 
-  it('labels current and older titles and starts only the clicked title', async () => {
+  it('labels current, older, and upcoming titles and starts only the clicked title', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (input.toString() === '/api/wishlist?q=&year=all') return Response.json(wishlistData());
       if (input.toString() === '/api/subjects/201/start' && init?.method === 'POST') {
@@ -49,9 +49,11 @@ describe('WishlistView', () => {
     render(<WishlistView disabled={false} onChanged={onChanged} onError={vi.fn()} />);
 
     expect(await screen.findByText('本季度')).toBeInTheDocument();
-    expect(screen.getByText('旧番')).toBeInTheDocument();
+    expect(screen.getAllByText('旧番')).toHaveLength(1);
+    expect(screen.getByText('未播出')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '开始追番' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '加入补番' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '尚未播出' })).toBeDisabled();
 
     await userEvent.click(screen.getByRole('button', { name: '开始追番' }));
 
@@ -96,8 +98,27 @@ function wishlistData() {
         totalEpisodesKnown: false,
         completedAt: null,
         isCurrentSeason: false
+      },
+      {
+        id: 203,
+        name: 'Upcoming Anime',
+        nameCn: '未来想看',
+        eps: 12,
+        epStatus: 0,
+        image: null,
+        url: 'https://bgm.tv/subject/203',
+        collectionType: 1,
+        plannerMode: null,
+        seasonKey: null,
+        seasonKind: null,
+        airDate: '2027-01-01',
+        airYear: 2027,
+        totalEpisodesKnown: true,
+        completedAt: null,
+        isCurrentSeason: false,
+        isUpcoming: true
       }
     ],
-    years: [2026, 2024]
+    years: [2027, 2026, 2024]
   };
 }

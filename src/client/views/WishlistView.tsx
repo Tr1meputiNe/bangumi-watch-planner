@@ -106,18 +106,18 @@ export default function WishlistView({ disabled, onChanged, onError }: WishlistV
               <div className="wishlist-details">
                 <a className="wishlist-title" href={subject.url} target="_blank" rel="noreferrer">{displaySubjectName(subject.name, subject.nameCn)}</a>
                 <p className="wishlist-meta">
-                  <span className={subject.isCurrentSeason ? 'wishlist-season is-current' : 'wishlist-season'}>
-                    {subject.isCurrentSeason ? '本季度' : '旧番'}
+                  <span className={subject.isCurrentSeason && !subject.isUpcoming ? 'wishlist-season is-current' : 'wishlist-season'}>
+                    {subject.isUpcoming ? '未播出' : subject.isCurrentSeason ? '本季度' : '旧番'}
                   </span>
                   <span>{subject.airYear ?? '年份未知'} · {subject.totalEpisodesKnown ? `${subject.eps} 集` : '总集数未知'}</span>
                 </p>
               </div>
               <button
                 type="button"
-                disabled={disabled || startingId === subject.id}
+                disabled={disabled || subject.isUpcoming || startingId === subject.id}
                 onClick={() => void start(subject.id)}
               >
-                {subject.isCurrentSeason ? '开始追番' : '加入补番'}
+                {subject.isUpcoming ? '尚未播出' : subject.isCurrentSeason ? '开始追番' : '加入补番'}
               </button>
             </article>
           ))}

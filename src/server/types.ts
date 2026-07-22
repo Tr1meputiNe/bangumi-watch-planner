@@ -62,6 +62,7 @@ export type SubjectRow = {
   plannerMode: PlannerMode;
   seasonKey: string | null;
   seasonKind: SeasonKind | null;
+  airDate?: string | null;
   airYear: number | null;
   totalEpisodesKnown: boolean;
   completedAt: string | null;
@@ -123,7 +124,7 @@ export type BacklogData = {
 };
 
 export type WishlistData = {
-  items: Array<SubjectRow & { isCurrentSeason: boolean }>;
+  items: Array<SubjectRow & { isCurrentSeason: boolean; isUpcoming: boolean }>;
   years: number[];
 };
 
