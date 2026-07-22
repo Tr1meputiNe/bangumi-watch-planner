@@ -60,9 +60,10 @@ export async function syncAnimeCollections({
 
         const episodes = await getAllSubjectEpisodes(client, subject, broadcastCatalog.schedules);
         const apiTotal = collection.subject.eps ?? 0;
+        const premiereDate = collection.subject.date ?? '';
         const resolvedClassification = collectionType === 3
           && classification.plannerMode === 'backlog'
-          && isStillUpdating(episodes, today)
+          && (isStillUpdating(episodes, today) || (isValidDateString(premiereDate) && premiereDate >= today))
           ? { ...classification, plannerMode: 'seasonal' as const }
           : classification;
         await repository.upsertSubject({

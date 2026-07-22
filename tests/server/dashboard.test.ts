@@ -247,9 +247,11 @@ describe('dashboard service', () => {
   });
 
   it.each([
-    [true, 'seasonal'],
-    [false, 'backlog']
-  ] as const)('starts a wishlist title and syncs it into %s planning', async (isActive, plannerMode) => {
+    [true, '2026-07-01', 'seasonal'],
+    [false, '2026-07-01', 'backlog'],
+    [false, '2026-07-19', 'seasonal'],
+    [false, '2026-08-01', 'seasonal']
+  ] as const)('starts a wishlist title and syncs it into the correct planning mode', async (isActive, subjectDate, plannerMode) => {
     const setSubjectCollectionType = vi.fn(async () => undefined);
     const getAnimeCollections = vi.fn(async (_username: string, type: 1 | 3 | 4) => ({
       total: type === 3 ? 1 : 0,
@@ -257,7 +259,7 @@ describe('dashboard service', () => {
         subject_id: 1,
         type: 3,
         ep_status: 0,
-        subject: { id: 1, name: 'Test Anime', eps: 2, date: '2026-07-01' }
+        subject: { id: 1, name: 'Test Anime', eps: 2, date: subjectDate }
       }] : []
     }));
     const upsertSubject = vi.fn(async () => undefined);
