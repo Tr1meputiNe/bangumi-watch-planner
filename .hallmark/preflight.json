@@ -1,9 +1,0 @@
-{
-  "date": "2026-07-20",
-  "framework": "React 19 + Vite 7",
-  "font_stack": "system UI",
-  "palette": "CSS custom properties with light and dark modes",
-  "motion": "CSS only",
-  "spacing": "mixed values; Hallmark introduces a 4-point token scale",
-  "scope": "multi-view local planning app"
-}
