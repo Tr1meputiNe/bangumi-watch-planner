@@ -369,7 +369,11 @@ export function createDashboardService({
       if (!trimmed) {
         return [];
       }
-      return client.searchAnimeSubjects(trimmed);
+      const results = await client.searchAnimeSubjects(trimmed);
+      return Promise.all(results.map(async (result) => ({
+        ...result,
+        collectionType: (await repository.getSubject(result.id))?.collectionType ?? null
+      })));
     },
 
     async dismissEpisode(episodeId) {

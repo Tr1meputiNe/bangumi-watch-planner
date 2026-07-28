@@ -319,17 +319,24 @@ function SettingsPanel({
         {animeSearch.error ? <p className="search-error">{animeSearch.error}</p> : null}
         {animeSearch.results.length > 0 ? (
           <div className="search-results">
-            {animeSearch.results.map((result) => (
-              <article key={result.id} className="search-result">
-                <a href={result.url} target="_blank" rel="noreferrer">
-                  {result.image ? <img src={result.image} alt="" /> : <span>{result.nameCn || result.name}</span>}
-                </a>
-                <div><strong>{displaySubjectName(result.name, result.nameCn)}</strong><p>{result.eps ? `${result.eps} 集` : '总集数未知'}</p></div>
-                <button type="button" onClick={() => void onAdd(result.id)} disabled={disabled || addingSubjectId === result.id}>
-                  {addingSubjectId === result.id ? '添加中' : '加入在看'}
-                </button>
-              </article>
-            ))}
+            {animeSearch.results.map((result) => {
+              const watched = result.collectionType === 2;
+              return (
+                <article key={result.id} className="search-result">
+                  <a href={result.url} target="_blank" rel="noreferrer">
+                    {result.image ? <img src={result.image} alt="" /> : <span>{result.nameCn || result.name}</span>}
+                  </a>
+                  <div><strong>{displaySubjectName(result.name, result.nameCn)}</strong><p>{result.eps ? `${result.eps} 集` : '总集数未知'}</p></div>
+                  <button
+                    type="button"
+                    onClick={() => void onAdd(result.id)}
+                    disabled={watched || disabled || addingSubjectId === result.id}
+                  >
+                    {watched ? '已看过' : addingSubjectId === result.id ? '添加中' : '加入在看'}
+                  </button>
+                </article>
+              );
+            })}
           </div>
         ) : null}
       </div>

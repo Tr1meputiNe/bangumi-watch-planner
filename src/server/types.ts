@@ -210,6 +210,7 @@ export type AnimeSearchResult = {
   eps: number;
   image: string | null;
   url: string;
+  collectionType?: BangumiCollectionType | null;
 };
 
 export type BangumiCalendarSubject = {

@@ -77,7 +77,7 @@ describe('dashboard service', () => {
     ]);
   });
 
-  it('passes anime search through to the Bangumi client after trimming the keyword', async () => {
+  it('adds the local collection status to anime search results', async () => {
     const searchAnimeSubjects = vi.fn(async (): Promise<AnimeSearchResult[]> => [
       {
         id: 456,
@@ -91,10 +91,16 @@ describe('dashboard service', () => {
     const service = createDashboardService({
       auth: authStatus(),
       client: client({ searchAnimeSubjects }),
-      repository: repository()
+      repository: repository({
+        getSubject: async (subjectId) => subjectId === 456
+          ? subject({ id: 456, collectionType: 2, completedAt: '2026-07-28T00:00:00+08:00' })
+          : null
+      })
     });
 
-    await expect(service.searchAnimeSubjects('  测试  ')).resolves.toHaveLength(1);
+    await expect(service.searchAnimeSubjects('  测试  ')).resolves.toEqual([
+      expect.objectContaining({ id: 456, collectionType: 2 })
+    ]);
     expect(searchAnimeSubjects).toHaveBeenCalledWith('测试');
   });
 

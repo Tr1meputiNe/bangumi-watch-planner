@@ -659,6 +659,44 @@ describe('App', () => {
     });
   });
 
+  it('shows completed anime as watched in search results', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({
+          authenticated: true,
+          username: 'sai',
+          nickname: 'Sai',
+          lastSyncAt: dashboard.lastSyncAt
+        });
+      }
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
+        return Response.json({
+          results: [{
+            id: 456,
+            name: 'Test Anime',
+            nameCn: '测试动画',
+            eps: 12,
+            image: null,
+            url: 'https://bgm.tv/subject/456',
+            collectionType: 2
+          }]
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    }));
+
+    render(<App />);
+
+    await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+
+    const watched = await screen.findByRole('button', { name: '已看过' });
+    expect(watched).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '加入在看' })).not.toBeInTheDocument();
+  });
+
   it('shows a login action when Bangumi is not connected', async () => {
     vi.stubGlobal(
       'fetch',
