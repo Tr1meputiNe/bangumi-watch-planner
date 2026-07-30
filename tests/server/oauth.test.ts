@@ -100,7 +100,7 @@ describe('OAuth manager', () => {
       }
     });
 
-    await expect(manager.createAuthorizationUrl()).rejects.toThrow(/设置里填写 Bangumi App ID/);
+    await expect(manager.createAuthorizationUrl()).rejects.toThrow(/填写 Bangumi App ID/);
   });
 
   it('rejects callback state mismatches before exchanging a code', async () => {
@@ -122,8 +122,36 @@ describe('OAuth manager', () => {
       }
     });
 
-    await expect(manager.handleCallback('code-1', 'wrong-state')).rejects.toThrow(/Invalid OAuth state/);
+    await expect(manager.handleCallback('code-1', 'wrong-state')).rejects.toMatchObject({
+      message: 'Bangumi 登录链接已失效，请重新登录',
+      statusCode: 400,
+      expose: true
+    });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('returns a readable error when Bangumi rejects an authorization code', async () => {
+    const manager = createOAuthManager({
+      clientId: 'client-id',
+      clientSecret: 'client-secret',
+      baseUrl: 'http://127.0.0.1:3777',
+      fetch: vi.fn(async () => ({ ok: false, status: 400 })),
+      settings: {
+        get: async (key) => key === 'oauth_state' ? 'state-ok' : null,
+        set: async () => undefined
+      },
+      tokenStore: {
+        getRefreshToken: async () => null,
+        setRefreshToken: async () => undefined,
+        deleteRefreshToken: async () => undefined
+      }
+    });
+
+    await expect(manager.handleCallback('expired-code', 'state-ok')).rejects.toMatchObject({
+      message: 'Bangumi 授权已失效，请重新登录',
+      statusCode: 400,
+      expose: true
+    });
   });
 
   it('refreshes expired access tokens and stores the rotated refresh token', async () => {

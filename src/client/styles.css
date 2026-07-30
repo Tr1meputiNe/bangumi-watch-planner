@@ -3647,102 +3647,61 @@ select[data-state="success"] {
   color: var(--color-muted);
 }
 
-.access-shell {
+.bangumi-login-shell {
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  position: relative;
   background: var(--color-paper);
   padding: var(--space-md);
 }
 
-.access-shell::after {
-  width: min(240px, 46vw);
-  aspect-ratio: 3 / 2;
-  position: fixed;
-  right: max(20px, 5vw);
-  bottom: max(18px, 5vh);
-  border: 2px solid var(--color-accent);
-  border-radius: var(--radius-card);
-  box-shadow:
-    -16px 14px 0 -2px var(--color-paper),
-    -16px 14px 0 0 var(--color-cyan);
-  content: "";
-  opacity: 0.14;
-  pointer-events: none;
-  transform: rotate(-5deg);
-}
-
-.access-card {
-  width: min(100%, 440px);
+.bangumi-login-card {
+  width: min(100%, 520px);
   display: grid;
   gap: var(--space-md);
-  position: relative;
-  z-index: 1;
-  border: var(--rule-hair) solid var(--color-rule-2);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-card);
-  padding: clamp(24px, 6vw, 40px);
+  padding: var(--space-lg);
 }
 
-.access-card-header {
+.bangumi-login-header {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
 }
 
-.access-brand-mark {
-  width: 64px;
-  aspect-ratio: 1;
-  display: grid;
+.bangumi-login-mark {
+  width: 58px;
+  height: 58px;
   flex: 0 0 auto;
+  display: grid;
   place-items: center;
-  border: 2px solid var(--color-accent);
-  border-radius: var(--radius-card);
+  border: var(--rule-hair) solid var(--color-accent);
+  border-radius: var(--radius-input);
   background: var(--color-accent-soft);
   color: var(--color-accent-text);
   font-family: var(--font-display);
-  font-size: 2rem;
-  box-shadow: 4px 4px 0 var(--color-accent);
-}
-
-.access-card h1 {
-  margin: 0;
-  color: var(--color-ink);
-  font-family: var(--font-display);
   font-size: var(--text-2xl);
-  line-height: 1.1;
+  font-weight: 800;
 }
 
-.access-description,
-.access-card > div > p {
+.bangumi-login-card h1 {
+  margin: 0;
+}
+
+.bangumi-login-description,
+.bangumi-login-card > div > p {
   margin: 0;
   color: var(--color-muted);
   line-height: 1.6;
 }
 
-.access-form {
-  display: grid;
-  gap: var(--space-sm);
+.bangumi-login-card .oauth-guide,
+.bangumi-login-card .oauth-form {
+  border: 0;
+  padding: 0;
 }
 
-.access-form label {
-  display: grid;
-  gap: var(--space-3xs);
-  color: var(--color-ink-2);
-  font-size: var(--text-sm);
-  font-weight: 700;
-}
-
-.access-form input {
+.bangumi-login-action {
   width: 100%;
-}
-
-.access-error {
-  margin: 0;
-  color: var(--color-error);
-  font-size: var(--text-sm);
 }
 
 @media (max-width: 39.999rem) {
@@ -3753,6 +3712,10 @@ select[data-state="success"] {
 
   .backlog-overview-stats {
     width: 100%;
+  }
+
+  .bangumi-login-card {
+    padding: var(--space-md);
   }
 }
 

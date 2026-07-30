@@ -140,6 +140,7 @@ describe('OAuth callback to backlog planner flow', () => {
 
     await auth.createAuthorizationUrl();
     const callback = await app.inject({ method: 'GET', url: '/auth/callback?code=code-1&state=state-ok' });
+    await vi.waitFor(() => expect(dashboard.getSyncStatus().state).toBe('idle'));
     const status = await app.inject({ method: 'GET', url: '/api/auth/status' });
     const initialDashboard = await getJson(app, '/api/dashboard');
     const initialBacklog = await getJson(app, '/api/backlog');

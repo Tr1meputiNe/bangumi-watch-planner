@@ -54,7 +54,12 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
     });
 
     if (!response.ok) {
-      throw new Error(`Bangumi token request failed: ${response.status}`);
+      throw oauthError(
+        response.status >= 500
+          ? 'Bangumi 登录服务暂时不可用，请稍后重试'
+          : 'Bangumi 授权已失效，请重新登录',
+        response.status >= 500 ? 502 : 400
+      );
     }
 
     return (await response.json()) as TokenResponse;
@@ -71,9 +76,7 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
   async function assertConfigured(): Promise<{ clientId: string; clientSecret: string }> {
     const credentials = await getCredentials();
     if (!credentials.clientId || !credentials.clientSecret) {
-      throw Object.assign(new Error('在设置里填写 Bangumi App ID 和 App Secret 后再连接 Bangumi'), {
-        statusCode: 400
-      });
+      throw oauthError('填写 Bangumi App ID 和 App Secret 后再连接 Bangumi', 400);
     }
     return credentials;
   }
@@ -106,7 +109,7 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
       const credentials = await assertConfigured();
       const expectedState = await deps.settings.get(OAUTH_STATE);
       if (!expectedState || expectedState !== state) {
-        throw new Error('Invalid OAuth state');
+        throw oauthError('Bangumi 登录链接已失效，请重新登录', 400);
       }
 
       const token = await exchangeToken({
@@ -130,7 +133,7 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
 
       const refreshToken = await deps.tokenStore.getRefreshToken();
       if (!refreshToken) {
-        throw new Error('Bangumi is not connected');
+        throw oauthError('Bangumi 尚未登录', 401);
       }
 
       const credentials = await assertConfigured();
@@ -170,4 +173,8 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
       };
     }
   };
+}
+
+function oauthError(message: string, statusCode: number): Error {
+  return Object.assign(new Error(message), { statusCode, expose: true });
 }

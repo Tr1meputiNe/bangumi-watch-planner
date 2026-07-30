@@ -7,12 +7,9 @@ import {
   getCalendar,
   getDashboard,
   getSyncStatus,
-  loginAccess,
-  logoutAccess,
   resumeBacklog,
   saveOAuthConfig,
   searchAnime,
-  setupAccess,
   startSync,
   startSubject
 } from './api.js';
@@ -67,7 +64,7 @@ export default function App() {
   const load = useCallback(async () => {
     try {
       const auth = await getAuthStatus();
-      if (auth.accessAuthenticated === false) {
+      if (!auth.authenticated) {
         setState({ auth, dashboard: null, error: null });
         return;
       }
@@ -260,38 +257,20 @@ export default function App() {
     }
   }
 
-  async function logout() {
-    try {
-      await logoutAccess();
-      setState({
-        auth: {
-          authenticated: false,
-          username: null,
-          nickname: null,
-          lastSyncAt: null,
-          accessConfigured: true,
-          accessAuthenticated: false
-        },
-        dashboard: null,
-        error: null
-      });
-      setBacklogState(emptyBacklogState);
-      setCalendarState(emptyCalendarState);
-      setAnimeSearch({ error: null, keyword: '', results: [] });
-    } catch (error) {
-      showError(error instanceof Error ? error.message : String(error));
-    }
-  }
-
   if (!state.auth) {
-    return <AccessLoading error={state.error} onRetry={load} />;
+    return <BangumiLoading error={state.error} onRetry={load} />;
   }
 
-  if (state.auth.accessAuthenticated === false) {
+  if (!state.auth.authenticated) {
     return (
-      <AccessGate
-        configured={Boolean(state.auth.accessConfigured)}
-        onAuthenticated={load}
+      <BangumiLogin
+        auth={state.auth}
+        error={state.error}
+        disabled={isPending}
+        oauthForm={oauthForm}
+        setOauthForm={setOauthForm}
+        pendingAction={pendingAction}
+        onSaveOAuth={saveOAuthSettings}
       />
     );
   }
@@ -372,15 +351,7 @@ export default function App() {
             {state.dashboard ? (
               <WatchingView dashboard={state.dashboard} disabled={isPending} onChanged={load} onError={showError} />
             ) : <div className="empty">正在加载追番提醒。</div>}
-            <SettingsPanel
-              auth={state.auth}
-              disabled={isPending}
-              oauthForm={oauthForm}
-              setOauthForm={setOauthForm}
-              pendingAction={pendingAction}
-              onSaveOAuth={saveOAuthSettings}
-              onLogout={logout}
-            />
+            <SettingsPanel auth={state.auth} />
           </>
         ) : null}
 
@@ -430,15 +401,15 @@ function Tab({ mark, active, onClick, children }: { mark: string; active: boolea
 
 type SearchState = { error: string | null; keyword: string; results: AnimeSearchResult[] };
 
-function AccessLoading({ error, onRetry }: { error: string | null; onRetry(): Promise<void> }) {
+function BangumiLoading({ error, onRetry }: { error: string | null; onRetry(): Promise<void> }) {
   return (
-    <main className="access-shell">
-      <section className="access-card" aria-label="正在连接">
-        <span className="access-brand-mark" aria-hidden="true">番</span>
+    <main className="bangumi-login-shell">
+      <section className="panel bangumi-login-card" aria-label="正在连接">
+        <span className="bangumi-login-mark" aria-hidden="true">番</span>
         <div>
           <span className="panel-eyebrow">Bangumi Watch Planner</span>
           <h1>{error ? '无法连接' : '正在连接'}</h1>
-          <p>{error || '正在检查本地服务。'}</p>
+          <p>{error || '正在检查 Bangumi 登录状态。'}</p>
         </div>
         {error ? <button type="button" onClick={() => void onRetry()}>重试</button> : null}
       </section>
@@ -446,86 +417,78 @@ function AccessLoading({ error, onRetry }: { error: string | null; onRetry(): Pr
   );
 }
 
-function AccessGate({ configured, onAuthenticated }: {
-  configured: boolean;
-  onAuthenticated(): Promise<void>;
+function BangumiLogin({
+  auth,
+  error,
+  disabled,
+  oauthForm,
+  setOauthForm,
+  pendingAction,
+  onSaveOAuth
+}: {
+  auth: AuthStatus;
+  error: string | null;
+  disabled: boolean;
+  oauthForm: { clientId: string; clientSecret: string };
+  setOauthForm: React.Dispatch<React.SetStateAction<{ clientId: string; clientSecret: string }>>;
+  pendingAction: PendingAction | null;
+  onSaveOAuth(event: React.FormEvent<HTMLFormElement>): Promise<void>;
 }) {
-  const [password, setPassword] = useState('');
-  const [confirmation, setConfirmation] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!configured && password !== confirmation) {
-      setError('两次输入的密码不一致');
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      if (configured) await loginAccess(password);
-      else await setupAccess(password);
-      setPassword('');
-      setConfirmation('');
-      await onAuthenticated();
-    } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : String(submitError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <main className="access-shell">
-      <section className="access-card" aria-label={configured ? '登录' : '设置访问密码'}>
-        <header className="access-card-header">
-          <span className="access-brand-mark" aria-hidden="true">番</span>
+    <main className="bangumi-login-shell">
+      <section className="panel bangumi-login-card" aria-label="Bangumi 登录">
+        <header className="bangumi-login-header">
+          <span className="bangumi-login-mark" aria-hidden="true">番</span>
           <div>
             <span className="panel-eyebrow">Bangumi Watch Planner</span>
-            <h1>{configured ? '欢迎回来' : '设置访问密码'}</h1>
+            <h1>{auth.configured === false ? '配置 Bangumi 登录' : '登录 Bangumi'}</h1>
           </div>
         </header>
-        <p className="access-description">
-          {configured ? '输入访问密码继续查看你的追番计划。' : '为本机和局域网访问设置一个密码。'}
+        <p className="bangumi-login-description">
+          {auth.configured === false
+            ? '先填写 Bangumi 开发者应用信息，再使用你的 Bangumi 账号授权。'
+            : '使用 Bangumi 账号授权后进入追番计划。'}
         </p>
-        <form className="access-form" onSubmit={(event) => void submit(event)}>
-          <label>
-            <span>访问密码</span>
-            <input
-              type="password"
-              value={password}
-              minLength={8}
-              maxLength={128}
-              autoComplete={configured ? 'current-password' : 'new-password'}
-              onChange={(event) => setPassword(event.target.value)}
-              disabled={busy}
-              autoFocus
-            />
-          </label>
-          {!configured ? (
-            <label>
-              <span>确认密码</span>
-              <input
-                type="password"
-                value={confirmation}
-                minLength={8}
-                maxLength={128}
-                autoComplete="new-password"
-                onChange={(event) => setConfirmation(event.target.value)}
-                disabled={busy}
-              />
-            </label>
-          ) : null}
-          {error ? <p className="access-error" role="alert">{error}</p> : null}
-          <button
-            type="submit"
-            disabled={busy || password.length < 8 || (!configured && confirmation.length < 8)}
-            aria-busy={busy}
-          >
-            {busy ? '处理中' : configured ? '登录' : '保存并进入'}
-          </button>
-        </form>
+        {error ? <p className="search-error" role="alert">{error}</p> : null}
+        {auth.configured === false ? (
+          <>
+            <div className="oauth-guide">
+              <a href="https://bgm.tv/dev" target="_blank" rel="noreferrer">打开 Bangumi 开发者平台</a>
+              <p>创建应用时把回调地址填为：</p>
+              <code>{auth.callbackUrl ?? 'http://127.0.0.1:3777/auth/callback'}</code>
+            </div>
+            <form className="oauth-form" onSubmit={(event) => void onSaveOAuth(event)}>
+              <label>
+                <span>Bangumi App ID</span>
+                <input
+                  value={oauthForm.clientId}
+                  onChange={(event) => setOauthForm((current) => ({ ...current, clientId: event.target.value }))}
+                  placeholder="App ID"
+                  autoComplete="off"
+                />
+              </label>
+              <label>
+                <span>Bangumi App Secret</span>
+                <input
+                  value={oauthForm.clientSecret}
+                  onChange={(event) => setOauthForm((current) => ({ ...current, clientSecret: event.target.value }))}
+                  placeholder="App Secret"
+                  type="password"
+                  autoComplete="off"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={disabled || !oauthForm.clientId.trim() || !oauthForm.clientSecret.trim()}
+                aria-busy={pendingAction === 'oauth'}
+              >
+                {pendingAction === 'oauth' ? '保存中' : '保存 OAuth 配置'}
+              </button>
+            </form>
+          </>
+        ) : (
+          <a className="button-link bangumi-login-action" href="/auth/login">使用 Bangumi 登录</a>
+        )}
       </section>
     </main>
   );
@@ -611,23 +574,7 @@ function AnimeSearchPanel({
   );
 }
 
-function SettingsPanel({
-  auth,
-  disabled,
-  oauthForm,
-  setOauthForm,
-  pendingAction,
-  onSaveOAuth,
-  onLogout
-}: {
-  auth: AuthStatus | null;
-  disabled: boolean;
-  oauthForm: { clientId: string; clientSecret: string };
-  setOauthForm: React.Dispatch<React.SetStateAction<{ clientId: string; clientSecret: string }>>;
-  pendingAction: PendingAction | null;
-  onSaveOAuth(event: React.FormEvent<HTMLFormElement>): Promise<void>;
-  onLogout(): Promise<void>;
-}) {
+function SettingsPanel({ auth }: { auth: AuthStatus }) {
   return (
     <section className="panel settings-panel" aria-label="设置">
       <div className="panel-title compact">
@@ -638,46 +585,13 @@ function SettingsPanel({
       <div className="settings-row">
         <div>
           <strong>Bangumi</strong>
-          <p>{auth?.authenticated
-            ? `已连接 ${auth.nickname || auth.username}`
-            : auth?.configured === false
-              ? '填写 Bangumi 开发者应用信息后，用你的 Bangumi 账号登录。'
-              : '连接后才能同步你的在看列表。'}</p>
+          <p>{`已连接 ${auth.nickname || auth.username}`}</p>
         </div>
-        {auth?.authenticated ? <span className="status-pill">已连接</span> : auth?.configured === false
-          ? <span className="status-pill muted">待配置</span>
-          : <a className="button-link" href="/auth/login">连接 Bangumi</a>}
+        <span className="status-pill">已连接</span>
       </div>
-
-      {!auth?.authenticated && auth?.configured === false ? (
-        <div className="oauth-setup">
-          <div className="oauth-guide">
-            <a href="https://bgm.tv/dev" target="_blank" rel="noreferrer">打开 Bangumi 开发者平台</a>
-            <p>创建应用时把回调地址填为：</p>
-            <code>{auth.callbackUrl ?? 'http://127.0.0.1:3777/auth/callback'}</code>
-          </div>
-          <form className="oauth-form" onSubmit={(event) => void onSaveOAuth(event)}>
-            <label><span>Bangumi App ID</span><input value={oauthForm.clientId} onChange={(event) => setOauthForm((current) => ({ ...current, clientId: event.target.value }))} placeholder={auth.oauthClientId ?? 'App ID'} autoComplete="off" /></label>
-            <label><span>Bangumi App Secret</span><input value={oauthForm.clientSecret} onChange={(event) => setOauthForm((current) => ({ ...current, clientSecret: event.target.value }))} placeholder="App Secret" type="password" autoComplete="off" /></label>
-            <button
-              type="submit"
-              disabled={disabled || !oauthForm.clientId.trim() || !oauthForm.clientSecret.trim()}
-              aria-busy={pendingAction === 'oauth'}
-            >
-              {pendingAction === 'oauth' ? '保存中' : '保存 OAuth 配置'}
-            </button>
-          </form>
-        </div>
-      ) : null}
 
       <div className="settings-row"><div><strong>后台提醒</strong><p>每日 20:00；浏览器关闭后由本机服务发送通知。</p></div><span className="status-pill">{auth?.launchAgentInstalled ? '已安装' : '未安装'}</span></div>
       <div className="settings-row"><div><strong>通知</strong><p>同一天一次汇总；已忽略集数不再提醒。</p></div><span className="status-pill">{auth?.notificationsEnabled === false ? '已关闭' : '已开启'}</span></div>
-      {auth?.accessConfigured ? (
-        <div className="settings-row">
-          <div><strong>本地访问</strong><p>本机和局域网设备需要密码登录。</p></div>
-          <button type="button" className="secondary" onClick={() => void onLogout()}>退出登录</button>
-        </div>
-      ) : null}
     </section>
   );
 }
