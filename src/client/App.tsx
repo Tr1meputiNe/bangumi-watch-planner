@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   addSubjectToWishlist,
   addSubjectToWatching,
@@ -49,6 +49,8 @@ export default function App() {
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const syncHandoffStarted = useRef(false);
+  const syncRequestVersion = useRef(0);
   const [animeSearch, setAnimeSearch] = useState<{ error: string | null; keyword: string; results: AnimeSearchResult[] }>({
     error: null,
     keyword: '',
@@ -112,6 +114,24 @@ export default function App() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!state.auth?.authenticated || syncHandoffStarted.current) return;
+    syncHandoffStarted.current = true;
+    const requestVersion = syncRequestVersion.current;
+    void getSyncStatus()
+      .then((nextStatus) => {
+        if (syncRequestVersion.current !== requestVersion) return;
+        setSyncStatus(nextStatus);
+        if (nextStatus.state === 'error') {
+          showError(`${nextStatus.error ?? '同步失败，请稍后再试。'} 可点击“立即同步”重试。`);
+        }
+      })
+      .catch((error) => {
+        if (syncRequestVersion.current !== requestVersion) return;
+        showError(error instanceof Error ? error.message : String(error));
+      });
+  }, [state.auth?.authenticated, showError]);
 
   useEffect(() => {
     document.documentElement.scrollTop = 0;
@@ -249,7 +269,9 @@ export default function App() {
   }
 
   async function startManualSync() {
+    syncRequestVersion.current += 1;
     setSyncNotice(null);
+    setState((current) => ({ ...current, error: null }));
     try {
       setSyncStatus(await startSync());
     } catch (error) {

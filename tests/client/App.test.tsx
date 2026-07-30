@@ -158,6 +158,82 @@ function searchResult(
 }
 
 describe('App', () => {
+  it('resumes an OAuth background sync after startup without hiding cached data', async () => {
+    let dashboardRequests = 0;
+    let statusRequests = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') {
+        dashboardRequests += 1;
+        return Response.json(dashboard);
+      }
+      if (url === '/api/sync/status') {
+        statusRequests += 1;
+        return Response.json(statusRequests === 1
+          ? {
+              state: 'running',
+              startedAt: '2026-07-30T12:00:00.000Z',
+              completedAt: null,
+              error: null,
+              processedSubjects: 1,
+              totalSubjects: 4,
+              result: null
+            }
+          : {
+              state: 'idle',
+              startedAt: '2026-07-30T12:00:00.000Z',
+              completedAt: '2026-07-30T12:00:05.000Z',
+              error: null,
+              processedSubjects: 4,
+              totalSubjects: 4,
+              result: { subjectsSynced: 4, episodesSynced: 48 }
+            });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findAllByText('测试番剧')).not.toHaveLength(0);
+    expect(await screen.findByRole('button', { name: '同步中 1/4' })).toBeDisabled();
+    expect(dashboardRequests).toBe(1);
+
+    expect(await screen.findByRole('status', {}, { timeout: 2_000 })).toHaveTextContent('同步完成：4 部番剧，48 集分集');
+    expect(dashboardRequests).toBe(2);
+  });
+
+  it('keeps cached data and offers manual retry when the resumed sync failed', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/sync/status') {
+        return Response.json({
+          state: 'error',
+          startedAt: '2026-07-30T12:00:00.000Z',
+          completedAt: '2026-07-30T12:00:05.000Z',
+          error: 'Bangumi 暂时不可用',
+          processedSubjects: 1,
+          totalSubjects: 4,
+          result: null
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findAllByText('测试番剧')).not.toHaveLength(0);
+    expect(await screen.findByText('Bangumi 暂时不可用 可点击“立即同步”重试。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '立即同步' })).toBeEnabled();
+  });
+
   it('keeps cached controls usable while background sync runs, then refreshes', async () => {
     let dashboardRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
