@@ -21,7 +21,7 @@
 
 ### Windows 10 / 11
 
-1. 打开仓库的 [Releases](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases)，下载 `bangumi-watch-planner-v1.0.0-windows-x64.zip`。
+1. 打开仓库的 [Releases](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases)，进入最新版本，下载名称以 `-windows-x64.zip` 结尾的文件。
 2. 解压到一个固定目录，不要只在压缩包预览中运行。
 3. 双击 `Start Bangumi Watch Planner.cmd`。脚本会启动本地服务并打开 `http://127.0.0.1:3777/`。
 4. 需要开机后继续提醒时，再双击 `Install Startup.cmd`；`Uninstall Startup.cmd` 可以移除启动项。
@@ -45,7 +45,7 @@ npm start
 
 ### 自行部署
 
-从 Releases 下载 `bangumi-watch-planner-v1.0.0-self-host.zip`，解压后运行：
+从 [Releases](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases) 最新版本下载名称以 `-self-host.zip` 结尾的文件，解压后运行：
 
 ```bash
 npm ci
