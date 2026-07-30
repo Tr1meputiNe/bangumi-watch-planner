@@ -8,6 +8,7 @@ export type AuthStatus = {
   callbackUrl?: string;
   notificationsEnabled?: boolean;
   launchAgentInstalled?: boolean;
+  runtimePlatform?: 'macOS' | 'Windows' | 'Linux' | 'Other';
 };
 
 export type BangumiCollectionType = 1 | 2 | 3 | 4 | 5;

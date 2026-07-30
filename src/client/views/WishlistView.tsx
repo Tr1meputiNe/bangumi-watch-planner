@@ -84,7 +84,6 @@ export default function WishlistView({ disabled, refreshVersion, onSyncStarted, 
         <div>
           <span className="panel-eyebrow">我的片单</span>
           <h1>想看</h1>
-          <p>先收进片库，到合适的季度再开始。</p>
         </div>
         <strong className="wishlist-count" aria-live="polite">{data.items.length} 部</strong>
       </header>

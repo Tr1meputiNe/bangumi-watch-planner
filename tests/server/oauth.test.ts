@@ -63,6 +63,7 @@ describe('OAuth manager', () => {
       clientId: '',
       clientSecret: '',
       baseUrl: 'http://127.0.0.1:3777',
+      runtimePlatform: 'Windows',
       getCredentials: async () => ({ clientId: 'saved-client', clientSecret: 'saved-secret' }),
       fetch: vi.fn(),
       settings: {
@@ -79,7 +80,8 @@ describe('OAuth manager', () => {
     await expect(manager.getAuthStatus()).resolves.toMatchObject({
       configured: true,
       oauthClientId: 'saved-client',
-      callbackUrl: 'http://127.0.0.1:3777/auth/callback'
+      callbackUrl: 'http://127.0.0.1:3777/auth/callback',
+      runtimePlatform: 'Windows'
     });
   });
 

@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify
+        run: |
+          npm test
+          npm run lint
+          npm run build
+
+      - name: Build Windows portable package
+        run: npm run build:portable
+
+      - name: Create release archives
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $windowsZip = "bangumi-watch-planner-$tag-windows-x64.zip"
+          $selfHostZip = "bangumi-watch-planner-$tag-self-host.zip"
+          Compress-Archive -Path "release/windows/*" -DestinationPath $windowsZip -Force
+          git archive --format=zip --prefix="bangumi-watch-planner-$tag/" --output=$selfHostZip HEAD
+          Get-FileHash $windowsZip, $selfHostZip -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
+            Set-Content "SHA256SUMS.txt"
+          "WINDOWS_ZIP=$windowsZip" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SELF_HOST_ZIP=$selfHostZip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if (gh release view "${{ github.ref_name }}" 2>$null) {
+            gh release upload "${{ github.ref_name }}" $env:WINDOWS_ZIP $env:SELF_HOST_ZIP SHA256SUMS.txt --clobber
+          } else {
+            gh release create "${{ github.ref_name }}" $env:WINDOWS_ZIP $env:SELF_HOST_ZIP SHA256SUMS.txt --title "Bangumi Watch Planner ${{ github.ref_name }}" --generate-notes
+          }

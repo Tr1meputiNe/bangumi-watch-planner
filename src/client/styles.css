@@ -2828,13 +2828,19 @@ select[data-state="success"] {
   width: 48px;
   height: 48px;
   flex: 0 0 48px;
+  display: grid;
+  place-items: center;
   border: var(--rule-hair) solid var(--color-accent-deep);
   border-radius: var(--radius-card);
   background: var(--color-accent-soft);
   color: var(--color-accent-text);
   box-shadow: 3px 3px 0 var(--color-accent-deep);
-  font-family: var(--font-display);
-  font-size: var(--text-xl);
+}
+
+.brand-mark svg {
+  width: 26px;
+  height: 26px;
+  stroke-width: 1.8;
 }
 
 .brand-lockup p {
@@ -2935,13 +2941,12 @@ select[data-state="success"] {
   border-radius: 50%;
   background: var(--color-paper);
   color: var(--color-ink-2);
-  font-family: var(--font-display);
-  font-size: var(--text-xs);
-  font-weight: 800;
 }
 
-.tab-mark::before {
-  content: attr(data-mark);
+.tab-mark svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.9;
 }
 
 .page-tabs button[aria-selected="true"] .tab-mark {
@@ -3753,6 +3758,27 @@ select[data-state="success"] {
 }
 
 @media (max-width: 39.999rem) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .topbar-actions {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .topbar-actions button {
+    width: 100%;
+  }
+
+  .topbar-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .topbar-stats span:last-child {
+    grid-column: 1 / -1;
+  }
+
   .backlog-overview {
     display: grid;
     align-items: start;
@@ -3770,14 +3796,6 @@ select[data-state="success"] {
 @media (max-width: 22.499rem) {
   .brand-lockup p {
     font-size: var(--text-sm);
-  }
-
-  .topbar-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .topbar-stats span:last-child {
-    grid-column: 1 / -1;
   }
 }
 

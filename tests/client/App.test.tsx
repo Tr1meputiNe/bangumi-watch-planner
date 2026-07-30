@@ -214,6 +214,9 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('tab', { name: '今日' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('heading', { name: '今日安排' })).toBeInTheDocument();
+    expect(screen.queryByText('今天看什么')).not.toBeInTheDocument();
+    expect(screen.queryByText(/追番与补番分开安排/)).not.toBeInTheDocument();
     expect(screen.getByLabelText('今日追番')).toHaveTextContent('测试番剧');
     expect(await screen.findByLabelText('今日补番')).toHaveTextContent('补番动画');
     expect(screen.getByRole('tab', { name: '追番' })).toHaveAttribute('aria-selected', 'false');

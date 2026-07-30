@@ -23,6 +23,7 @@ type OAuthDeps = {
   tokenStore: RefreshTokenStore;
   getLaunchAgentInstalled?: () => Promise<boolean>;
   notificationsEnabled?: () => Promise<boolean>;
+  runtimePlatform?: 'macOS' | 'Windows' | 'Linux' | 'Other';
 };
 
 type TokenResponse = {
@@ -169,7 +170,8 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
         oauthClientId: credentials.clientId || null,
         callbackUrl: redirectUri,
         notificationsEnabled,
-        launchAgentInstalled
+        launchAgentInstalled,
+        ...(deps.runtimePlatform ? { runtimePlatform: deps.runtimePlatform } : {})
       };
     }
   };

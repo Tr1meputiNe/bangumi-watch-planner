@@ -6,9 +6,9 @@ import { createBangumiClient } from './bangumi-client.js';
 import { loadConfig } from './config.js';
 import { createDashboardService } from './dashboard.js';
 import { createRepository } from './db.js';
-import { createKeychainTokenStore } from './keychain.js';
-import { isLaunchAgentInstalled } from './launch-agent.js';
-import { createMacNotifier } from './notifier.js';
+import { createTokenStore } from './keychain.js';
+import { getRuntimePlatform, isBackgroundServiceInstalled } from './launch-agent.js';
+import { createSystemNotifier } from './notifier.js';
 import { createOAuthManager } from './oauth.js';
 import { startScheduler } from './scheduler.js';
 import { rebuildBacklogPlan, syncAnimeCollections } from './sync.js';
@@ -16,7 +16,7 @@ import { rebuildBacklogPlan, syncAnimeCollections } from './sync.js';
 const config = loadConfig();
 const apiToken = randomBytes(32).toString('base64url');
 const repository = createRepository(config.dbPath);
-const tokenStore = createKeychainTokenStore();
+const tokenStore = createTokenStore();
 
 const auth = createOAuthManager({
   clientId: config.clientId,
@@ -31,8 +31,9 @@ const auth = createOAuthManager({
     set: (key, value) => repository.setSetting(key, value)
   },
   tokenStore,
-  getLaunchAgentInstalled: isLaunchAgentInstalled,
-  notificationsEnabled: async () => config.notificationsEnabled
+  getLaunchAgentInstalled: isBackgroundServiceInstalled,
+  notificationsEnabled: async () => config.notificationsEnabled,
+  runtimePlatform: getRuntimePlatform()
 });
 
 const client = createBangumiClient({
@@ -72,7 +73,7 @@ const app = buildApp({
 startScheduler({
   dashboard,
   repository,
-  notifier: createMacNotifier(),
+  notifier: createSystemNotifier(),
   cronExpression: config.reminderCron,
   notificationsEnabled: async () => config.notificationsEnabled
 });

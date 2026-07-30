@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  CalendarCheck2,
+  HeartPlus,
+  LibraryBig,
+  ListVideo,
+  RadioTower,
+  TvMinimalPlay,
+  type LucideIcon
+} from 'lucide-react';
+import {
   addSubjectToWishlist,
   addSubjectToWatching,
   getAuthStatus,
@@ -346,7 +355,7 @@ export default function App() {
       <aside className="app-sidebar" aria-label="应用导航">
         <header className="topbar">
           <div className="brand-lockup">
-            <span className="brand-mark" aria-hidden="true">番</span>
+            <span className="brand-mark" aria-hidden="true"><ListVideo /></span>
             <div><p>Bangumi Watch Planner</p><strong>{accountLabel}</strong></div>
           </div>
           <div className="topbar-stats" aria-live="polite">
@@ -389,11 +398,11 @@ export default function App() {
         </header>
 
         <div className="page-tabs" role="tablist" aria-label="视图">
-          <Tab mark="今" active={activeView === 'today'} onClick={() => setActiveView('today')}>今日</Tab>
-          <Tab mark="追" active={activeView === 'watching'} onClick={() => setActiveView('watching')}>追番</Tab>
-          <Tab mark="补" active={activeView === 'backlog'} onClick={() => setActiveView('backlog')}>补番计划</Tab>
-          <Tab mark="想" active={activeView === 'wishlist'} onClick={() => setActiveView('wishlist')}>想看</Tab>
-          <Tab mark="播" active={activeView === 'calendar'} onClick={() => setActiveView('calendar')}>每日放送</Tab>
+          <Tab icon={CalendarCheck2} active={activeView === 'today'} onClick={() => setActiveView('today')}>今日</Tab>
+          <Tab icon={TvMinimalPlay} active={activeView === 'watching'} onClick={() => setActiveView('watching')}>追番</Tab>
+          <Tab icon={LibraryBig} active={activeView === 'backlog'} onClick={() => setActiveView('backlog')}>补番计划</Tab>
+          <Tab icon={HeartPlus} active={activeView === 'wishlist'} onClick={() => setActiveView('wishlist')}>想看</Tab>
+          <Tab icon={RadioTower} active={activeView === 'calendar'} onClick={() => setActiveView('calendar')}>每日放送</Tab>
         </div>
 
         <footer className="app-footer">
@@ -473,10 +482,15 @@ export default function App() {
   );
 }
 
-function Tab({ mark, active, onClick, children }: { mark: string; active: boolean; onClick: () => void; children: React.ReactNode }) {
+function Tab({ icon: Icon, active, onClick, children }: {
+  icon: LucideIcon;
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <button type="button" role="tab" aria-selected={active} onClick={onClick}>
-      <span className="tab-mark" data-mark={mark} aria-hidden="true" />
+      <span className="tab-mark" aria-hidden="true"><Icon /></span>
       <span className="tab-label">{children}</span>
     </button>
   );
@@ -658,6 +672,13 @@ function AnimeSearchPanel({
 }
 
 function SettingsPanel({ auth }: { auth: AuthStatus }) {
+  const platform = auth.runtimePlatform ?? 'macOS';
+  const backgroundDescription = platform === 'Windows'
+    ? '每日 20:00；安装 Windows 启动项后，关闭浏览器也会继续提醒。'
+    : platform === 'macOS'
+      ? '每日 20:00；安装 LaunchAgent 后，关闭浏览器也会继续提醒。'
+      : '每日 20:00；需要由系统服务保持应用运行。';
+
   return (
     <section className="panel settings-panel" aria-label="设置">
       <div className="panel-title compact">
@@ -673,7 +694,7 @@ function SettingsPanel({ auth }: { auth: AuthStatus }) {
         <span className="status-pill">已连接</span>
       </div>
 
-      <div className="settings-row"><div><strong>后台提醒</strong><p>每日 20:00；浏览器关闭后由本机服务发送通知。</p></div><span className="status-pill">{auth?.launchAgentInstalled ? '已安装' : '未安装'}</span></div>
+      <div className="settings-row"><div><strong>后台提醒</strong><p>{backgroundDescription}</p></div><span className="status-pill">{auth?.launchAgentInstalled ? '已启用' : '未启用'}</span></div>
       <div className="settings-row"><div><strong>通知</strong><p>同一天一次汇总；已忽略集数不再提醒。</p></div><span className="status-pill">{auth?.notificationsEnabled === false ? '已关闭' : '已开启'}</span></div>
     </section>
   );

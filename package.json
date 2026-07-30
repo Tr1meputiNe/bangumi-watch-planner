@@ -1,6 +1,6 @@
 {
   "name": "bangumi-watch-planner",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,20 +8,21 @@
     "dev:server": "tsx watch src/server/index.ts",
     "dev:client": "vite --host 127.0.0.1",
     "build": "tsc -p tsconfig.server.json && vite build",
+    "build:portable": "npm run build && node scripts/build-portable.mjs",
     "start": "node dist/server/index.js",
     "install:launch-agent": "bash scripts/install-launch-agent.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint ."
   },
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
-    "@fastify/static": "^9.3.0",
-    "@vitejs/plugin-react": "^5.1.1",
+    "@fastify/static": "^10.1.2",
     "better-sqlite3": "^12.11.1",
-    "fastify": "^5.6.2",
+    "fastify": "^5.11.0",
     "node-cron": "^4.2.1",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3",
     "zod": "^4.2.1"
   },
   "devDependencies": {
@@ -33,10 +34,16 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
     "concurrently": "^9.2.1",
+    "esbuild": "^0.28.1",
     "eslint": "^9.39.1",
     "globals": "^16.5.0",
     "jsdom": "^27.3.0",
+    "lucide-react": "^1.28.0",
+    "postject": "^1.0.0-alpha.6",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.48.1",

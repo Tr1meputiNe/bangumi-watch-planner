@@ -27,7 +27,7 @@ export function loadConfig(cwd = process.cwd()): AppConfig {
     dbPath: resolve(cwd, process.env.DB_PATH || './data/bangumi-watch-planner.sqlite'),
     notificationsEnabled: (process.env.NOTIFICATIONS_ENABLED || 'true') === 'true',
     reminderCron: process.env.REMINDER_CRON || '0 20 * * *',
-    userAgent: process.env.BANGUMI_USER_AGENT || 'a27/bangumi-watch-planner/0.1.0'
+    userAgent: process.env.BANGUMI_USER_AGENT || 'a27/bangumi-watch-planner/1.0.0'
   };
 }
 

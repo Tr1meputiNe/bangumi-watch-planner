@@ -22,6 +22,9 @@ describe('WishlistView', () => {
     expect(document.querySelector('.wishlist-hero-covers')).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: '全部年份' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '年份未知' })).toBeInTheDocument();
+    expect(screen.getByText('我的片单')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '想看' })).toBeInTheDocument();
+    expect(screen.queryByText('先收进片库，到合适的季度再开始。')).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText('搜索想看'), '测试');
     await user.selectOptions(screen.getByLabelText('年份'), '2024');

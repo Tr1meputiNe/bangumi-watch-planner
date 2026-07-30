@@ -51,9 +51,8 @@ export default function WatchingView({ mode, dashboard, backlog, disabled, onCha
       {mode === 'today' ? (
         <header className="backlog-overview today-overview">
           <div className="backlog-overview-copy">
-            <span className="panel-eyebrow">今日安排</span>
-            <h1>今天看什么</h1>
-            <p>{todayLabel} · 追番与补番分开安排</p>
+            <h1>今日安排</h1>
+            <p>{todayLabel}</p>
           </div>
           <dl className="backlog-overview-stats">
             <div><dt>追番</dt><dd>{pendingEpisodes.length} 集</dd></div>

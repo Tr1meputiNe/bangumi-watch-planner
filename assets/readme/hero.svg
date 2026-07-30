@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
+  <title id="title">Bangumi Watch Planner</title>
+  <desc id="desc">一个把本季追番、旧番补番和每日放送排进今日清单的本地应用。</desc>
+
+  <rect width="1200" height="380" rx="16" fill="#241e24"/>
+  <path d="M0 304H1200" stroke="#493744"/>
+
+  <g id="title-block" transform="translate(64 54)" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif">
+    <g transform="translate(0 0)">
+      <rect width="50" height="50" rx="8" fill="#3a2730" stroke="#b94669" stroke-width="2"/>
+      <path d="M14 15h22M14 25h13M14 35h22" fill="none" stroke="#f0a0b8" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="m29 21 8 5-8 5z" fill="#9bc6ef"/>
+    </g>
+    <text x="68" y="19" fill="#f0a0b8" font-size="18" font-weight="700">LOCAL WATCH PLANNER</text>
+    <text x="68" y="48" fill="#b9aeb7" font-size="18">Bangumi OAuth · SQLite · 每日提醒</text>
+
+    <text x="0" y="126" fill="#fff7fa" font-size="54" font-weight="800">Bangumi Watch Planner</text>
+    <text x="0" y="174" fill="#d8ced5" font-size="25">把本季追番、旧番补番和每日放送</text>
+    <text x="0" y="210" fill="#d8ced5" font-size="25">排进一张真正能完成的今日清单。</text>
+
+    <g transform="translate(0 270)" font-size="17" font-weight="700">
+      <rect width="132" height="36" rx="18" fill="#3a2730" stroke="#6e4556"/>
+      <text x="66" y="24" text-anchor="middle" fill="#f0a0b8">本季追番</text>
+      <rect x="144" width="132" height="36" rx="18" fill="#273847" stroke="#4f7595"/>
+      <text x="210" y="24" text-anchor="middle" fill="#9bc6ef">公平补番</text>
+      <rect x="288" width="154" height="36" rx="18" fill="#302d27" stroke="#68624f"/>
+      <text x="365" y="24" text-anchor="middle" fill="#ded4b1">精确放送时间</text>
+    </g>
+  </g>
+
+  <g id="schedule-proof" transform="translate(760 40)" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif">
+    <rect width="376" height="284" rx="12" fill="#2d262d" stroke="#57424f"/>
+    <text x="24" y="38" fill="#fff7fa" font-size="24" font-weight="800">今日安排</text>
+    <text x="352" y="38" text-anchor="end" fill="#b9aeb7" font-size="18">7 月 31 日</text>
+    <path d="M24 58H352" stroke="#57424f"/>
+
+    <g transform="translate(24 78)">
+      <rect width="328" height="70" rx="8" fill="#3a2730" stroke="#6e4556"/>
+      <circle cx="26" cy="25" r="12" fill="#b94669"/>
+      <path d="m22 20 10 5-10 5z" fill="#fff"/>
+      <text x="50" y="26" fill="#fff7fa" font-size="20" font-weight="700">今日追番</text>
+      <text x="50" y="51" fill="#cdbfc8" font-size="17">第 6 集 · 22:30</text>
+      <text x="300" y="42" text-anchor="end" fill="#f0a0b8" font-size="22" font-weight="800">2 集</text>
+    </g>
+
+    <g transform="translate(24 160)">
+      <rect width="328" height="70" rx="8" fill="#273847" stroke="#4f7595"/>
+      <path d="M16 19h20v28H16zM22 13h20v28" fill="none" stroke="#9bc6ef" stroke-width="2.2" stroke-linejoin="round"/>
+      <text x="50" y="26" fill="#f2f8fd" font-size="20" font-weight="700">今日补番</text>
+      <text x="50" y="51" fill="#bed1e0" font-size="17">多部轮转 · 顺序续看</text>
+      <text x="300" y="42" text-anchor="end" fill="#9bc6ef" font-size="22" font-weight="800">1 集</text>
+    </g>
+
+    <g transform="translate(24 248)">
+      <circle cx="6" cy="6" r="6" fill="#b94669"/>
+      <path d="M20 6H102" stroke="#6e4556" stroke-width="2"/>
+      <circle cx="118" cy="6" r="6" fill="#9bc6ef"/>
+      <path d="M132 6H214" stroke="#4f7595" stroke-width="2"/>
+      <circle cx="230" cy="6" r="6" fill="#ded4b1"/>
+      <path d="M244 6H328" stroke="#68624f" stroke-width="2"/>
+    </g>
+  </g>
+</svg>
