@@ -221,7 +221,10 @@ function mapCalendarSubject(item: BangumiCalendarDay['items'][number], weekdayId
     image: item.images?.common ?? item.images?.medium ?? item.images?.small ?? item.images?.grid ?? null,
     ratingScore: typeof item.rating?.score === 'number' ? item.rating.score : null,
     rank: typeof item.rank === 'number' ? item.rank : null,
-    collectionDoing: typeof item.collection?.doing === 'number' ? item.collection.doing : null
+    collectionDoing: typeof item.collection?.doing === 'number' ? item.collection.doing : null,
+    scheduleSource: schedule?.source ?? 'Bangumi',
+    baseScheduleSource: null,
+    isLocalOverride: false
   };
 }
 

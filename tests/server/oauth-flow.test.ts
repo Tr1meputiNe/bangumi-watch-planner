@@ -156,7 +156,8 @@ describe('OAuth callback to backlog planner flow', () => {
     expect(initialBacklog.futureDays.flatMap((day: { tasks: Array<{ subjectId: number }> }) => day.tasks).some((task: { subjectId: number }) => task.subjectId === 124)).toBe(true);
     expect(initialWishlist.items).toEqual([expect.objectContaining({ id: 201, isCurrentSeason: false })]);
 
-    expect((await app.inject({ method: 'POST', url: '/api/subjects/201/start' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: '/api/subjects/201/start' })).statusCode).toBe(202);
+    await vi.waitFor(() => expect(dashboard.getSyncStatus().state).toBe('idle'));
     const startedBacklog = await getJson(app, '/api/backlog');
     expect(startedBacklog.active.map((subject: { id: number }) => subject.id).sort()).toEqual([124, 201]);
     const firstTwoSlotDay = startedBacklog.futureDays.find((day: { tasks: unknown[] }) => day.tasks.length === 2);

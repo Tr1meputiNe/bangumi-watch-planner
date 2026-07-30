@@ -6,9 +6,10 @@ PLIST_ID="com.local.bangumi-watch-planner"
 TEMPLATE="$PROJECT_DIR/launchd/$PLIST_ID.plist.template"
 TARGET="$HOME/Library/LaunchAgents/$PLIST_ID.plist"
 NPM_BIN="$(command -v npm)"
+NODE_BIN="$(command -v node)"
 
-if [[ -z "$NPM_BIN" ]]; then
-  echo "npm was not found in PATH" >&2
+if [[ -z "$NPM_BIN" || -z "$NODE_BIN" ]]; then
+  echo "npm and node must be available in PATH" >&2
   exit 1
 fi
 
@@ -28,11 +29,11 @@ escape_xml() {
 }
 
 PROJECT_DIR_XML="$(escape_xml "$PROJECT_DIR")"
-NPM_BIN_XML="$(escape_xml "$NPM_BIN")"
+NODE_BIN_XML="$(escape_xml "$NODE_BIN")"
 
 while IFS= read -r line; do
   line="${line//__PROJECT_DIR__/$PROJECT_DIR_XML}"
-  line="${line//__NPM_BIN__/$NPM_BIN_XML}"
+  line="${line//__NODE_BIN__/$NODE_BIN_XML}"
   printf '%s\n' "$line"
 done < "$TEMPLATE" > "$TARGET"
 

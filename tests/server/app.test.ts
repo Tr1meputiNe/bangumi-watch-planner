@@ -55,6 +55,51 @@ describe('HTTP API', () => {
     await app.close();
   });
 
+  it('does not expose internal server errors to the browser', async () => {
+    const app = testApp({
+      getDashboard: vi.fn(async () => {
+        throw new Error('database details must stay private');
+      })
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/api/dashboard' });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: '服务器处理失败，请稍后重试' });
+    expect(response.body).not.toContain('database details');
+    expect(response.body).not.toContain('Internal server error');
+    await app.close();
+  });
+
+  it('returns one subject episode grid on demand', async () => {
+    const episodes = [{
+      id: 11,
+      subjectId: 7,
+      subjectName: 'Test Anime',
+      subjectNameCn: '测试番剧',
+      subjectUrl: 'https://bgm.tv/subject/7',
+      episodeType: 0,
+      sort: 1,
+      ep: 1,
+      name: 'first',
+      nameCn: '第一集',
+      airdate: '2026-07-01',
+      airTime: '20:00',
+      collectionType: 0,
+      dismissedAt: null,
+      snoozedUntil: null
+    }];
+    const getSubjectEpisodes = vi.fn(async () => episodes);
+    const app = testApp({ getSubjectEpisodes });
+
+    const response = await app.inject({ method: 'GET', url: '/api/subjects/7/episodes' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ episodes });
+    expect(getSubjectEpisodes).toHaveBeenCalledWith(7);
+    await app.close();
+  });
+
   it('returns Bangumi calendar data', async () => {
     const getCalendar = vi.fn(async () => [
       {
@@ -120,6 +165,43 @@ describe('HTTP API', () => {
     ]);
     expect(getCalendar).toHaveBeenCalled();
 
+    await app.close();
+  });
+
+  it('validates, saves, and removes a local broadcast correction', async () => {
+    const saveBroadcastOverride = vi.fn(async () => undefined);
+    const deleteBroadcastOverride = vi.fn(async () => undefined);
+    const app = testApp({ saveBroadcastOverride, deleteBroadcastOverride });
+    const headers = { 'x-bwp-token': 'test-token', 'content-type': 'application/json' };
+
+    const invalid = await app.inject({
+      method: 'PUT',
+      url: '/api/broadcast-overrides/456',
+      headers,
+      payload: { airDate: '2026-02-30', airTime: '25:00', dateShiftDays: 1.5 }
+    });
+    const saved = await app.inject({
+      method: 'PUT',
+      url: '/api/broadcast-overrides/456',
+      headers,
+      payload: { airDate: '2026-07-19', airTime: '01:30', dateShiftDays: 1 }
+    });
+    const removed = await app.inject({
+      method: 'DELETE',
+      url: '/api/broadcast-overrides/456',
+      headers: { 'x-bwp-token': 'test-token' }
+    });
+
+    expect(invalid.statusCode).toBe(400);
+    expect(saved.statusCode).toBe(204);
+    expect(removed.statusCode).toBe(204);
+    expect(saveBroadcastOverride).toHaveBeenCalledWith({
+      subjectId: 456,
+      airDate: '2026-07-19',
+      airTime: '01:30',
+      dateShiftDays: 1
+    });
+    expect(deleteBroadcastOverride).toHaveBeenCalledWith(456);
     await app.close();
   });
 
@@ -245,7 +327,15 @@ describe('HTTP API', () => {
   });
 
   it('adds an anime subject to the watching collection', async () => {
-    const addSubjectToWatching = vi.fn(async () => ({ subjectsSynced: 1, episodesSynced: 12 }));
+    const addSubjectToWatching = vi.fn(async () => ({
+      state: 'running',
+      startedAt: '2026-07-30T12:00:00.000Z',
+      completedAt: null,
+      error: null,
+      processedSubjects: 0,
+      totalSubjects: 0,
+      result: null
+    }));
     const app = buildApp({
       auth: {
         createAuthorizationUrl: vi.fn(),
@@ -273,15 +363,23 @@ describe('HTTP API', () => {
       headers: { 'x-bwp-token': 'test-token' }
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ subjectsSynced: 1, episodesSynced: 12 });
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toEqual(expect.objectContaining({ state: 'running' }));
     expect(addSubjectToWatching).toHaveBeenCalledWith(456);
 
     await app.close();
   });
 
   it('adds an anime subject to the wishlist collection', async () => {
-    const addSubjectToWishlist = vi.fn(async () => ({ subjectsSynced: 1, episodesSynced: 0 }));
+    const addSubjectToWishlist = vi.fn(async () => ({
+      state: 'running',
+      startedAt: '2026-07-30T12:00:00.000Z',
+      completedAt: null,
+      error: null,
+      processedSubjects: 0,
+      totalSubjects: 0,
+      result: null
+    }));
     const app = testApp({ addSubjectToWishlist });
 
     const response = await app.inject({
@@ -290,8 +388,8 @@ describe('HTTP API', () => {
       headers: { 'x-bwp-token': 'test-token' }
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ subjectsSynced: 1, episodesSynced: 0 });
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toEqual(expect.objectContaining({ state: 'running' }));
     expect(addSubjectToWishlist).toHaveBeenCalledWith(456);
 
     await app.close();
@@ -695,7 +793,15 @@ describe('HTTP API', () => {
   });
 
   it('routes every backlog action with parsed positive ids and expected response codes', async () => {
-    const startSubject = vi.fn(async () => ({ subjectsSynced: 1, episodesSynced: 12 }));
+    const startSubject = vi.fn(async () => ({
+      state: 'running',
+      startedAt: '2026-07-30T12:00:00.000Z',
+      completedAt: null,
+      error: null,
+      processedSubjects: 0,
+      totalSubjects: 0,
+      result: null
+    }));
     const pauseBacklogSubject = vi.fn(async () => undefined);
     const resumeBacklogSubject = vi.fn(async () => undefined);
     const completeBacklogSubject = vi.fn(async () => undefined);
@@ -723,8 +829,8 @@ describe('HTTP API', () => {
       app.inject({ method: 'POST', url: '/api/backlog/today/replan', headers })
     ]);
 
-    expect(start.statusCode).toBe(200);
-    expect(start.json()).toEqual({ subjectsSynced: 1, episodesSynced: 12 });
+    expect(start.statusCode).toBe(202);
+    expect(start.json()).toEqual(expect.objectContaining({ state: 'running' }));
     expect(responses.map((response) => response.statusCode)).toEqual([204, 204, 204, 204, 204, 204]);
     expect(startSubject).toHaveBeenCalledWith(101);
     expect(pauseBacklogSubject).toHaveBeenCalledWith(101);
@@ -786,9 +892,12 @@ function testApp(dashboardOverrides: Record<string, unknown> = {}) {
     },
     dashboard: {
       getDashboard: vi.fn(),
+      getSubjectEpisodes: vi.fn(),
       getBacklog: vi.fn(),
       getWishlist: vi.fn(),
       getCalendar: vi.fn(),
+      saveBroadcastOverride: vi.fn(),
+      deleteBroadcastOverride: vi.fn(),
       syncNow: vi.fn(),
       markEpisodeWatched: vi.fn(),
       markEpisodeUnwatched: vi.fn(),

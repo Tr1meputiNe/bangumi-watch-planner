@@ -319,6 +319,28 @@ describe('repository', () => {
       { plannedDate: '2026-07-20', episodeId: 21 }
     ]);
   });
+
+  it('persists and removes local broadcast corrections', async () => {
+    await repository.saveBroadcastOverride({
+      subjectId: 501,
+      airDate: '2026-07-19',
+      airTime: '01:30',
+      dateShiftDays: 1
+    });
+
+    await expect(repository.listBroadcastOverrides()).resolves.toEqual([
+      expect.objectContaining({
+        subjectId: 501,
+        airDate: '2026-07-19',
+        airTime: '01:30',
+        dateShiftDays: 1,
+        updatedAt: expect.any(String)
+      })
+    ]);
+
+    await repository.deleteBroadcastOverride(501);
+    await expect(repository.listBroadcastOverrides()).resolves.toEqual([]);
+  });
 });
 
 function episode(overrides: Partial<ReturnType<typeof baseEpisode>>) {

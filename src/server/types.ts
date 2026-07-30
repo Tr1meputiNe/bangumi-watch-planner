@@ -13,11 +13,21 @@ export type AuthStatus = {
 export type BangumiCollectionType = 1 | 2 | 3 | 4 | 5;
 export type PlannerMode = 'seasonal' | 'backlog' | null;
 export type SeasonKind = 'new' | 'continuing';
+export type BroadcastSource = 'ACG Secrets' | 'Bangumi Data' | 'Bangumi Index' | 'Bangumi' | '本地修正';
 
 export type BroadcastSchedule = {
   airDate: string;
   airTime: string;
   dayOffset: number;
+  source?: BroadcastSource;
+};
+
+export type BroadcastOverride = {
+  subjectId: number;
+  airDate: string;
+  airTime: string;
+  dateShiftDays: number;
+  updatedAt: string;
 };
 
 export type SeasonEntry = {
@@ -96,9 +106,11 @@ export type DashboardSubject = SubjectRow & {
   unwatchedMainEpisodes: EpisodeRow[];
 };
 
+export type DashboardSubjectSummary = Omit<DashboardSubject, 'mainEpisodes' | 'unwatchedMainEpisodes'>;
+
 export type DashboardData = {
   pendingEpisodes: EpisodeRow[];
-  subjects: DashboardSubject[];
+  subjects: DashboardSubjectSummary[];
   lastSyncAt: string | null;
   lastError: string | null;
 };
@@ -269,6 +281,10 @@ export type CalendarSubject = {
   ratingScore: number | null;
   rank: number | null;
   collectionDoing: number | null;
+  scheduleSource?: BroadcastSource;
+  baseScheduleSource?: BroadcastSource | null;
+  isLocalOverride?: boolean;
+  localDateShiftDays?: number;
 };
 
 export type CalendarDay = {
@@ -309,6 +325,7 @@ export type SyncRepository = {
   listSkippedBacklogDates(fromDate: string, throughDate: string): Promise<string[]>;
   listBacklogExclusions(fromDate: string, throughDate: string): Promise<Array<{ plannedDate: string; episodeId: number }>>;
   prunePlannerState(beforeDate: string): Promise<void>;
+  listBroadcastOverrides(): Promise<BroadcastOverride[]>;
 };
 
 export type SyncResult = {
@@ -338,18 +355,21 @@ export type OAuthManager = {
 
 export type DashboardService = {
   getDashboard(): Promise<DashboardData>;
+  getSubjectEpisodes(subjectId: number): Promise<EpisodeRow[]>;
   getBacklog(): Promise<BacklogData>;
   getWishlist(query: string, year: number | null | 'unknown'): Promise<WishlistData>;
   getCalendar(): Promise<CalendarDay[]>;
+  saveBroadcastOverride(input: Omit<BroadcastOverride, 'updatedAt'>): Promise<void>;
+  deleteBroadcastOverride(subjectId: number): Promise<void>;
   syncNow(): Promise<SyncResult>;
   startSync(): SyncStatus;
   getSyncStatus(): SyncStatus;
   markEpisodeWatched(episodeId: number): Promise<void>;
   markEpisodeUnwatched(episodeId: number): Promise<void>;
   markSubjectEpisodesWatchedThrough(subjectId: number, episodeId: number): Promise<void>;
-  addSubjectToWatching(subjectId: number): Promise<SyncResult>;
-  addSubjectToWishlist(subjectId: number): Promise<SyncResult>;
-  startSubject(subjectId: number): Promise<SyncResult>;
+  addSubjectToWatching(subjectId: number): Promise<SyncStatus>;
+  addSubjectToWishlist(subjectId: number): Promise<SyncStatus>;
+  startSubject(subjectId: number): Promise<SyncStatus>;
   pauseBacklogSubject(subjectId: number): Promise<void>;
   resumeBacklogSubject(subjectId: number): Promise<void>;
   completeBacklogSubject(subjectId: number): Promise<void>;

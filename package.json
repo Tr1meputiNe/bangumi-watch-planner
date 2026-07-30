@@ -9,6 +9,7 @@
     "dev:client": "vite --host 127.0.0.1",
     "build": "tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/index.js",
+    "install:launch-agent": "bash scripts/install-launch-agent.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint ."

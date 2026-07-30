@@ -32,7 +32,7 @@ type BacklogState = {
   error: string | null;
 };
 
-type ActiveView = 'watching' | 'backlog' | 'wishlist' | 'calendar';
+type ActiveView = 'today' | 'watching' | 'backlog' | 'wishlist' | 'calendar';
 type PendingAction = 'search' | 'oauth';
 type SearchDestination = 'backlog' | 'wishlist';
 
@@ -42,15 +42,17 @@ const emptyCalendarState: CalendarViewState = { days: null, error: null, loading
 
 export default function App() {
   const [state, setState] = useState<LoadState>(emptyState);
-  const [activeView, setActiveView] = useState<ActiveView>('watching');
+  const [activeView, setActiveView] = useState<ActiveView>('today');
   const [backlogState, setBacklogState] = useState<BacklogState>(emptyBacklogState);
   const [calendarState, setCalendarState] = useState<CalendarViewState>(emptyCalendarState);
   const [oauthForm, setOauthForm] = useState({ clientId: '', clientSecret: '' });
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [collectionRefreshVersion, setCollectionRefreshVersion] = useState(0);
   const syncHandoffStarted = useRef(false);
   const syncRequestVersion = useRef(0);
+  const submittedSearchKeyword = useRef('');
   const [animeSearch, setAnimeSearch] = useState<{ error: string | null; keyword: string; results: AnimeSearchResult[] }>({
     error: null,
     keyword: '',
@@ -91,11 +93,19 @@ export default function App() {
 
   const refreshBacklogAndDashboard = useCallback(async () => {
     try {
-      const [auth, dashboard, backlog] = await Promise.all([getAuthStatus(), getDashboard(), getBacklog()]);
+      const [auth, dashboard] = await Promise.all([getAuthStatus(), getDashboard()]);
       setState({ auth, dashboard, error: null });
-      setBacklogState({ data: backlog, loading: false, error: null });
     } catch (error) {
       showError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    try {
+      const backlog = await getBacklog();
+      setBacklogState({ data: backlog, loading: false, error: null });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setBacklogState((current) => ({ ...current, loading: false, error: message }));
+      showError(message);
     }
   }, [showError]);
 
@@ -112,6 +122,19 @@ export default function App() {
       }));
     }
   }, []);
+
+  const refreshAnimeSearch = useCallback(async () => {
+    const keyword = submittedSearchKeyword.current;
+    if (!keyword) return;
+    try {
+      const results = await searchAnime(keyword);
+      setAnimeSearch((current) => ({ ...current, error: null, results }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAnimeSearch((current) => ({ ...current, error: message }));
+      showError(message);
+    }
+  }, [showError]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -139,8 +162,13 @@ export default function App() {
   }, [activeView]);
 
   useEffect(() => {
-    if (activeView === 'backlog' && !backlogState.data && !backlogState.loading) void loadBacklog();
-  }, [activeView, backlogState.data, backlogState.loading, loadBacklog]);
+    if (
+      state.auth?.authenticated
+      && (activeView === 'today' || activeView === 'backlog')
+      && !backlogState.data
+      && !backlogState.loading
+    ) void loadBacklog();
+  }, [activeView, backlogState.data, backlogState.loading, loadBacklog, state.auth?.authenticated]);
 
   useEffect(() => {
     if (activeView === 'calendar' && !calendarState.days && !calendarState.loading) void loadCalendar();
@@ -156,16 +184,20 @@ export default function App() {
         .then(async (nextStatus) => {
           setSyncStatus(nextStatus);
           if (nextStatus.state === 'running') return;
-          if (nextStatus.state === 'error') {
-            showError(nextStatus.error ?? '同步失败，请稍后再试。');
-            return;
+          const syncError = nextStatus.state === 'error'
+            ? nextStatus.error ?? '同步失败，请稍后再试。'
+            : null;
+          if (!syncError) {
+            const result = nextStatus.result;
+            setSyncNotice(result
+              ? `同步完成：${result.subjectsSynced} 部番剧，${result.episodesSynced} 集分集`
+              : '同步完成');
           }
-          const result = nextStatus.result;
-          setSyncNotice(result
-            ? `同步完成：${result.subjectsSynced} 部番剧，${result.episodesSynced} 集分集`
-            : '同步完成');
-          if (activeView === 'backlog') await refreshBacklogAndDashboard();
+          setCollectionRefreshVersion((version) => version + 1);
+          if (activeView === 'today' || activeView === 'backlog') await refreshBacklogAndDashboard();
           else await load();
+          if (activeView === 'backlog') await refreshAnimeSearch();
+          if (syncError) showError(syncError);
         })
         .catch((error) => showError(error instanceof Error ? error.message : String(error)))
         .finally(() => {
@@ -173,14 +205,13 @@ export default function App() {
         });
     }, 1_000);
     return () => window.clearInterval(interval);
-  }, [activeView, isSyncing, load, refreshBacklogAndDashboard, showError]);
+  }, [activeView, isSyncing, load, refreshAnimeSearch, refreshBacklogAndDashboard, showError]);
 
   async function runAction(name: PendingAction, action: () => Promise<unknown>) {
     setPendingAction(name);
     try {
       await action();
-      if (activeView === 'backlog') await refreshBacklogAndDashboard();
-      else await load();
+      await load();
     } catch (error) {
       showError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -192,12 +223,14 @@ export default function App() {
     event.preventDefault();
     const keyword = animeSearch.keyword.trim();
     if (!keyword) {
+      submittedSearchKeyword.current = '';
       setAnimeSearch((current) => ({ ...current, error: null, results: [] }));
       return;
     }
     setPendingAction('search');
     try {
       const results = await searchAnime(keyword);
+      submittedSearchKeyword.current = keyword;
       setAnimeSearch((current) => ({ ...current, error: null, results }));
     } catch (error) {
       setAnimeSearch((current) => ({
@@ -236,8 +269,9 @@ export default function App() {
     }));
 
     try {
+      let backgroundStatus: SyncStatus | null = null;
       if (destination === 'wishlist') {
-        await addSubjectToWishlist(result.id);
+        backgroundStatus = await addSubjectToWishlist(result.id);
         setAnimeSearch((current) => ({
           ...current,
           results: current.results.map((item) => item.id === result.id
@@ -249,9 +283,13 @@ export default function App() {
             : item)
         }));
       } else {
-        if (result.watchAction === 'add') await addSubjectToWatching(result.id);
-        if (result.watchAction === 'start') await startSubject(result.id);
+        if (result.watchAction === 'add') backgroundStatus = await addSubjectToWatching(result.id);
+        if (result.watchAction === 'start') backgroundStatus = await startSubject(result.id);
         if (result.watchAction === 'resume') await resumeBacklog(result.id);
+      }
+      if (backgroundStatus) {
+        setSyncStatus(backgroundStatus);
+        return;
       }
       await refreshBacklogAndDashboard();
     } catch (error) {
@@ -351,7 +389,8 @@ export default function App() {
         </header>
 
         <div className="page-tabs" role="tablist" aria-label="视图">
-          <Tab mark="追" active={activeView === 'watching'} onClick={() => setActiveView('watching')}>追番提醒</Tab>
+          <Tab mark="今" active={activeView === 'today'} onClick={() => setActiveView('today')}>今日</Tab>
+          <Tab mark="追" active={activeView === 'watching'} onClick={() => setActiveView('watching')}>追番</Tab>
           <Tab mark="补" active={activeView === 'backlog'} onClick={() => setActiveView('backlog')}>补番计划</Tab>
           <Tab mark="想" active={activeView === 'wishlist'} onClick={() => setActiveView('wishlist')}>想看</Tab>
           <Tab mark="播" active={activeView === 'calendar'} onClick={() => setActiveView('calendar')}>每日放送</Tab>
@@ -368,11 +407,24 @@ export default function App() {
         {syncNotice ? <div className="notice" role="status">{syncNotice}</div> : null}
         {state.dashboard?.lastError ? <div className="notice warning">同步错误：{state.dashboard.lastError}</div> : null}
 
+        {activeView === 'today' ? (
+          state.dashboard ? (
+            <WatchingView
+              mode="today"
+              dashboard={state.dashboard}
+              backlog={backlogState.data}
+              disabled={isPending || backlogState.loading}
+              onChanged={refreshBacklogAndDashboard}
+              onError={showError}
+            />
+          ) : <div className="empty">正在加载今日安排。</div>
+        ) : null}
+
         {activeView === 'watching' ? (
           <>
             {state.dashboard ? (
-              <WatchingView dashboard={state.dashboard} disabled={isPending} onChanged={load} onError={showError} />
-            ) : <div className="empty">正在加载追番提醒。</div>}
+              <WatchingView mode="watching" dashboard={state.dashboard} disabled={isPending} onChanged={load} onError={showError} />
+            ) : <div className="empty">正在加载追番。</div>}
             <SettingsPanel auth={state.auth} />
           </>
         ) : null}
@@ -399,8 +451,17 @@ export default function App() {
           </>
         ) : null}
 
-        {activeView === 'wishlist' ? <WishlistView disabled={isPending} onChanged={load} onError={showError} /> : null}
-        {activeView === 'calendar' ? <CalendarView state={calendarState} onRetry={() => void loadCalendar()} /> : null}
+        {activeView === 'wishlist' ? (
+          <WishlistView
+            disabled={isPending}
+            refreshVersion={collectionRefreshVersion}
+            onSyncStarted={setSyncStatus}
+            onError={showError}
+          />
+        ) : null}
+        {activeView === 'calendar' ? (
+          <CalendarView state={calendarState} onRetry={loadCalendar} onError={showError} />
+        ) : null}
 
         <div className="page-ambient-ornament" aria-hidden="true">
           <span />

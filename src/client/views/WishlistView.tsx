@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { getWishlist, startSubject } from '../api.js';
-import type { WishlistData } from '../../server/types.js';
+import type { SyncStatus, WishlistData } from '../../server/types.js';
 import { displaySubjectName } from '../../shared/format.js';
 
 type WishlistViewProps = {
   disabled: boolean;
-  onChanged(): Promise<void>;
+  refreshVersion: number;
+  onSyncStarted(status: SyncStatus): void;
   onError(message: string): void;
 };
 
 const emptyWishlist: WishlistData = { items: [], years: [] };
 
-export default function WishlistView({ disabled, onChanged, onError }: WishlistViewProps) {
+export default function WishlistView({ disabled, refreshVersion, onSyncStarted, onError }: WishlistViewProps) {
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [year, setYear] = useState<number | null | 'unknown'>(null);
@@ -48,7 +49,7 @@ export default function WishlistView({ disabled, onChanged, onError }: WishlistV
         }
       }
     }
-  }, [debouncedQuery, onError, year]);
+  }, [debouncedQuery, onError, refreshVersion, year]);
 
   async function start(subjectId: number) {
     const index = data.items.findIndex((item) => item.id === subjectId);
@@ -63,7 +64,7 @@ export default function WishlistView({ disabled, onChanged, onError }: WishlistV
     }));
 
     try {
-      await startSubject(subjectId);
+      onSyncStarted(await startSubject(subjectId));
     } catch (error) {
       if (filterKeyRef.current === actionFilterKey) {
         setData((current) => {
@@ -73,13 +74,6 @@ export default function WishlistView({ disabled, onChanged, onError }: WishlistV
           return { ...current, items };
         });
       }
-      onError(error instanceof Error ? error.message : String(error));
-      return;
-    }
-
-    try {
-      await onChanged();
-    } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
     }
   }

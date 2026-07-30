@@ -65,11 +65,28 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
   app.post('/api/sync', async (_request, reply) => reply.code(202).send(dashboard.startSync()));
   app.get('/api/sync/status', async () => dashboard.getSyncStatus());
   app.get('/api/dashboard', async () => dashboard.getDashboard());
+  app.get<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/episodes', async (request) => ({
+    episodes: await dashboard.getSubjectEpisodes(parsePositiveInteger(request.params.subjectId))
+  }));
   app.get('/api/backlog', async () => dashboard.getBacklog());
   app.get<{ Querystring: { q?: string; year?: string } }>('/api/wishlist', async (request) =>
     dashboard.getWishlist(request.query.q ?? '', parseWishlistYear(request.query.year))
   );
   app.get('/api/calendar', async () => dashboard.getCalendar());
+  app.put<{
+    Params: { subjectId: string };
+    Body: { airDate?: string; airTime?: string; dateShiftDays?: number };
+  }>('/api/broadcast-overrides/:subjectId', async (request, reply) => {
+    await dashboard.saveBroadcastOverride({
+      subjectId: parsePositiveInteger(request.params.subjectId),
+      ...parseBroadcastOverride(request.body)
+    });
+    return reply.code(204).send();
+  });
+  app.delete<{ Params: { subjectId: string } }>('/api/broadcast-overrides/:subjectId', async (request, reply) => {
+    await dashboard.deleteBroadcastOverride(parsePositiveInteger(request.params.subjectId));
+    return reply.code(204).send();
+  });
   app.get<{ Querystring: { q?: string } }>('/api/search/anime', async (request) => ({
     results: await dashboard.searchAnimeSubjects(request.query.q ?? '')
   }));
@@ -106,16 +123,16 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
     return reply.code(204).send();
   });
 
-  app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/watching', async (request) =>
-    dashboard.addSubjectToWatching(parsePositiveInteger(request.params.subjectId))
+  app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/watching', async (request, reply) =>
+    reply.code(202).send(await dashboard.addSubjectToWatching(parsePositiveInteger(request.params.subjectId)))
   );
 
-  app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/wishlist', async (request) =>
-    dashboard.addSubjectToWishlist(parsePositiveInteger(request.params.subjectId))
+  app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/wishlist', async (request, reply) =>
+    reply.code(202).send(await dashboard.addSubjectToWishlist(parsePositiveInteger(request.params.subjectId)))
   );
 
-  app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/start', async (request) =>
-    dashboard.startSubject(parsePositiveInteger(request.params.subjectId))
+  app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/start', async (request, reply) =>
+    reply.code(202).send(await dashboard.startSubject(parsePositiveInteger(request.params.subjectId)))
   );
 
   app.post<{ Params: { subjectId: string } }>('/api/backlog/:subjectId/pause', async (request, reply) => {
@@ -162,7 +179,7 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
     app.log.error(error);
     const typedError = error as Error & { expose?: boolean; statusCode?: number };
     const statusCode = typedError.statusCode && typedError.statusCode >= 400 ? typedError.statusCode : 500;
-    const message = statusCode >= 500 && !typedError.expose ? 'Internal server error' : typedError.message;
+    const message = statusCode >= 500 && !typedError.expose ? '服务器处理失败，请稍后重试' : typedError.message;
     return reply.code(statusCode).send({ error: message });
   });
 
@@ -197,6 +214,27 @@ function parseWishlistYear(value: string | undefined): number | null | 'unknown'
     throw Object.assign(new Error('Year must be all, unknown, or a four-digit year'), { statusCode: 400 });
   }
   return Number(value);
+}
+
+function parseBroadcastOverride(body: { airDate?: string; airTime?: string; dateShiftDays?: number } | undefined) {
+  const airDate = body?.airDate?.trim() ?? '';
+  const airTime = body?.airTime?.trim() ?? '';
+  const dateShiftDays = body?.dateShiftDays;
+  const parsedDate = new Date(`${airDate}T00:00:00Z`);
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(airDate)
+    || Number.isNaN(parsedDate.getTime())
+    || parsedDate.toISOString().slice(0, 10) !== airDate
+  ) {
+    throw Object.assign(new Error('airDate must be a valid YYYY-MM-DD date'), { statusCode: 400 });
+  }
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(airTime)) {
+    throw Object.assign(new Error('airTime must be a valid HH:mm time'), { statusCode: 400 });
+  }
+  if (!Number.isInteger(dateShiftDays) || Math.abs(dateShiftDays as number) > 366) {
+    throw Object.assign(new Error('dateShiftDays must be an integer between -366 and 366'), { statusCode: 400 });
+  }
+  return { airDate, airTime, dateShiftDays: dateShiftDays as number };
 }
 
 function serializeLocalApiTokenCookie(token: string): string {

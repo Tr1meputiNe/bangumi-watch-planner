@@ -6,7 +6,11 @@ import { BangumiApiError } from './bangumi-client.js';
 import type {
   BacklogData,
   BangumiClient,
+  BroadcastOverride,
+  CalendarDay,
   DashboardData,
+  DashboardSubject,
+  DashboardSubjectSummary,
   DashboardService,
   EpisodeRow,
   OAuthManager,
@@ -35,6 +39,9 @@ export function createDashboardService({
   rebuildPlan = rebuildBacklogPlan
 }: DashboardDeps): DashboardService {
   let syncInFlight: Promise<SyncResult> | null = null;
+  let collectionActionQueue: Promise<void> = Promise.resolve();
+  let pendingCollectionActions = 0;
+  let collectionActionError: string | null = null;
   let syncStatus: SyncStatus = {
     state: 'idle',
     startedAt: null,
@@ -68,6 +75,47 @@ export function createDashboardService({
 
   function replan(includeToday: boolean, now = clock()): Promise<void> {
     return rebuildPlan({ repository, today: todayInShanghai(now), includeToday });
+  }
+
+  function startCollectionAction(action: () => Promise<void>): SyncStatus {
+    if (pendingCollectionActions === 0) {
+      collectionActionError = null;
+      syncStatus = {
+        state: 'running',
+        startedAt: clock().toISOString(),
+        completedAt: null,
+        error: null,
+        processedSubjects: 0,
+        totalSubjects: 0,
+        result: null
+      };
+    }
+    pendingCollectionActions += 1;
+
+    const run = collectionActionQueue.then(async () => {
+      await action();
+      if (syncInFlight) await syncInFlight.catch(() => undefined);
+      await service.syncNow();
+    });
+    collectionActionQueue = run.catch(() => undefined);
+    void run
+      .catch((error) => {
+        collectionActionError = getSafeCollectionActionError(error);
+      })
+      .finally(() => {
+        pendingCollectionActions -= 1;
+        if (pendingCollectionActions === 0 && collectionActionError) {
+          syncStatus = {
+            ...syncStatus,
+            state: 'error',
+            completedAt: clock().toISOString(),
+            error: collectionActionError,
+            result: null
+          };
+        }
+      });
+
+    return service.getSyncStatus();
   }
 
   async function requireSubject(subjectId: number): Promise<SubjectRow> {
@@ -159,10 +207,15 @@ export function createDashboardService({
           episodes.filter((episode) => seasonalSubjectIds.has(episode.subjectId)),
           todayInShanghai(clock())
         ),
-        subjects,
+        subjects: subjects.map(compactSubject),
         lastSyncAt,
         lastError: lastError || null
       };
+    },
+
+    async getSubjectEpisodes(subjectId) {
+      await requireSubject(subjectId);
+      return repository.listSubjectMainEpisodes(subjectId);
     },
 
     async getBacklog(): Promise<BacklogData> {
@@ -211,8 +264,20 @@ export function createDashboardService({
       };
     },
 
-    getCalendar() {
-      return client.getCalendar();
+    async getCalendar() {
+      const [days, overrides] = await Promise.all([
+        client.getCalendar(),
+        repository.listBroadcastOverrides()
+      ]);
+      return applyCalendarOverrides(days, overrides);
+    },
+
+    async saveBroadcastOverride(input) {
+      await repository.saveBroadcastOverride(input);
+    },
+
+    async deleteBroadcastOverride(subjectId) {
+      await repository.deleteBroadcastOverride(subjectId);
     },
 
     async syncNow(): Promise<SyncResult> {
@@ -267,7 +332,9 @@ export function createDashboardService({
     },
 
     getSyncStatus(): SyncStatus {
-      return { ...syncStatus };
+      return pendingCollectionActions > 0
+        ? { ...syncStatus, state: 'running', completedAt: null, error: null, result: null }
+        : { ...syncStatus };
     },
 
     async markEpisodeWatched(episodeId) {
@@ -329,13 +396,11 @@ export function createDashboardService({
     },
 
     async addSubjectToWatching(subjectId) {
-      await client.addSubjectToWatching(subjectId);
-      return service.syncNow();
+      return startCollectionAction(() => client.addSubjectToWatching(subjectId));
     },
 
     async addSubjectToWishlist(subjectId) {
-      await client.addSubjectToWishlist(subjectId);
-      return service.syncNow();
+      return startCollectionAction(() => client.addSubjectToWishlist(subjectId));
     },
 
     async startSubject(subjectId) {
@@ -346,8 +411,7 @@ export function createDashboardService({
       if (subject.airDate && subject.airDate > todayInShanghai(clock())) {
         throw Object.assign(new Error('尚未播出，已保留在想看'), { statusCode: 400 });
       }
-      await client.setSubjectCollectionType(subjectId, 3);
-      return service.syncNow();
+      return startCollectionAction(() => client.setSubjectCollectionType(subjectId, 3));
     },
 
     async pauseBacklogSubject(subjectId) {
@@ -502,8 +566,53 @@ function getAnimeSearchWishlistAction(subject: SubjectRow | null) {
   return { wishlistAction: null, wishlistActionLabel: '已抛弃' };
 }
 
+export function applyCalendarOverrides(days: CalendarDay[], overrides: BroadcastOverride[]): CalendarDay[] {
+  if (overrides.length === 0) return days;
+  const bySubject = new Map(overrides.map((override) => [override.subjectId, override]));
+  const result = days.map((day) => ({ ...day, items: [] as CalendarDay['items'] }));
+  const byWeekday = new Map(result.map((day) => [day.weekday.id, day]));
+
+  for (const day of days) {
+    for (const item of day.items) {
+      const override = bySubject.get(item.id);
+      if (!override) {
+        (byWeekday.get(day.weekday.id) ?? result[0]).items.push(item);
+        continue;
+      }
+      const corrected = {
+        ...item,
+        airDate: item.airDate ? shiftAirDate(item.airDate, override.dateShiftDays) : override.airDate,
+        airTime: override.airTime,
+        baseScheduleSource: item.scheduleSource ?? 'Bangumi',
+        scheduleSource: '本地修正' as const,
+        isLocalOverride: true,
+        localDateShiftDays: override.dateShiftDays
+      };
+      const weekday = weekdayFromDate(corrected.airDate) ?? day.weekday.id;
+      (byWeekday.get(weekday) ?? result[0]).items.push(corrected);
+    }
+  }
+  return result;
+}
+
+function weekdayFromDate(dateString: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return null;
+  const date = new Date(`${dateString}T00:00:00+08:00`);
+  return Number.isNaN(date.getTime()) ? null : date.getDay() || 7;
+}
+
 function episodeProgress(episode: { ep: number | null; sort: number }): number {
   return Number(episode.ep ?? episode.sort);
+}
+
+function compactSubject({
+  mainEpisodes: _mainEpisodes,
+  unwatchedMainEpisodes: _unwatchedMainEpisodes,
+  ...subject
+}: DashboardSubject): DashboardSubjectSummary {
+  void _mainEpisodes;
+  void _unwatchedMainEpisodes;
+  return subject;
 }
 
 function getSafeSyncErrorMessage(error: unknown): string {
@@ -514,4 +623,11 @@ function getSafeSyncErrorMessage(error: unknown): string {
     return 'Bangumi 同步暂时失败，请稍后再试';
   }
   return 'Bangumi 同步失败，请稍后再试';
+}
+
+function getSafeCollectionActionError(error: unknown): string {
+  if (error instanceof BangumiApiError || error instanceof TypeError) {
+    return 'Bangumi 收藏更新失败，请稍后再试';
+  }
+  return error instanceof Error ? error.message : 'Bangumi 收藏更新失败，请稍后再试';
 }

@@ -1,6 +1,6 @@
 # Design - Bangumi Watch Planner
 
-A locked design system for this local planning app. All four views share this
+A locked design system for this local planning app. All five views share this
 system; future visual changes should amend this file before adding page-specific
 overrides.
 

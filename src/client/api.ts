@@ -1,4 +1,4 @@
-import type { AnimeSearchResult, AuthStatus, BacklogData, CalendarDay, DashboardData, SyncResult, SyncStatus, WishlistData } from '../server/types.js';
+import type { AnimeSearchResult, AuthStatus, BacklogData, CalendarDay, DashboardData, EpisodeRow, SyncStatus, WishlistData } from '../server/types.js';
 
 async function api<T>(input: RequestInfo | URL, init?: RequestInit, retryOnInvalidToken = true): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -54,6 +54,11 @@ export function getDashboard(): Promise<DashboardData> {
   return api<DashboardData>('/api/dashboard');
 }
 
+export async function getSubjectEpisodes(subjectId: number): Promise<EpisodeRow[]> {
+  const response = await api<{ episodes: EpisodeRow[] }>(`/api/subjects/${subjectId}/episodes`);
+  return response.episodes;
+}
+
 export function getBacklog(): Promise<BacklogData> {
   return api<BacklogData>('/api/backlog');
 }
@@ -65,6 +70,23 @@ export function getWishlist(query: string, year: number | null | 'unknown'): Pro
 
 export function getCalendar(): Promise<CalendarDay[]> {
   return api<CalendarDay[]>('/api/calendar');
+}
+
+export function saveBroadcastOverride(
+  subjectId: number,
+  input: { airDate: string; airTime: string; dateShiftDays: number }
+): Promise<void> {
+  return api<void>(`/api/broadcast-overrides/${subjectId}`, {
+    method: 'PUT',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(input)
+  });
+}
+
+export function deleteBroadcastOverride(subjectId: number): Promise<void> {
+  return api<void>(`/api/broadcast-overrides/${subjectId}`, { method: 'DELETE' });
 }
 
 export function startSync(): Promise<SyncStatus> {
@@ -108,16 +130,16 @@ export async function searchAnime(keyword: string): Promise<AnimeSearchResult[]>
   return response.results;
 }
 
-export function addSubjectToWatching(subjectId: number): Promise<SyncResult> {
-  return api<SyncResult>(`/api/subjects/${subjectId}/watching`, { method: 'POST' });
+export function addSubjectToWatching(subjectId: number): Promise<SyncStatus> {
+  return api<SyncStatus>(`/api/subjects/${subjectId}/watching`, { method: 'POST' });
 }
 
-export function addSubjectToWishlist(subjectId: number): Promise<SyncResult> {
-  return api<SyncResult>(`/api/subjects/${subjectId}/wishlist`, { method: 'POST' });
+export function addSubjectToWishlist(subjectId: number): Promise<SyncStatus> {
+  return api<SyncStatus>(`/api/subjects/${subjectId}/wishlist`, { method: 'POST' });
 }
 
-export function startSubject(subjectId: number): Promise<SyncResult> {
-  return api<SyncResult>(`/api/subjects/${subjectId}/start`, { method: 'POST' });
+export function startSubject(subjectId: number): Promise<SyncStatus> {
+  return api<SyncStatus>(`/api/subjects/${subjectId}/start`, { method: 'POST' });
 }
 
 export function pauseBacklog(subjectId: number): Promise<void> {

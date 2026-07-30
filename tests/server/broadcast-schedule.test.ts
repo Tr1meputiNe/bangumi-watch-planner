@@ -113,7 +113,7 @@ describe('broadcast schedule', () => {
       'https://acgsecrets.hk/bangumi/202607/',
       'https://acgsecrets.hk/bangumi/202604/'
     ]);
-    expect(catalog.schedules.get(101)).toEqual({ airDate: '2026-07-05', airTime: '00:00', dayOffset: 1 });
+    expect(catalog.schedules.get(101)).toEqual({ airDate: '2026-07-05', airTime: '00:00', dayOffset: 1, source: 'ACG Secrets' });
     expect([...catalog.seasonWindow.activeSubjectIds]).toEqual([101, 303]);
   });
 
@@ -195,13 +195,13 @@ describe('broadcast schedule', () => {
 
     const times = await fetchBroadcastTimes(fetch as typeof globalThis.fetch, 'tester/bangumi-watch-planner');
 
-    expect(times.get(123)).toEqual({ airDate: '', airTime: '09:00', dayOffset: 0 });
-    expect(times.get(255209)).toEqual({ airDate: '2026-07-05', airTime: '22:00', dayOffset: 0 });
-    expect(times.get(495291)).toEqual({ airDate: '2026-07-06', airTime: '23:30', dayOffset: 1 });
-    expect(times.get(501963)).toEqual({ airDate: '2026-07-13', airTime: '23:00', dayOffset: 1 });
-    expect(times.get(538760)).toEqual({ airDate: '2026-07-04', airTime: '20:00', dayOffset: 0 });
-    expect(times.get(587109)).toEqual({ airDate: '2026-07-12', airTime: '01:00', dayOffset: 1 });
-    expect(times.get(602733)).toEqual({ airDate: '2026-07-05', airTime: '01:38', dayOffset: 1 });
-    expect(times.get(552533)).toEqual({ airDate: '2026-07-04', airTime: '22:00', dayOffset: 0 });
+    expect(times.get(123)).toEqual({ airDate: '', airTime: '09:00', dayOffset: 0, source: 'Bangumi Data' });
+    expect(times.get(255209)).toEqual({ airDate: '2026-07-05', airTime: '22:00', dayOffset: 0, source: 'Bangumi Index' });
+    expect(times.get(495291)).toEqual({ airDate: '2026-07-06', airTime: '23:30', dayOffset: 1, source: 'Bangumi Index' });
+    expect(times.get(501963)).toEqual({ airDate: '2026-07-13', airTime: '23:00', dayOffset: 1, source: 'Bangumi Index' });
+    expect(times.get(538760)).toEqual({ airDate: '2026-07-04', airTime: '20:00', dayOffset: 0, source: 'Bangumi Index' });
+    expect(times.get(587109)).toEqual({ airDate: '2026-07-12', airTime: '01:00', dayOffset: 1, source: 'ACG Secrets' });
+    expect(times.get(602733)).toEqual({ airDate: '2026-07-05', airTime: '01:38', dayOffset: 1, source: 'Bangumi Index' });
+    expect(times.get(552533)).toEqual({ airDate: '2026-07-04', airTime: '22:00', dayOffset: 0, source: 'ACG Secrets' });
   });
 });

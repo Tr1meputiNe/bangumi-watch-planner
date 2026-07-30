@@ -59,8 +59,12 @@ describe('dashboard service', () => {
     expect(markEpisodeUnwatched).toHaveBeenCalledWith(13);
   });
 
-  it('adds a subject to watching and runs one refresh sync', async () => {
-    const addSubjectToWatching = vi.fn(async () => undefined);
+  it('starts adding a subject to watching in the background and reports its sync', async () => {
+    let finishWrite!: () => void;
+    const writePending = new Promise<void>((resolve) => {
+      finishWrite = resolve;
+    });
+    const addSubjectToWatching = vi.fn(() => writePending);
     const getAnimeCollections = vi.fn(async () => ({ total: 0, data: [] }));
     const service = createDashboardService({
       auth: authStatus(),
@@ -68,9 +72,13 @@ describe('dashboard service', () => {
       repository: repository()
     });
 
-    await service.addSubjectToWatching(456);
+    await expect(service.addSubjectToWatching(456)).resolves.toMatchObject({ state: 'running' });
 
     expect(addSubjectToWatching).toHaveBeenCalledWith(456);
+    expect(getAnimeCollections).not.toHaveBeenCalled();
+
+    finishWrite();
+    await vi.waitFor(() => expect(service.getSyncStatus().state).toBe('idle'));
     expect(getAnimeCollections.mock.calls).toEqual([
       ['sai', 1, 50, 0],
       ['sai', 3, 50, 0],
@@ -87,8 +95,9 @@ describe('dashboard service', () => {
       repository: repository()
     });
 
-    await service.addSubjectToWishlist(456);
+    await expect(service.addSubjectToWishlist(456)).resolves.toMatchObject({ state: 'running' });
 
+    await vi.waitFor(() => expect(service.getSyncStatus().state).toBe('idle'));
     expect(addSubjectToWishlist).toHaveBeenCalledWith(456);
     expect(getAnimeCollections).toHaveBeenCalledTimes(3);
   });
@@ -156,6 +165,58 @@ describe('dashboard service', () => {
     expect(getCalendar).toHaveBeenCalled();
   });
 
+  it('moves corrected broadcasts to the corrected weekday and identifies the source', async () => {
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({
+        getCalendar: vi.fn(async () => [
+          {
+            weekday: { en: 'Sat', cn: '星期六', ja: '土耀日', id: 6 },
+            items: [{
+              id: 501,
+              name: 'Corrected Anime',
+              nameCn: '校正番剧',
+              url: 'https://bgm.tv/subject/501',
+              airDate: '2026-07-18',
+              airTime: '23:30',
+              airWeekday: 6,
+              image: null,
+              ratingScore: null,
+              rank: null,
+              collectionDoing: null,
+              scheduleSource: 'ACG Secrets' as const
+            }]
+          },
+          { weekday: { en: 'Sun', cn: '星期日', ja: '日耀日', id: 7 }, items: [] }
+        ])
+      }),
+      repository: repository({
+        listBroadcastOverrides: vi.fn(async () => [{
+          subjectId: 501,
+          airDate: '2026-07-19',
+          airTime: '01:30',
+          dateShiftDays: 1,
+          updatedAt: '2026-07-30'
+        }])
+      })
+    });
+
+    const days = await service.getCalendar();
+
+    expect(days.find((day) => day.weekday.id === 6)?.items).toEqual([]);
+    expect(days.find((day) => day.weekday.id === 7)?.items).toEqual([
+      expect.objectContaining({
+        id: 501,
+        airDate: '2026-07-19',
+        airTime: '01:30',
+        scheduleSource: '本地修正',
+        baseScheduleSource: 'ACG Secrets',
+        isLocalOverride: true,
+        localDateShiftDays: 1
+      })
+    ]);
+  });
+
   it('snoozes a seasonal reminder until the next Shanghai date', async () => {
     const snoozeEpisodeUntil = vi.fn(async () => undefined);
     const service = createDashboardService({
@@ -212,10 +273,12 @@ describe('dashboard service', () => {
       clock: fixedClock
     });
 
-    await expect(service.getDashboard()).resolves.toMatchObject({
-      subjects: [seasonal],
-      pendingEpisodes: [seasonalEpisode]
-    });
+    const dashboard = await service.getDashboard();
+    expect(dashboard.pendingEpisodes).toEqual([seasonalEpisode]);
+    expect(dashboard.subjects).toHaveLength(1);
+    expect(dashboard.subjects[0]).toMatchObject({ id: seasonal.id, plannerMode: 'seasonal' });
+    expect(dashboard.subjects[0]).not.toHaveProperty('mainEpisodes');
+    expect(dashboard.subjects[0]).not.toHaveProperty('unwatchedMainEpisodes');
     expect(listSubjectsByMode).toHaveBeenCalledWith('seasonal', [3]);
   });
 
@@ -377,8 +440,9 @@ describe('dashboard service', () => {
       clock: () => new Date('2026-07-19T04:00:00.000Z')
     });
 
-    await expect(service.startSubject(1)).resolves.toEqual({ subjectsSynced: 1, episodesSynced: 0 });
+    await expect(service.startSubject(1)).resolves.toMatchObject({ state: 'running' });
 
+    await vi.waitFor(() => expect(service.getSyncStatus().state).toBe('idle'));
     expect(setSubjectCollectionType).toHaveBeenCalledWith(1, 3);
     expect(setSubjectCollectionType.mock.invocationCallOrder[0]).toBeLessThan(getAnimeCollections.mock.invocationCallOrder[0]);
     expect(upsertSubject).toHaveBeenCalledWith(expect.objectContaining({ id: 1, collectionType: 3, plannerMode }));
@@ -938,12 +1002,16 @@ function repository(overrides: Partial<Repository> = {}): Repository {
     upsertSubject: vi.fn(async () => undefined),
     replaceSubjectEpisodes: vi.fn(async () => undefined),
     listEpisodes: vi.fn(async () => []),
+    listSubjectMainEpisodes: vi.fn(async () => []),
     listSubjects: vi.fn(async () => []),
     getSubject: vi.fn(async () => null),
     listSubjectsByCollection: vi.fn(async () => []),
     listSubjectsByMode: vi.fn(async () => []),
     setSubjectState: vi.fn(async () => undefined),
     listWishlist: vi.fn(async () => ({ items: [], years: [] })),
+    listBroadcastOverrides: vi.fn(async () => []),
+    saveBroadcastOverride: vi.fn(async () => undefined),
+    deleteBroadcastOverride: vi.fn(async () => undefined),
     listBacklogTasks: vi.fn(async () => []),
     replaceBacklogTasks: vi.fn(async () => undefined),
     deleteBacklogTask: vi.fn(async () => undefined),

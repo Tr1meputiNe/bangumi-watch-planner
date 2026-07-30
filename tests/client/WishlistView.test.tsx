@@ -14,7 +14,7 @@ describe('WishlistView', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const fetchMock = vi.fn(async () => Response.json(wishlistData()));
     vi.stubGlobal('fetch', fetchMock);
-    render(<WishlistView disabled={false} onChanged={vi.fn()} onError={vi.fn()} />);
+    render(<WishlistView disabled={false} refreshVersion={0} onSyncStarted={vi.fn()} onError={vi.fn()} />);
 
     expect(await screen.findByRole('option', { name: '2024' })).toBeInTheDocument();
     expect(screen.getByText('3 部')).toHaveClass('wishlist-count');
@@ -49,8 +49,8 @@ describe('WishlistView', () => {
       throw new Error(`Unexpected request ${input.toString()}`);
     });
     vi.stubGlobal('fetch', fetchMock);
-    const onChanged = vi.fn(async () => undefined);
-    render(<WishlistView disabled={false} onChanged={onChanged} onError={vi.fn()} />);
+    const onSyncStarted = vi.fn();
+    render(<WishlistView disabled={false} refreshVersion={0} onSyncStarted={onSyncStarted} onError={vi.fn()} />);
 
     expect(await screen.findByText('本季度')).toBeInTheDocument();
     expect(screen.getAllByText('旧番')).toHaveLength(1);
@@ -64,10 +64,10 @@ describe('WishlistView', () => {
     expect(screen.queryByText('本季度想看')).not.toBeInTheDocument();
     expect(screen.getByText('2 部')).toHaveClass('wishlist-count');
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/subjects/201/start', { method: 'POST' }));
-    expect(onChanged).not.toHaveBeenCalled();
+    expect(onSyncStarted).not.toHaveBeenCalled();
 
-    resolveStart(Response.json({ subjectsSynced: 1, episodesSynced: 12 }));
-    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+    resolveStart(Response.json(runningSyncStatus()));
+    await waitFor(() => expect(onSyncStarted).toHaveBeenCalledWith(expect.objectContaining({ state: 'running' })));
   });
 
   it('restores an optimistically removed title when the background request fails', async () => {
@@ -81,8 +81,8 @@ describe('WishlistView', () => {
       throw new Error(`Unexpected request ${input.toString()}`);
     }));
     const onError = vi.fn();
-    const onChanged = vi.fn();
-    render(<WishlistView disabled={false} onChanged={onChanged} onError={onError} />);
+    const onSyncStarted = vi.fn();
+    render(<WishlistView disabled={false} refreshVersion={0} onSyncStarted={onSyncStarted} onError={onError} />);
 
     await screen.findByText('旧番想看');
     await userEvent.click(screen.getByRole('button', { name: '加入补番' }));
@@ -92,8 +92,33 @@ describe('WishlistView', () => {
 
     expect(await screen.findByText('旧番想看')).toBeInTheDocument();
     expect(screen.getByText('3 部')).toHaveClass('wishlist-count');
-    expect(onChanged).not.toHaveBeenCalled();
+    expect(onSyncStarted).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledWith('Bangumi write failed');
+  });
+
+  it('reloads the current filter after a queued collection action finishes', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input.toString() === '/api/wishlist?q=&year=all') return Response.json(wishlistData());
+      if (input.toString() === '/api/subjects/202/start' && init?.method === 'POST') {
+        return Response.json(runningSyncStatus(), { status: 202 });
+      }
+      throw new Error(`Unexpected request ${input.toString()}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const onSyncStarted = vi.fn();
+    const { rerender } = render(
+      <WishlistView disabled={false} refreshVersion={0} onSyncStarted={onSyncStarted} onError={vi.fn()} />
+    );
+
+    await screen.findByText('旧番想看');
+    await userEvent.click(screen.getByRole('button', { name: '加入补番' }));
+    expect(screen.queryByText('旧番想看')).not.toBeInTheDocument();
+    await waitFor(() => expect(onSyncStarted).toHaveBeenCalled());
+
+    rerender(<WishlistView disabled={false} refreshVersion={1} onSyncStarted={onSyncStarted} onError={vi.fn()} />);
+
+    expect(await screen.findByText('旧番想看')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/wishlist?q=&year=all')).toHaveLength(2);
   });
 });
 
@@ -155,5 +180,17 @@ function wishlistData() {
       }
     ],
     years: [2027, 2026, 2024]
+  };
+}
+
+function runningSyncStatus() {
+  return {
+    state: 'running',
+    startedAt: '2026-07-30T12:00:00.000Z',
+    completedAt: null,
+    error: null,
+    processedSubjects: 0,
+    totalSubjects: 0,
+    result: null
   };
 }

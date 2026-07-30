@@ -116,7 +116,10 @@ describe('Bangumi client', () => {
             image: 'cover.jpg',
             ratingScore: 7.2,
             rank: 1234,
-            collectionDoing: 321
+            collectionDoing: 321,
+            scheduleSource: 'Bangumi Data',
+            baseScheduleSource: null,
+            isLocalOverride: false
           }
         ]
       }

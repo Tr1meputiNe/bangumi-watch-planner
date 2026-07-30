@@ -1,9 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Repository } from '../../src/server/db.js';
-import { rebuildBacklogPlan, syncAnimeCollections } from '../../src/server/sync.js';
+import { applyBroadcastOverrides, rebuildBacklogPlan, syncAnimeCollections } from '../../src/server/sync.js';
 import type { BangumiClient, BroadcastCatalog, EpisodeRow, SubjectWrite, SyncProgress, SyncRepository } from '../../src/server/types.js';
 
 describe('syncAnimeCollections', () => {
+  it('applies a local whole-series date and time correction', () => {
+    const corrected = applyBroadcastOverrides(
+      new Map([[501, { airDate: '2026-07-25', airTime: '00:30', dayOffset: 0, source: 'ACG Secrets' }]]),
+      [{ subjectId: 501, airDate: '2026-07-11', airTime: '01:00', dateShiftDays: -7, updatedAt: '2026-07-30' }]
+    );
+
+    expect(corrected.get(501)).toEqual({
+      airDate: '2026-07-18',
+      airTime: '01:00',
+      dayOffset: -7,
+      source: '本地修正'
+    });
+  });
+
   it('paginates wishlist, watching, and held independently without fetching wishlist episodes', async () => {
     const getAnimeCollections = vi.fn(async (_username: string, type: 1 | 3 | 4, _limit: number, offset: number) => {
       if (type === 1) {
@@ -192,6 +206,7 @@ function syncRepository(overrides: Partial<SyncRepository> = {}): SyncRepository
     listSkippedBacklogDates: vi.fn(async () => []),
     listBacklogExclusions: vi.fn(async () => []),
     prunePlannerState: vi.fn(),
+    listBroadcastOverrides: vi.fn(async () => []),
     ...overrides
   };
 }

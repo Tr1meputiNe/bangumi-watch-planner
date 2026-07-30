@@ -120,7 +120,7 @@ function mapBroadcastTimes(data: BangumiData): Map<number, BroadcastSchedule> {
       if (site.site !== 'bangumi') continue;
       const subjectId = Number(site.id);
       if (Number.isInteger(subjectId)) {
-        times.set(subjectId, { airDate: '', airTime, dayOffset: 0 });
+        times.set(subjectId, { airDate: '', airTime, dayOffset: 0, source: 'Bangumi Data' });
       }
     }
   }
@@ -204,7 +204,8 @@ function seasonSchedules(catalog: SeasonCatalog): Map<number, BroadcastSchedule>
   return new Map([...catalog.entries].map(([subjectId, entry]) => [subjectId, {
     airDate: entry.normalPremiereDate,
     airTime: entry.airTime,
-    dayOffset: entry.dayOffset
+    dayOffset: entry.dayOffset,
+    source: 'ACG Secrets' as const
   }]));
 }
 
@@ -239,7 +240,8 @@ function extractIndexShanghaiSchedule(line: string): BroadcastSchedule | null {
   return {
     airDate: date.toISOString().slice(0, 10),
     airTime: `${String(shanghaiHour).padStart(2, '0')}:${match[5]}`,
-    dayOffset
+    dayOffset,
+    source: 'Bangumi Index'
   };
 }
 

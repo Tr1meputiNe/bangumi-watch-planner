@@ -3647,6 +3647,54 @@ select[data-state="success"] {
   color: var(--color-muted);
 }
 
+.calendar-source {
+  width: fit-content;
+  display: block;
+  margin-top: var(--space-2xs);
+  color: var(--color-muted);
+  font-size: 0.68rem;
+}
+
+.calendar-source.is-local {
+  color: var(--color-accent-text);
+  font-weight: 700;
+}
+
+.calendar-edit-button {
+  min-height: 0;
+  margin-top: var(--space-2xs);
+  padding: 3px 7px;
+  font-size: 0.7rem;
+}
+
+.calendar-correction-form {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+  border-top: var(--rule-hair) solid var(--color-rule);
+  padding-top: var(--space-xs);
+}
+
+.calendar-correction-form label {
+  display: grid;
+  gap: 4px;
+  color: var(--color-muted);
+  font-size: 0.72rem;
+}
+
+.calendar-correction-form input {
+  width: 100%;
+  min-width: 0;
+}
+
+.calendar-correction-form > div {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: var(--space-xs);
+}
+
 .bangumi-login-shell {
   min-height: 100dvh;
   display: grid;

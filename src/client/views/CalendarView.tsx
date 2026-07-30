@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import type { CalendarDay, CalendarSubject } from '../../server/types.js';
 import { displaySubjectName } from '../../shared/format.js';
+import { deleteBroadcastOverride, saveBroadcastOverride } from '../api.js';
 
 export type CalendarViewState = {
   days: CalendarDay[] | null;
@@ -7,7 +9,15 @@ export type CalendarViewState = {
   loading: boolean;
 };
 
-export default function CalendarView({ state, onRetry }: { state: CalendarViewState; onRetry: () => void }) {
+export default function CalendarView({
+  state,
+  onRetry,
+  onError
+}: {
+  state: CalendarViewState;
+  onRetry: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
   const rawDays = state.days ?? [];
   const todayWeekdayId = getShanghaiWeekdayId();
   const days = orderCalendarDaysFromToday(rawDays, todayWeekdayId);
@@ -24,7 +34,7 @@ export default function CalendarView({ state, onRetry }: { state: CalendarViewSt
         </div>
         <div className="calendar-overview-actions">
           <span><strong>{today?.items.length ?? 0}</strong> 今日放送</span>
-          <button type="button" className="secondary" onClick={onRetry} disabled={state.loading}>刷新</button>
+          <button type="button" className="secondary" onClick={() => void onRetry()} disabled={state.loading}>刷新</button>
         </div>
       </header>
 
@@ -48,7 +58,9 @@ export default function CalendarView({ state, onRetry }: { state: CalendarViewSt
                 </div>
               </header>
               <div className="calendar-items">
-                {orderCalendarItemsByBroadcastTime(day.items).map((item) => <CalendarSubjectItem key={item.id} item={item} />)}
+                {orderCalendarItemsByBroadcastTime(day.items).map((item) => (
+                  <CalendarSubjectItem key={item.id} item={item} onChanged={onRetry} onError={onError} />
+                ))}
               </div>
             </section>
           ))}
@@ -85,9 +97,55 @@ function compareAirTime(a: string, b: string): number {
   return 0;
 }
 
-function CalendarSubjectItem({ item }: { item: CalendarSubject }) {
+function CalendarSubjectItem({
+  item,
+  onChanged,
+  onError
+}: {
+  item: CalendarSubject;
+  onChanged: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [airDate, setAirDate] = useState(item.airDate);
+  const [airTime, setAirTime] = useState(item.airTime);
+  const [saving, setSaving] = useState(false);
   const stats = calendarSubjectStats(item);
   const dateTime = item.airDate ? `${item.airDate}${item.airTime ? `T${item.airTime}` : ''}` : undefined;
+
+  useEffect(() => {
+    if (!editing) {
+      setAirDate(item.airDate);
+      setAirTime(item.airTime);
+    }
+  }, [editing, item.airDate, item.airTime]);
+
+  async function run(action: () => Promise<void>) {
+    setSaving(true);
+    try {
+      await action();
+      await onChanged();
+      setEditing(false);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const additionalShift = differenceInDays(item.airDate, airDate);
+    if (additionalShift === null) {
+      onError('请输入有效的播出日期');
+      return;
+    }
+    void run(() => saveBroadcastOverride(item.id, {
+      airDate,
+      airTime,
+      dateShiftDays: (item.localDateShiftDays ?? 0) + additionalShift
+    }));
+  }
 
   return (
     <article className="calendar-subject">
@@ -100,10 +158,40 @@ function CalendarSubjectItem({ item }: { item: CalendarSubject }) {
       </a>
       <div className="calendar-subject-main">
         <a href={item.url} target="_blank" rel="noreferrer">{displaySubjectName(item.name, item.nameCn)}</a>
+        <span className={item.isLocalOverride ? 'calendar-source is-local' : 'calendar-source'}>
+          {item.scheduleSource ?? 'Bangumi'}
+          {item.baseScheduleSource ? ` · 原 ${item.baseScheduleSource}` : ''}
+        </span>
         {stats ? <p>{stats}</p> : null}
+        <button type="button" className="ghost calendar-edit-button" onClick={() => setEditing((value) => !value)}>
+          {editing ? '取消校正' : '校正时间'}
+        </button>
+        {editing ? (
+          <form className="calendar-correction-form" onSubmit={submit}>
+            <label>日期<input type="date" required value={airDate} onChange={(event) => setAirDate(event.target.value)} /></label>
+            <label>时间<input type="time" required value={airTime} onChange={(event) => setAirTime(event.target.value)} /></label>
+            <div>
+              <button type="submit" disabled={saving}>保存</button>
+              {item.isLocalOverride ? (
+                <button type="button" className="secondary" disabled={saving} onClick={() => void run(() => deleteBroadcastOverride(item.id))}>
+                  恢复来源
+                </button>
+              ) : null}
+            </div>
+          </form>
+        ) : null}
       </div>
     </article>
   );
+}
+
+function differenceInDays(from: string, to: string): number | null {
+  const toTime = Date.parse(`${to}T00:00:00Z`);
+  if (!to || Number.isNaN(toTime)) return null;
+  if (!from) return 0;
+  const fromTime = Date.parse(`${from}T00:00:00Z`);
+  if (Number.isNaN(fromTime)) return null;
+  return Math.round((toTime - fromTime) / 86_400_000);
 }
 
 function calendarSubjectStats(item: CalendarSubject): string {

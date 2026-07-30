@@ -157,7 +157,68 @@ function searchResult(
   };
 }
 
+function runningSyncStatus() {
+  return {
+    state: 'running',
+    startedAt: '2026-07-30T12:00:00.000Z',
+    completedAt: null,
+    error: null,
+    processedSubjects: 0,
+    totalSubjects: 0,
+    result: null
+  };
+}
+
+function completedSyncStatus(subjectsSynced = 1, episodesSynced = 12) {
+  return {
+    ...runningSyncStatus(),
+    state: 'idle',
+    completedAt: '2026-07-30T12:00:05.000Z',
+    processedSubjects: subjectsSynced,
+    totalSubjects: subjectsSynced,
+    result: { subjectsSynced, episodesSynced }
+  };
+}
+
 describe('App', () => {
+  it('opens a unified today view with seasonal and backlog tasks in separate sections', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/backlog') {
+        return Response.json({
+          ...emptyBacklog,
+          todayTasks: [{
+            id: 91,
+            episodeId: 92,
+            subjectId: 90,
+            plannedDate: emptyBacklog.today,
+            slot: 0,
+            locked: true,
+            episode: {
+              ...dashboard.pendingEpisodes[0],
+              id: 92,
+              subjectId: 90,
+              subjectNameCn: '补番动画',
+              subjectUrl: 'https://bgm.tv/subject/90'
+            }
+          }]
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole('tab', { name: '今日' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText('今日追番')).toHaveTextContent('测试番剧');
+    expect(await screen.findByLabelText('今日补番')).toHaveTextContent('补番动画');
+    expect(screen.getByRole('tab', { name: '追番' })).toHaveAttribute('aria-selected', 'false');
+  });
+
   it('resumes an OAuth background sync after startup without hiding cached data', async () => {
     let dashboardRequests = 0;
     let statusRequests = 0;
@@ -325,7 +386,7 @@ describe('App', () => {
     expect(await screen.findByText('请求失败（HTTP 502）')).toBeInTheDocument();
   });
 
-  it('shows four tabs in the required order and loads backlog only when opened', async () => {
+  it('shows five tabs in the required order and loads today backlog immediately', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -352,17 +413,19 @@ describe('App', () => {
     render(<App />);
 
     expect((await screen.findAllByRole('tab')).map((tab) => tab.textContent)).toEqual([
-      '追番提醒',
+      '今日',
+      '追番',
       '补番计划',
       '想看',
       '每日放送'
     ]);
-    expect(fetchMock.mock.calls.some(([input]) => input.toString() === '/api/backlog')).toBe(false);
+    await screen.findByLabelText('今日补番');
+    expect(fetchMock.mock.calls.some(([input]) => input.toString() === '/api/backlog')).toBe(true);
     expect(document.querySelector('.hallmark-workbench')).toBeInTheDocument();
-    expect(document.querySelectorAll('.page-tabs .tab-mark')).toHaveLength(4);
+    expect(document.querySelectorAll('.page-tabs .tab-mark')).toHaveLength(5);
     expect(document.querySelector('.app-footer')).toBeInTheDocument();
     expect(screen.getByLabelText('近期在看').querySelector('img')).toHaveAttribute('src', 'cover.jpg');
-    expect(screen.getByLabelText('待补新集').querySelector('.title-cover-reel')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('今日追番').querySelector('.title-cover-reel')).not.toBeInTheDocument();
     expect(document.querySelector('.page-ambient-covers')).not.toBeInTheDocument();
     expect(document.querySelector('.page-ambient-ornament')).toBeInTheDocument();
     expect(screen.getAllByText('测试番剧').length).toBeGreaterThan(0);
@@ -398,11 +461,10 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findAllByText('测试番剧')).toHaveLength(2);
-    expect(screen.getByLabelText('待补新集').querySelector('img')).toHaveAttribute('src', 'cover.jpg');
+    expect((await screen.findAllByText('测试番剧')).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('今日追番').querySelector('img')).toHaveAttribute('src', 'cover.jpg');
     expect(screen.getByText('第一集')).toBeInTheDocument();
     expect(screen.getByText('22:30')).toBeInTheDocument();
-    expect(screen.getByText('1 / 12')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: '忽略' }));
 
@@ -485,7 +547,7 @@ describe('App', () => {
     render(<App />);
 
     await screen.findByText('第一集');
-    const backlog = screen.getByLabelText('待补新集');
+    const backlog = screen.getByLabelText('今日追番');
     await userEvent.click(within(backlog).getByRole('button', { name: '已看' }));
 
     await waitFor(() => {
@@ -524,7 +586,7 @@ describe('App', () => {
     render(<App />);
 
     await screen.findByText('第一集');
-    const backlog = screen.getByLabelText('待补新集');
+    const backlog = screen.getByLabelText('今日追番');
     await userEvent.click(within(backlog).getByRole('button', { name: '明天再看' }));
 
     await waitFor(() => {
@@ -580,7 +642,7 @@ describe('App', () => {
 
     render(<App />);
 
-    const backlog = await screen.findByLabelText('待补新集');
+    const backlog = await screen.findByLabelText('今日追番');
     await userEvent.click(within(backlog).getByRole('button', { name: '明天再看' }));
     await waitFor(() => expect(within(backlog).queryByText('第一集')).not.toBeInTheDocument());
 
@@ -613,6 +675,7 @@ describe('App', () => {
 
     render(<App />);
 
+    await userEvent.click(await screen.findByRole('tab', { name: '追番' }));
     expect(await screen.findByText('3 集未看')).toBeInTheDocument();
   });
 
@@ -637,7 +700,36 @@ describe('App', () => {
 
     render(<App />);
 
+    await userEvent.click(await screen.findByRole('tab', { name: '追番' }));
     expect(await screen.findByText('下一集：第一集 · 播出时间：2026-07-08 22:30')).toBeInTheDocument();
+  });
+
+  it('loads a subject episode grid only after the user expands it', async () => {
+    let episodeRequests = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/subjects/1/episodes') {
+        episodeRequests += 1;
+        return Response.json({ episodes: dashboard.subjects[0].mainEpisodes });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    }));
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole('tab', { name: '追番' }));
+    expect(await screen.findByText('下一集：第一集 · 播出时间：2026-07-08 22:30')).toBeInTheDocument();
+    expect(episodeRequests).toBe(0);
+    expect(screen.queryByLabelText('测试番剧集数进度')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '查看测试番剧集数' }));
+
+    expect(await screen.findByLabelText('测试番剧集数进度')).toBeInTheDocument();
+    expect(episodeRequests).toBe(1);
   });
 
   it('can mark a watched episode back to unwatched from the watching list', async () => {
@@ -669,13 +761,18 @@ describe('App', () => {
       if (url === '/api/episodes/10/unwatched') {
         return new Response(null, { status: 204 });
       }
+      if (url === '/api/subjects/1/episodes') {
+        return Response.json({ episodes: dashboard.subjects[0].mainEpisodes });
+      }
       throw new Error(`Unexpected request ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
 
     render(<App />);
 
+    await userEvent.click(await screen.findByRole('tab', { name: '追番' }));
     await screen.findByText('1 集未看');
+    await userEvent.click(screen.getByRole('button', { name: '查看测试番剧集数' }));
     const watchedButton = screen.getByRole('button', { name: '测试番剧 第 1 集 取消看过' });
     expect(watchedButton).toHaveTextContent('01');
 
@@ -705,13 +802,18 @@ describe('App', () => {
       if (url === '/api/subjects/1/watched-through' && init?.method === 'POST') {
         return new Response(null, { status: 204 });
       }
+      if (url === '/api/subjects/1/episodes') {
+        return Response.json({ episodes: dashboard.subjects[0].mainEpisodes });
+      }
       throw new Error(`Unexpected request ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
 
     render(<App />);
 
+    await userEvent.click(await screen.findByRole('tab', { name: '追番' }));
     await screen.findByText('1 集未看');
+    await userEvent.click(screen.getByRole('button', { name: '查看测试番剧集数' }));
     const unwatchedButton = screen.getByRole('button', { name: '测试番剧 第 2 集 标为看过' });
     expect(unwatchedButton).toHaveTextContent('02');
 
@@ -732,7 +834,8 @@ describe('App', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date('2026-07-10T04:00:00.000Z'));
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    let corrected = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
         return Response.json({
@@ -744,6 +847,14 @@ describe('App', () => {
       }
       if (url === '/api/dashboard') {
         return Response.json(dashboard);
+      }
+      if (url === '/api/broadcast-overrides/456' && init?.method === 'PUT') {
+        corrected = true;
+        return new Response(null, { status: 204 });
+      }
+      if (url === '/api/broadcast-overrides/456' && init?.method === 'DELETE') {
+        corrected = false;
+        return new Response(null, { status: 204 });
       }
       if (url === '/api/calendar') {
         return Response.json([
@@ -761,7 +872,11 @@ describe('App', () => {
                 image: null,
                 ratingScore: 7.2,
                 rank: 1234,
-                collectionDoing: 321
+                collectionDoing: 321,
+                scheduleSource: corrected ? '本地修正' : 'ACG Secrets',
+                baseScheduleSource: corrected ? 'ACG Secrets' : null,
+                isLocalOverride: corrected,
+                localDateShiftDays: corrected ? 0 : undefined
               }
             ]
           },
@@ -832,14 +947,30 @@ describe('App', () => {
     expect(screen.getByLabelText('2026-07-09 22:30')).toBeInTheDocument();
     expect(screen.getByText(/评分 7.2/)).toBeInTheDocument();
     expect(screen.getByText(/321 人在看/)).toBeInTheDocument();
+    expect(screen.getByText('ACG Secrets')).toBeInTheDocument();
+
+    const correctedCard = screen.getAllByRole('link', { name: '测试放送' })[0].closest('article')!;
+    await user.click(within(correctedCard).getByRole('button', { name: '校正时间' }));
+    await user.click(within(correctedCard).getByRole('button', { name: '保存' }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/broadcast-overrides/456', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ airDate: '2026-07-09', airTime: '22:30', dateShiftDays: 0 })
+      });
+    });
+    expect(await screen.findByText('本地修正 · 原 ACG Secrets')).toBeInTheDocument();
+
+    const localCard = screen.getAllByRole('link', { name: '测试放送' })[0].closest('article')!;
+    await user.click(within(localCard).getByRole('button', { name: '校正时间' }));
+    await user.click(within(localCard).getByRole('button', { name: '恢复来源' }));
+    await waitFor(() => expect(corrected).toBe(false));
+    expect(await screen.findByText('ACG Secrets')).toBeInTheDocument();
   });
 
   it('optimistically marks a search result as backlog while the request runs in the background', async () => {
-    let resolveWatching!: (response: Response) => void;
-    const watchingResponse = new Promise<Response>((resolve) => {
-      resolveWatching = resolve;
-    });
     let dashboardRequests = 0;
+    let statusRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -876,7 +1007,11 @@ describe('App', () => {
         });
       }
       if (url === '/api/subjects/456/watching' && init?.method === 'POST') {
-        return watchingResponse;
+        return Response.json(runningSyncStatus(), { status: 202 });
+      }
+      if (url === '/api/sync/status') {
+        statusRequests += 1;
+        return Response.json(statusRequests === 1 ? { ...runningSyncStatus(), state: 'idle' } : completedSyncStatus());
       }
       throw new Error(`Unexpected request ${url}`);
     });
@@ -901,16 +1036,13 @@ describe('App', () => {
     });
     expect(dashboardRequests).toBe(1);
 
-    resolveWatching(Response.json({ subjectsSynced: 1, episodesSynced: 12 }));
+    expect(await screen.findByRole('button', { name: '同步中' })).toBeDisabled();
     await waitFor(() => expect(dashboardRequests).toBe(2));
     expect(screen.getAllByText('测试动画')).toHaveLength(2);
   });
 
-  it('optimistically adds a global search result to the wishlist', async () => {
-    let resolveWishlist!: (response: Response) => void;
-    const wishlistResponse = new Promise<Response>((resolve) => {
-      resolveWishlist = resolve;
-    });
+  it('restores a search action when its queued Bangumi write fails', async () => {
+    let statusRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -921,7 +1053,62 @@ describe('App', () => {
       if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
         return Response.json({ results: [searchResult(451, null, 'add', '加入补番')] });
       }
-      if (url === '/api/subjects/451/wishlist' && init?.method === 'POST') return wishlistResponse;
+      if (url === '/api/subjects/451/watching' && init?.method === 'POST') {
+        return Response.json(runningSyncStatus(), { status: 202 });
+      }
+      if (url === '/api/sync/status') {
+        statusRequests += 1;
+        return Response.json(statusRequests === 1
+          ? { ...runningSyncStatus(), state: 'idle' }
+          : {
+              ...runningSyncStatus(),
+              state: 'error',
+              completedAt: '2026-07-30T12:00:05.000Z',
+              error: 'Bangumi 收藏更新失败，请稍后再试'
+            });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
+    await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+    await userEvent.click(await screen.findByRole('button', { name: '加入补番' }));
+
+    expect(screen.getAllByRole('button', { name: '已在看' }).every((button) => button.hasAttribute('disabled'))).toBe(true);
+    expect(await screen.findByText('Bangumi 收藏更新失败，请稍后再试', {}, { timeout: 2_500 })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: '加入补番' }).every((button) => !button.hasAttribute('disabled'))).toBe(true);
+    });
+    expect(fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/search/anime?q=%E6%B5%8B%E8%AF%95')).toHaveLength(2);
+  });
+
+  it('optimistically adds a global search result to the wishlist', async () => {
+    let statusRequests = 0;
+    let wishlistSaved = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
+      if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
+        return Response.json({
+          results: [wishlistSaved ? searchResult(451, 1, 'start', '加入补番') : searchResult(451, null, 'add', '加入补番')]
+        });
+      }
+      if (url === '/api/subjects/451/wishlist' && init?.method === 'POST') {
+        wishlistSaved = true;
+        return Response.json(runningSyncStatus(), { status: 202 });
+      }
+      if (url === '/api/sync/status') {
+        statusRequests += 1;
+        return Response.json(statusRequests === 1 ? { ...runningSyncStatus(), state: 'idle' } : completedSyncStatus(1, 0));
+      }
       throw new Error(`Unexpected request ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -934,11 +1121,10 @@ describe('App', () => {
     await userEvent.click(await screen.findByRole('button', { name: '加入想看' }));
 
     expect(screen.getByRole('button', { name: '已在想看' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '加入补番' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '加入补番' })).toBeEnabled();
     expect(fetchMock).toHaveBeenCalledWith('/api/subjects/451/wishlist', { method: 'POST' });
 
-    resolveWishlist(Response.json({ subjectsSynced: 1, episodesSynced: 0 }));
-    await waitFor(() => expect(screen.getByRole('button', { name: '加入补番' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: '立即同步' })).toBeEnabled());
     expect(screen.getByRole('button', { name: '已在想看' })).toBeDisabled();
   });
 
@@ -968,11 +1154,12 @@ describe('App', () => {
         });
       }
       if (url === '/api/subjects/452/start' && init?.method === 'POST') {
-        return Response.json({ subjectsSynced: 1, episodesSynced: 12 });
+        return Response.json(runningSyncStatus(), { status: 202 });
       }
       if (url === '/api/subjects/453/start' && init?.method === 'POST') {
-        return Response.json({ subjectsSynced: 1, episodesSynced: 12 });
+        return Response.json(runningSyncStatus(), { status: 202 });
       }
+      if (url === '/api/sync/status') return Response.json(completedSyncStatus());
       if (url === '/api/backlog/455/resume' && init?.method === 'POST') {
         return new Response(null, { status: 204 });
       }
@@ -1034,6 +1221,8 @@ describe('App', () => {
 
   it('keeps the successful collection state when the dashboard refresh fails', async () => {
     let dashboardRequests = 0;
+    let statusRequests = 0;
+    let watchingAdded = false;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -1047,10 +1236,17 @@ describe('App', () => {
       }
       if (url === '/api/backlog') return Response.json(emptyBacklog);
       if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
-        return Response.json({ results: [searchResult(451, null, 'add', '加入补番')] });
+        return Response.json({
+          results: [watchingAdded ? searchResult(451, 3, null, '已在看') : searchResult(451, null, 'add', '加入补番')]
+        });
       }
       if (url === '/api/subjects/451/watching' && init?.method === 'POST') {
-        return Response.json({ subjectsSynced: 1, episodesSynced: 12 });
+        watchingAdded = true;
+        return Response.json(runningSyncStatus(), { status: 202 });
+      }
+      if (url === '/api/sync/status') {
+        statusRequests += 1;
+        return Response.json(statusRequests === 1 ? { ...runningSyncStatus(), state: 'idle' } : completedSyncStatus());
       }
       throw new Error(`Unexpected request ${url}`);
     }));
@@ -1062,7 +1258,7 @@ describe('App', () => {
     await userEvent.click(screen.getByRole('button', { name: '搜索' }));
     await userEvent.click(await screen.findByRole('button', { name: '加入补番' }));
 
-    expect(await screen.findByText('Dashboard refresh failed')).toBeInTheDocument();
+    expect(await screen.findByText('Dashboard refresh failed', {}, { timeout: 2_500 })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: '已在看' }).every((button) => button.hasAttribute('disabled'))).toBe(true);
   });
 

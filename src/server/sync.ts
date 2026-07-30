@@ -3,6 +3,7 @@ import type {
   BangumiEpisodeCollection,
   BangumiSubjectCollection,
   BroadcastCatalog,
+  BroadcastOverride,
   BroadcastSchedule,
   EpisodeRow,
   SeasonWindow,
@@ -35,7 +36,11 @@ export async function syncAnimeCollections({
 }): Promise<SyncResult> {
   let subjectsSynced = 0;
   let episodesSynced = 0;
-  const broadcastCatalog = await getBroadcastCatalog(client);
+  const [broadcastCatalog, broadcastOverrides] = await Promise.all([
+    getBroadcastCatalog(client),
+    repository.listBroadcastOverrides()
+  ]);
+  const broadcastSchedules = applyBroadcastOverrides(broadcastCatalog.schedules, broadcastOverrides);
   const collections: Array<{
     collectionType: 1 | 3 | 4;
     collection: BangumiSubjectCollection;
@@ -75,7 +80,7 @@ export async function syncAnimeCollections({
         completedAt: null
       });
     } else {
-      const episodes = await getAllSubjectEpisodes(client, subject, broadcastCatalog.schedules);
+      const episodes = await getAllSubjectEpisodes(client, subject, broadcastSchedules);
       const apiTotal = collection.subject.eps ?? 0;
       const premiereDate = collection.subject.date ?? '';
       const resolvedClassification = collectionType === 3
@@ -219,6 +224,23 @@ async function getBroadcastCatalog(client: BangumiClient): Promise<BroadcastCata
     throw new Error('Anime collection sync requires a non-empty authoritative season window');
   }
   return catalog;
+}
+
+export function applyBroadcastOverrides(
+  schedules: BroadcastCatalog['schedules'],
+  overrides: BroadcastOverride[]
+): BroadcastCatalog['schedules'] {
+  const corrected = new Map(schedules);
+  for (const override of overrides) {
+    const schedule = corrected.get(override.subjectId) ?? { airDate: '', airTime: '', dayOffset: 0 };
+    corrected.set(override.subjectId, {
+      airDate: schedule.airDate ? shiftAirDate(schedule.airDate, override.dateShiftDays) : override.airDate,
+      airTime: override.airTime || schedule.airTime,
+      dayOffset: schedule.dayOffset + override.dateShiftDays,
+      source: '本地修正'
+    });
+  }
+  return corrected;
 }
 
 async function getAllSubjectEpisodes(

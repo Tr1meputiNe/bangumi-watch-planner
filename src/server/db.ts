@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import type {
   BacklogTaskRow,
   BangumiCollectionType,
+  BroadcastOverride,
   DashboardSubject,
   EpisodeRow,
   SubjectRow,
@@ -13,6 +14,7 @@ import type {
 
 export type Repository = SyncRepository & {
   listEpisodes(): Promise<EpisodeRow[]>;
+  listSubjectMainEpisodes(subjectId: number): Promise<EpisodeRow[]>;
   listSubjects(): Promise<DashboardSubject[]>;
   getSubject(subjectId: number): Promise<SubjectRow | null>;
   listSubjectsByCollection(types: BangumiCollectionType[]): Promise<DashboardSubject[]>;
@@ -29,6 +31,8 @@ export type Repository = SyncRepository & {
   snoozeEpisodeUntil(episodeId: number, date: string): Promise<void>;
   getLastNotificationDate(): Promise<string | null>;
   setLastNotificationDate(date: string): Promise<void>;
+  saveBroadcastOverride(input: Omit<BroadcastOverride, 'updatedAt'>): Promise<void>;
+  deleteBroadcastOverride(subjectId: number): Promise<void>;
 };
 
 export function createRepository(dbPath: string): Repository {
@@ -153,6 +157,11 @@ export function createRepository(dbPath: string): Repository {
       return selectEpisodes(db, '');
     },
 
+    async listSubjectMainEpisodes(subjectId) {
+      return selectEpisodes(db, 'where subject_id = ? and episode_type = 0', [subjectId])
+        .sort(compareEpisodeProgress);
+    },
+
     async listSubjects() {
       return selectDashboardSubjects(db);
     },
@@ -196,6 +205,31 @@ export function createRepository(dbPath: string): Repository {
         'select distinct air_year as airYear from subjects where collection_type = 1 and air_year is not null order by air_year desc'
       ).all() as Array<{ airYear: number }>).map((row) => row.airYear);
       return { items, years };
+    },
+
+    async listBroadcastOverrides() {
+      return db.prepare(
+        `select subject_id as subjectId, air_date as airDate, air_time as airTime,
+                date_shift_days as dateShiftDays, updated_at as updatedAt
+         from broadcast_overrides
+         order by subject_id`
+      ).all() as BroadcastOverride[];
+    },
+
+    async saveBroadcastOverride(input) {
+      db.prepare(
+        `insert into broadcast_overrides (subject_id, air_date, air_time, date_shift_days, updated_at)
+         values (@subjectId, @airDate, @airTime, @dateShiftDays, datetime('now'))
+         on conflict(subject_id) do update set
+           air_date = excluded.air_date,
+           air_time = excluded.air_time,
+           date_shift_days = excluded.date_shift_days,
+           updated_at = excluded.updated_at`
+      ).run(input);
+    },
+
+    async deleteBroadcastOverride(subjectId) {
+      db.prepare('delete from broadcast_overrides where subject_id = ?').run(subjectId);
     },
 
     async listBacklogTasks(fromDate, throughDate) {
@@ -414,6 +448,14 @@ function migrate(db: Database.Database): void {
       created_at text not null,
       primary key(planned_date, episode_id),
       foreign key(episode_id) references episodes(id) on delete cascade
+    );
+
+    create table if not exists broadcast_overrides (
+      subject_id integer primary key,
+      air_date text not null,
+      air_time text not null,
+      date_shift_days integer not null default 0,
+      updated_at text not null
     );
   `);
 }
