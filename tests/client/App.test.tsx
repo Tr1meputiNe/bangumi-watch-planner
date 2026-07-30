@@ -990,6 +990,133 @@ describe('App', () => {
     expect(screen.getAllByRole('button', { name: '已在看' }).every((button) => button.hasAttribute('disabled'))).toBe(true);
   });
 
+  it('shows the access login before loading private dashboard data', async () => {
+    let loggedIn = false;
+    let dashboardRequests = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return loggedIn
+          ? Response.json({
+              authenticated: true,
+              username: 'sai',
+              nickname: 'Sai',
+              lastSyncAt: dashboard.lastSyncAt,
+              accessConfigured: true,
+              accessAuthenticated: true
+            })
+          : Response.json({
+              authenticated: false,
+              username: null,
+              nickname: null,
+              lastSyncAt: null,
+              accessConfigured: true,
+              accessAuthenticated: false
+            });
+      }
+      if (url === '/api/access/login' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({ password: 'correct horse' });
+        loggedIn = true;
+        return Response.json({ configured: true, authenticated: true });
+      }
+      if (url === '/api/dashboard') {
+        dashboardRequests += 1;
+        return Response.json(dashboard);
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '欢迎回来' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: '追番提醒' })).not.toBeInTheDocument();
+    expect(dashboardRequests).toBe(0);
+
+    await userEvent.type(screen.getByLabelText('访问密码'), 'correct horse');
+    await userEvent.click(screen.getByRole('button', { name: '登录' }));
+
+    expect(await screen.findByRole('tab', { name: '追番提醒' })).toBeInTheDocument();
+    expect(dashboardRequests).toBe(1);
+  });
+
+  it('requires matching passwords during first-time access setup', async () => {
+    let configured = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return configured
+          ? Response.json({
+              authenticated: true,
+              username: 'sai',
+              nickname: 'Sai',
+              lastSyncAt: dashboard.lastSyncAt,
+              accessConfigured: true,
+              accessAuthenticated: true
+            })
+          : Response.json({
+              authenticated: false,
+              username: null,
+              nickname: null,
+              lastSyncAt: null,
+              accessConfigured: false,
+              accessAuthenticated: false
+            });
+      }
+      if (url === '/api/access/setup' && init?.method === 'POST') {
+        configured = true;
+        return Response.json({ configured: true, authenticated: true });
+      }
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '设置访问密码' })).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('访问密码'), 'correct horse');
+    await userEvent.type(screen.getByLabelText('确认密码'), 'different pass');
+    await userEvent.click(screen.getByRole('button', { name: '保存并进入' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('两次输入的密码不一致');
+    expect(fetchMock.mock.calls.some(([input]) => input.toString() === '/api/access/setup')).toBe(false);
+
+    await userEvent.clear(screen.getByLabelText('确认密码'));
+    await userEvent.type(screen.getByLabelText('确认密码'), 'correct horse');
+    await userEvent.click(screen.getByRole('button', { name: '保存并进入' }));
+
+    expect(await screen.findByRole('tab', { name: '追番提醒' })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/access/setup', expect.objectContaining({ method: 'POST' }));
+  });
+
+  it('logs out from settings and returns to the access login', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({
+          authenticated: true,
+          username: 'sai',
+          nickname: 'Sai',
+          lastSyncAt: dashboard.lastSyncAt,
+          accessConfigured: true,
+          accessAuthenticated: true
+        });
+      }
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/access/logout' && init?.method === 'POST') return new Response(null, { status: 204 });
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole('button', { name: '退出登录' }));
+
+    expect(await screen.findByRole('heading', { name: '欢迎回来' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: '追番提醒' })).not.toBeInTheDocument();
+  });
+
   it('shows a login action when Bangumi is not connected', async () => {
     vi.stubGlobal(
       'fetch',

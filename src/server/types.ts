@@ -3,11 +3,24 @@ export type AuthStatus = {
   username: string | null;
   nickname: string | null;
   lastSyncAt: string | null;
+  accessConfigured?: boolean;
+  accessAuthenticated?: boolean;
   configured?: boolean;
   oauthClientId?: string | null;
   callbackUrl?: string;
   notificationsEnabled?: boolean;
   launchAgentInstalled?: boolean;
+};
+
+export type AccessStatus = {
+  configured: boolean;
+  authenticated: boolean;
+};
+
+export type AccessAuthService = {
+  getStatus(sessionToken: string | null): Promise<AccessStatus>;
+  setup(password: string): Promise<string>;
+  login(password: string): Promise<string>;
 };
 
 export type BangumiCollectionType = 1 | 2 | 3 | 4 | 5;

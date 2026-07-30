@@ -1,6 +1,7 @@
 import fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
-import type { DashboardService, OAuthConfigInput, OAuthManager, SettingsService } from './types.js';
+import { ACCESS_SESSION_MAX_AGE_SECONDS } from './access-auth.js';
+import type { AccessAuthService, DashboardService, OAuthConfigInput, OAuthManager, SettingsService } from './types.js';
 
 type AppDeps = {
   auth: OAuthManager;
@@ -10,17 +11,35 @@ type AppDeps = {
   afterOAuthUserLoaded?: () => Promise<void>;
   logger?: boolean;
   apiToken?: string | null;
+  access?: AccessAuthService;
 };
 
 const API_TOKEN_COOKIE = 'bwp_token';
+const ACCESS_SESSION_COOKIE = 'bwp_session';
+const LOGIN_ATTEMPT_LIMIT = 5;
+const LOGIN_WINDOW_MS = 60_000;
 
-export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUserLoaded, logger = false, apiToken = null }: AppDeps) {
+export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUserLoaded, logger = false, apiToken = null, access }: AppDeps) {
   const app = fastify({ logger });
+  const loginFailures = new Map<string, { count: number; resetAt: number }>();
 
   app.addHook('preHandler', async (request, reply) => {
+    const path = request.url.split('?')[0];
+    const publicAccessRoute = path === '/api/auth/status'
+      || path === '/api/access/setup'
+      || path === '/api/access/login';
+    const protectedAccessRoute = path.startsWith('/api/') || path.startsWith('/auth/');
+    if (access && protectedAccessRoute && !publicAccessRoute) {
+      const sessionToken = parseCookieValue(request.headers.cookie, ACCESS_SESSION_COOKIE);
+      if (!(await access.getStatus(sessionToken)).authenticated) {
+        return reply.code(401).send({ error: '需要登录' });
+      }
+    }
+
     if (!apiToken) return;
     if (!request.url.startsWith('/api/')) return;
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return;
+    if (path === '/api/access/setup' || path === '/api/access/login') return;
 
     const headerToken = request.headers['x-bwp-token'];
     const cookieToken = parseCookieValue(request.headers.cookie, API_TOKEN_COOKIE);
@@ -30,11 +49,64 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
   });
 
   app.get('/api/auth/status', async (_request, reply) => {
+    const accessStatus = access
+      ? await access.getStatus(parseCookieValue(_request.headers.cookie, ACCESS_SESSION_COOKIE))
+      : null;
+    if (accessStatus && !accessStatus.authenticated) {
+      return {
+        authenticated: false,
+        username: null,
+        nickname: null,
+        lastSyncAt: null,
+        accessConfigured: accessStatus.configured,
+        accessAuthenticated: false
+      };
+    }
     const status = await auth.getAuthStatus();
     if (apiToken) {
       reply.header('set-cookie', serializeLocalApiTokenCookie(apiToken));
     }
-    return status;
+    return accessStatus
+      ? { ...status, accessConfigured: accessStatus.configured, accessAuthenticated: true }
+      : status;
+  });
+
+  app.post<{ Body: { password?: unknown } }>('/api/access/setup', async (request, reply) => {
+    if (!access) return reply.code(404).send({ error: 'Access login is not available' });
+    const password = requirePassword(request.body?.password);
+    const sessionToken = await access.setup(password);
+    setAccessCookies(reply, sessionToken, apiToken);
+    return { configured: true, authenticated: true };
+  });
+
+  app.post<{ Body: { password?: unknown } }>('/api/access/login', async (request, reply) => {
+    if (!access) return reply.code(404).send({ error: 'Access login is not available' });
+    const blockedFor = getLoginBlockSeconds(loginFailures.get(request.ip));
+    if (blockedFor > 0) {
+      reply.header('retry-after', String(blockedFor));
+      return reply.code(429).send({ error: '尝试次数过多，请稍后再试' });
+    }
+    const password = requirePassword(request.body?.password);
+    let sessionToken: string;
+    try {
+      sessionToken = await access.login(password);
+      loginFailures.delete(request.ip);
+    } catch (error) {
+      if ((error as { statusCode?: number }).statusCode === 401) {
+        loginFailures.set(request.ip, nextLoginFailure(loginFailures.get(request.ip)));
+      }
+      throw error;
+    }
+    setAccessCookies(reply, sessionToken, apiToken);
+    return { configured: true, authenticated: true };
+  });
+
+  app.post('/api/access/logout', async (_request, reply) => {
+    reply.header('set-cookie', [
+      clearCookie(ACCESS_SESSION_COOKIE, 'Lax'),
+      clearCookie(API_TOKEN_COOKIE)
+    ]);
+    return reply.code(204).send();
   });
 
   app.get('/auth/login', async (_request, reply) => {
@@ -197,6 +269,41 @@ function parseWishlistYear(value: string | undefined): number | null | 'unknown'
 
 function serializeLocalApiTokenCookie(token: string): string {
   return `${API_TOKEN_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict`;
+}
+
+function serializeAccessSessionCookie(token: string): string {
+  return `${ACCESS_SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${ACCESS_SESSION_MAX_AGE_SECONDS}`;
+}
+
+function clearCookie(name: string, sameSite: 'Lax' | 'Strict' = 'Strict'): string {
+  return `${name}=; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=0`;
+}
+
+function setAccessCookies(reply: { header(name: string, value: string | string[]): unknown }, sessionToken: string, apiToken: string | null): void {
+  reply.header('set-cookie', [
+    serializeAccessSessionCookie(sessionToken),
+    ...(apiToken ? [serializeLocalApiTokenCookie(apiToken)] : [])
+  ]);
+}
+
+function requirePassword(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw Object.assign(new Error('请输入密码'), { statusCode: 400, expose: true });
+  }
+  return value;
+}
+
+function nextLoginFailure(current: { count: number; resetAt: number } | undefined): { count: number; resetAt: number } {
+  const now = Date.now();
+  if (!current || current.resetAt <= now) {
+    return { count: 1, resetAt: now + LOGIN_WINDOW_MS };
+  }
+  return { ...current, count: current.count + 1 };
+}
+
+function getLoginBlockSeconds(current: { count: number; resetAt: number } | undefined): number {
+  if (!current || current.count < LOGIN_ATTEMPT_LIMIT || current.resetAt <= Date.now()) return 0;
+  return Math.max(1, Math.ceil((current.resetAt - Date.now()) / 1000));
 }
 
 function parseCookieValue(cookieHeader: string | undefined, name: string): string | null {

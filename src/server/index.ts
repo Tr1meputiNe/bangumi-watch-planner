@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { createAccessAuthService } from './access-auth.js';
 import { buildApp } from './app.js';
 import { createBangumiClient } from './bangumi-client.js';
 import { loadConfig } from './config.js';
@@ -17,6 +18,12 @@ const config = loadConfig();
 const apiToken = randomBytes(32).toString('base64url');
 const repository = createRepository(config.dbPath);
 const tokenStore = createKeychainTokenStore();
+const access = createAccessAuthService({
+  settings: {
+    get: (key) => repository.getSetting(key),
+    set: (key, value) => repository.setSetting(key, value)
+  }
+});
 
 const auth = createOAuthManager({
   clientId: config.clientId,
@@ -62,6 +69,7 @@ const app = buildApp({
   staticRoot: existsSync(staticRoot) ? staticRoot : null,
   logger: true,
   apiToken,
+  access,
   afterOAuthUserLoaded: async () => {
     const me = await client.getMe();
     await repository.setSetting('username', me.username);

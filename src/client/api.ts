@@ -1,4 +1,4 @@
-import type { AnimeSearchResult, AuthStatus, BacklogData, CalendarDay, DashboardData, SyncResult, SyncStatus, WishlistData } from '../server/types.js';
+import type { AccessStatus, AnimeSearchResult, AuthStatus, BacklogData, CalendarDay, DashboardData, SyncResult, SyncStatus, WishlistData } from '../server/types.js';
 
 async function api<T>(input: RequestInfo | URL, init?: RequestInit, retryOnInvalidToken = true): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -48,6 +48,30 @@ async function refreshApiToken(): Promise<void> {
 
 export function getAuthStatus(): Promise<AuthStatus> {
   return api<AuthStatus>('/api/auth/status');
+}
+
+export function setupAccess(password: string): Promise<AccessStatus> {
+  return api<AccessStatus>('/api/access/setup', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({ password })
+  });
+}
+
+export function loginAccess(password: string): Promise<AccessStatus> {
+  return api<AccessStatus>('/api/access/login', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({ password })
+  });
+}
+
+export function logoutAccess(): Promise<void> {
+  return api<void>('/api/access/logout', { method: 'POST' });
 }
 
 export function getDashboard(): Promise<DashboardData> {

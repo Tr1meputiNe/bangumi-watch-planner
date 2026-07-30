@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { resolve } from 'node:path';
 import { buildApp } from '../../src/server/app.js';
 
 describe('HTTP API', () => {
@@ -51,6 +52,187 @@ describe('HTTP API', () => {
       lastSyncAt: '2026-07-08T20:00:00+08:00',
       lastError: null
     });
+
+    await app.close();
+  });
+
+  it('hides Bangumi status and protects every business route until access login', async () => {
+    const getAuthStatus = vi.fn();
+    const getDashboard = vi.fn(async () => ({
+      pendingEpisodes: [],
+      subjects: [],
+      lastSyncAt: null,
+      lastError: null
+    }));
+    const access = {
+      getStatus: vi.fn(async (token: string | null) => ({
+        configured: true,
+        authenticated: token === 'valid-session'
+      })),
+      setup: vi.fn(),
+      login: vi.fn()
+    };
+    const app = buildApp({
+      auth: {
+        createAuthorizationUrl: vi.fn(),
+        handleCallback: vi.fn(),
+        getAccessToken: vi.fn(),
+        getAuthStatus
+      },
+      dashboard: {
+        getDashboard,
+        syncNow: vi.fn(),
+        markEpisodeWatched: vi.fn(),
+        dismissEpisode: vi.fn()
+      },
+      staticRoot: null,
+      apiToken: 'test-token',
+      access
+    });
+
+    const status = await app.inject({ method: 'GET', url: '/api/auth/status' });
+    const dashboard = await app.inject({ method: 'GET', url: '/api/dashboard' });
+    const oauth = await app.inject({ method: 'GET', url: '/auth/login' });
+    const authenticatedDashboard = await app.inject({
+      method: 'GET',
+      url: '/api/dashboard',
+      headers: { cookie: 'bwp_session=valid-session' }
+    });
+
+    expect(status.json()).toEqual({
+      authenticated: false,
+      username: null,
+      nickname: null,
+      lastSyncAt: null,
+      accessConfigured: true,
+      accessAuthenticated: false
+    });
+    expect(getAuthStatus).not.toHaveBeenCalled();
+    expect(dashboard.statusCode).toBe(401);
+    expect(oauth.statusCode).toBe(401);
+    expect(authenticatedDashboard.statusCode).toBe(200);
+    expect(getDashboard).toHaveBeenCalledOnce();
+
+    await app.close();
+  });
+
+  it('serves the login application shell before access authentication', async () => {
+    const app = buildApp({
+      auth: {
+        createAuthorizationUrl: vi.fn(),
+        handleCallback: vi.fn(),
+        getAccessToken: vi.fn(),
+        getAuthStatus: vi.fn()
+      },
+      dashboard: {
+        getDashboard: vi.fn(),
+        syncNow: vi.fn(),
+        markEpisodeWatched: vi.fn(),
+        dismissEpisode: vi.fn()
+      },
+      staticRoot: resolve('tests/fixtures/static'),
+      access: {
+        getStatus: vi.fn(async () => ({ configured: true, authenticated: false })),
+        setup: vi.fn(),
+        login: vi.fn()
+      }
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('Access shell');
+
+    await app.close();
+  });
+
+  it('sets persistent access and write-token cookies after first-time setup', async () => {
+    const setup = vi.fn(async () => 'signed-session');
+    const app = testApp({}, {
+      getStatus: vi.fn(async () => ({ configured: false, authenticated: false })),
+      setup,
+      login: vi.fn()
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/access/setup',
+      payload: { password: 'correct horse' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ configured: true, authenticated: true });
+    expect(setup).toHaveBeenCalledWith('correct horse');
+    expect(response.headers['set-cookie']).toEqual(expect.arrayContaining([
+      expect.stringContaining('bwp_session=signed-session'),
+      expect.stringContaining('bwp_token=test-token')
+    ]));
+    expect(response.headers['set-cookie']?.[0]).toContain('Max-Age=2592000');
+    expect(response.headers['set-cookie']?.[0]).toContain('HttpOnly');
+    expect(response.headers['set-cookie']?.[0]).toContain('SameSite=Lax');
+
+    await app.close();
+  });
+
+  it('returns a generic login error and clears both cookies on logout', async () => {
+    const login = vi.fn(async () => {
+      throw Object.assign(new Error('密码错误'), { statusCode: 401, expose: true });
+    });
+    const access = {
+      getStatus: vi.fn(async (token: string | null) => ({ configured: true, authenticated: token === 'valid-session' })),
+      setup: vi.fn(),
+      login
+    };
+    const app = testApp({}, access);
+
+    const loginResponse = await app.inject({
+      method: 'POST',
+      url: '/api/access/login',
+      payload: { password: 'wrong password' }
+    });
+    const logoutResponse = await app.inject({
+      method: 'POST',
+      url: '/api/access/logout',
+      headers: { cookie: 'bwp_session=valid-session; bwp_token=test-token' }
+    });
+
+    expect(loginResponse.statusCode).toBe(401);
+    expect(loginResponse.json()).toEqual({ error: '密码错误' });
+    expect(logoutResponse.statusCode).toBe(204);
+    expect(logoutResponse.headers['set-cookie']).toEqual(expect.arrayContaining([
+      expect.stringContaining('bwp_session=;'),
+      expect.stringContaining('bwp_token=;')
+    ]));
+
+    await app.close();
+  });
+
+  it('rate limits repeated incorrect access passwords by client address', async () => {
+    const login = vi.fn(async () => {
+      throw Object.assign(new Error('密码错误'), { statusCode: 401, expose: true });
+    });
+    const app = testApp({}, {
+      getStatus: vi.fn(async () => ({ configured: true, authenticated: false })),
+      setup: vi.fn(),
+      login
+    });
+
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/access/login',
+        payload: { password: 'wrong password' }
+      });
+      statuses.push(response.statusCode);
+      if (attempt === 5) {
+        expect(response.json()).toEqual({ error: '尝试次数过多，请稍后再试' });
+        expect(response.headers['retry-after']).toBe('60');
+      }
+    }
+
+    expect(statuses).toEqual([401, 401, 401, 401, 401, 429]);
+    expect(login).toHaveBeenCalledTimes(5);
 
     await app.close();
   });
@@ -727,7 +909,11 @@ describe('HTTP API', () => {
   });
 });
 
-function testApp(dashboardOverrides: Record<string, unknown> = {}) {
+function testApp(dashboardOverrides: Record<string, unknown> = {}, access?: {
+  getStatus(sessionToken: string | null): Promise<{ configured: boolean; authenticated: boolean }>;
+  setup(password: string): Promise<string>;
+  login(password: string): Promise<string>;
+}) {
   return buildApp({
     auth: {
       createAuthorizationUrl: vi.fn(),
@@ -760,6 +946,7 @@ function testApp(dashboardOverrides: Record<string, unknown> = {}) {
     },
     settings: { saveOAuthConfig: vi.fn() },
     staticRoot: null,
-    apiToken: 'test-token'
+    apiToken: 'test-token',
+    access
   });
 }
