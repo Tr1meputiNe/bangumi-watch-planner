@@ -226,6 +226,7 @@ function clientFor(
     markEpisodesUnwatched: vi.fn(),
     setSubjectCollectionType: vi.fn(),
     addSubjectToWatching: vi.fn(),
+    addSubjectToWishlist: vi.fn(),
     searchAnimeSubjects: vi.fn(async () => []),
     ...overrides
   };

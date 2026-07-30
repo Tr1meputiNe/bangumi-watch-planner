@@ -112,6 +112,10 @@ export function addSubjectToWatching(subjectId: number): Promise<SyncResult> {
   return api<SyncResult>(`/api/subjects/${subjectId}/watching`, { method: 'POST' });
 }
 
+export function addSubjectToWishlist(subjectId: number): Promise<SyncResult> {
+  return api<SyncResult>(`/api/subjects/${subjectId}/wishlist`, { method: 'POST' });
+}
+
 export function startSubject(subjectId: number): Promise<SyncResult> {
   return api<SyncResult>(`/api/subjects/${subjectId}/start`, { method: 'POST' });
 }

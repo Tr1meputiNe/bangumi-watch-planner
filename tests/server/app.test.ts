@@ -280,12 +280,30 @@ describe('HTTP API', () => {
     await app.close();
   });
 
+  it('adds an anime subject to the wishlist collection', async () => {
+    const addSubjectToWishlist = vi.fn(async () => ({ subjectsSynced: 1, episodesSynced: 0 }));
+    const app = testApp({ addSubjectToWishlist });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/subjects/456/wishlist',
+      headers: { 'x-bwp-token': 'test-token' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ subjectsSynced: 1, episodesSynced: 0 });
+    expect(addSubjectToWishlist).toHaveBeenCalledWith(456);
+
+    await app.close();
+  });
+
   it('searches anime subjects by keyword', async () => {
     const searchAnimeSubjects = vi.fn(async () => [
       {
         id: 456,
         name: 'Test Anime',
         nameCn: '测试动画',
+        airDate: '2026-07-01',
         eps: 12,
         image: null,
         url: 'https://bgm.tv/subject/456'
@@ -321,6 +339,7 @@ describe('HTTP API', () => {
           id: 456,
           name: 'Test Anime',
           nameCn: '测试动画',
+          airDate: '2026-07-01',
           eps: 12,
           image: null,
           url: 'https://bgm.tv/subject/456'
@@ -726,6 +745,7 @@ function testApp(dashboardOverrides: Record<string, unknown> = {}) {
       markEpisodeUnwatched: vi.fn(),
       markSubjectEpisodesWatchedThrough: vi.fn(),
       addSubjectToWatching: vi.fn(),
+      addSubjectToWishlist: vi.fn(),
       startSubject: vi.fn(),
       pauseBacklogSubject: vi.fn(),
       resumeBacklogSubject: vi.fn(),

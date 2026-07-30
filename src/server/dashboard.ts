@@ -333,6 +333,11 @@ export function createDashboardService({
       return service.syncNow();
     },
 
+    async addSubjectToWishlist(subjectId) {
+      await client.addSubjectToWishlist(subjectId);
+      return service.syncNow();
+    },
+
     async startSubject(subjectId) {
       const subject = await requireSubject(subjectId);
       if (subject.collectionType !== 1) {
@@ -432,7 +437,8 @@ export function createDashboardService({
         return {
           ...result,
           collectionType: subject?.collectionType ?? null,
-          ...getAnimeSearchWatchAction(subject, today)
+          ...getAnimeSearchWatchAction(result, subject, today),
+          ...getAnimeSearchWishlistAction(subject)
         };
       }));
     },
@@ -471,8 +477,12 @@ export function canAutoComplete(subject: SubjectRow, episodes: EpisodeRow[]): bo
   return main.length >= subject.eps && main.every((episode) => episode.collectionType === 2);
 }
 
-function getAnimeSearchWatchAction(subject: SubjectRow | null, today: string) {
-  if (!subject) return { watchAction: 'add' as const, watchActionLabel: '加入在看' };
+function getAnimeSearchWatchAction(result: { airDate: string }, subject: SubjectRow | null, today: string) {
+  if (!subject) {
+    return result.airDate && result.airDate > today
+      ? { watchAction: null, watchActionLabel: '尚未播出' }
+      : { watchAction: 'add' as const, watchActionLabel: '加入补番' };
+  }
   if (subject.collectionType === 2) return { watchAction: null, watchActionLabel: '已看过' };
   if (subject.collectionType === 3) return { watchAction: null, watchActionLabel: '已在看' };
   if (subject.collectionType === 4) return { watchAction: 'resume' as const, watchActionLabel: '恢复补番' };
@@ -481,6 +491,15 @@ function getAnimeSearchWatchAction(subject: SubjectRow | null, today: string) {
     watchAction: 'start' as const,
     watchActionLabel: subject.seasonKey ? '开始追番' : '加入补番'
   };
+}
+
+function getAnimeSearchWishlistAction(subject: SubjectRow | null) {
+  if (!subject) return { wishlistAction: 'add' as const, wishlistActionLabel: '加入想看' };
+  if (subject.collectionType === 1) return { wishlistAction: null, wishlistActionLabel: '已在想看' };
+  if (subject.collectionType === 2) return { wishlistAction: null, wishlistActionLabel: '已看过' };
+  if (subject.collectionType === 3) return { wishlistAction: null, wishlistActionLabel: '已在看' };
+  if (subject.collectionType === 4) return { wishlistAction: null, wishlistActionLabel: '已搁置' };
+  return { wishlistAction: null, wishlistActionLabel: '已抛弃' };
 }
 
 function episodeProgress(episode: { ep: number | null; sort: number }): number {

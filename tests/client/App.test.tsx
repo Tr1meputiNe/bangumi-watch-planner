@@ -117,22 +117,43 @@ const dashboard = {
   lastError: null
 };
 
+const emptyBacklog = {
+  today: '2026-07-30',
+  todayTasks: [],
+  futureDays: [],
+  active: [],
+  held: [],
+  completed: [],
+  estimatedCompletionDate: null
+};
+
 function searchResult(
   id: number,
   collectionType: BangumiCollectionType | null,
   watchAction: AnimeSearchResult['watchAction'],
-  watchActionLabel: string
+  watchActionLabel: string,
+  airDate = '2024-01-01'
 ): AnimeSearchResult {
+  const wishlistLabels: Record<BangumiCollectionType, string> = {
+    1: '已在想看',
+    2: '已看过',
+    3: '已在看',
+    4: '已搁置',
+    5: '已抛弃'
+  };
   return {
     id,
     name: `Test Anime ${id}`,
     nameCn: `测试动画 ${id}`,
+    airDate,
     eps: 12,
     image: null,
     url: `https://bgm.tv/subject/${id}`,
     collectionType,
     watchAction,
-    watchActionLabel
+    watchActionLabel,
+    wishlistAction: collectionType === null ? 'add' : null,
+    wishlistActionLabel: collectionType === null ? '加入想看' : wishlistLabels[collectionType]
   };
 }
 
@@ -182,7 +203,7 @@ describe('App', () => {
     expect(pendingButton).toBeDisabled();
     expect(pendingButton).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByRole('tab', { name: /补番计划/ })).toBeEnabled();
-    expect(screen.getByLabelText('搜索动画')).toBeEnabled();
+    expect(screen.queryByLabelText('搜索动画')).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/sync')).toHaveLength(1);
 
     expect(await screen.findByRole('status', {}, { timeout: 2_000 })).toHaveTextContent('同步完成：4 部番剧，48 集分集');
@@ -274,6 +295,7 @@ describe('App', () => {
     await userEvent.click(screen.getByRole('tab', { name: '补番计划' }));
 
     expect(await screen.findByText('旧番标题')).toBeInTheDocument();
+    expect(screen.getByLabelText('搜索动画')).toBeEnabled();
     expect(screen.queryByText('测试番剧')).not.toBeInTheDocument();
   });
 
@@ -736,7 +758,7 @@ describe('App', () => {
     expect(screen.getByText(/321 人在看/)).toBeInTheDocument();
   });
 
-  it('optimistically marks a search result as watching while the request runs in the background', async () => {
+  it('optimistically marks a search result as backlog while the request runs in the background', async () => {
     let resolveWatching!: (response: Response) => void;
     const watchingResponse = new Promise<Response>((resolve) => {
       resolveWatching = resolve;
@@ -756,6 +778,7 @@ describe('App', () => {
         dashboardRequests += 1;
         return Response.json(dashboard);
       }
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
       if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
         return Response.json({
           results: [
@@ -763,12 +786,15 @@ describe('App', () => {
               id: 456,
               name: 'Test Anime',
               nameCn: '测试动画',
+              airDate: '2024-01-01',
               eps: 12,
               image: null,
               url: 'https://bgm.tv/subject/456',
               collectionType: null,
               watchAction: 'add',
-              watchActionLabel: '加入在看'
+              watchActionLabel: '加入补番',
+              wishlistAction: 'add',
+              wishlistActionLabel: '加入想看'
             }
           ]
         });
@@ -782,14 +808,15 @@ describe('App', () => {
 
     render(<App />);
 
+    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
     await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
     await userEvent.click(screen.getByRole('button', { name: '搜索' }));
     expect(await screen.findAllByText('测试动画')).toHaveLength(2);
 
-    await userEvent.click(screen.getByRole('button', { name: '加入在看' }));
+    await userEvent.click(screen.getByRole('button', { name: '加入补番' }));
 
-    const watching = screen.getByRole('button', { name: '已在看' });
-    expect(watching).toBeDisabled();
+    expect(screen.getAllByRole('button', { name: '已在看' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: '已在看' }).every((button) => button.hasAttribute('disabled'))).toBe(true);
     expect(screen.queryByRole('button', { name: '处理中' })).not.toBeInTheDocument();
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/subjects/456/watching', {
@@ -801,6 +828,42 @@ describe('App', () => {
     resolveWatching(Response.json({ subjectsSynced: 1, episodesSynced: 12 }));
     await waitFor(() => expect(dashboardRequests).toBe(2));
     expect(screen.getAllByText('测试动画')).toHaveLength(2);
+  });
+
+  it('optimistically adds a global search result to the wishlist', async () => {
+    let resolveWishlist!: (response: Response) => void;
+    const wishlistResponse = new Promise<Response>((resolve) => {
+      resolveWishlist = resolve;
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
+      if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
+        return Response.json({ results: [searchResult(451, null, 'add', '加入补番')] });
+      }
+      if (url === '/api/subjects/451/wishlist' && init?.method === 'POST') return wishlistResponse;
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
+    await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+    await userEvent.click(await screen.findByRole('button', { name: '加入想看' }));
+
+    expect(screen.getByRole('button', { name: '已在想看' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '加入补番' })).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledWith('/api/subjects/451/wishlist', { method: 'POST' });
+
+    resolveWishlist(Response.json({ subjectsSynced: 1, episodesSynced: 0 }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '加入补番' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: '已在想看' })).toBeDisabled();
   });
 
   it('renders every saved search state and calls only its legal transition', async () => {
@@ -815,6 +878,7 @@ describe('App', () => {
         });
       }
       if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
       if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
         return Response.json({
           results: [
@@ -842,11 +906,13 @@ describe('App', () => {
 
     render(<App />);
 
+    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
     await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
     await userEvent.click(screen.getByRole('button', { name: '搜索' }));
 
     for (const label of ['尚未播出', '已在看', '已看过']) {
-      expect(await screen.findByRole('button', { name: label })).toBeDisabled();
+      const buttons = await screen.findAllByRole('button', { name: label });
+      expect(buttons.every((button) => button.hasAttribute('disabled'))).toBe(true);
     }
 
     await userEvent.click(screen.getByRole('button', { name: '开始追番' }));
@@ -858,7 +924,7 @@ describe('App', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/subjects/453/start', { method: 'POST' });
       expect(fetchMock).toHaveBeenCalledWith('/api/backlog/455/resume', { method: 'POST' });
     });
-    expect(screen.getAllByRole('button', { name: '已在看' })).toHaveLength(4);
+    expect(screen.getAllByRole('button', { name: '已在看' })).toHaveLength(8);
   });
 
   it('keeps the search state when a collection transition fails', async () => {
@@ -868,6 +934,7 @@ describe('App', () => {
         return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
       }
       if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
       if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
         return Response.json({ results: [searchResult(455, 4, 'resume', '恢复补番')] });
       }
@@ -879,6 +946,7 @@ describe('App', () => {
 
     render(<App />);
 
+    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
     await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
     await userEvent.click(screen.getByRole('button', { name: '搜索' }));
     await userEvent.click(await screen.findByRole('button', { name: '恢复补番' }));
@@ -901,8 +969,9 @@ describe('App', () => {
           ? Response.json(dashboard)
           : Response.json({ error: 'Dashboard refresh failed' }, { status: 502 });
       }
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
       if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
-        return Response.json({ results: [searchResult(451, null, 'add', '加入在看')] });
+        return Response.json({ results: [searchResult(451, null, 'add', '加入补番')] });
       }
       if (url === '/api/subjects/451/watching' && init?.method === 'POST') {
         return Response.json({ subjectsSynced: 1, episodesSynced: 12 });
@@ -912,12 +981,13 @@ describe('App', () => {
 
     render(<App />);
 
+    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
     await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
     await userEvent.click(screen.getByRole('button', { name: '搜索' }));
-    await userEvent.click(await screen.findByRole('button', { name: '加入在看' }));
+    await userEvent.click(await screen.findByRole('button', { name: '加入补番' }));
 
     expect(await screen.findByText('Dashboard refresh failed')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '已在看' })).toBeDisabled();
+    expect(screen.getAllByRole('button', { name: '已在看' }).every((button) => button.hasAttribute('disabled'))).toBe(true);
   });
 
   it('shows a login action when Bangumi is not connected', async () => {

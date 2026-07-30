@@ -188,6 +188,7 @@ export type BangumiSearchSubject = {
   type: number;
   name: string;
   name_cn?: string;
+  date?: string;
   eps?: number;
   images?: {
     common?: string;
@@ -207,6 +208,7 @@ export type AnimeSearchSubject = {
   id: number;
   name: string;
   nameCn: string;
+  airDate: string;
   eps: number;
   image: string | null;
   url: string;
@@ -216,6 +218,8 @@ export type AnimeSearchResult = AnimeSearchSubject & {
   collectionType: BangumiCollectionType | null;
   watchAction: 'add' | 'start' | 'resume' | null;
   watchActionLabel: string;
+  wishlistAction: 'add' | null;
+  wishlistActionLabel: string;
 };
 
 export type BangumiCalendarSubject = {
@@ -284,6 +288,7 @@ export type BangumiClient = {
   markEpisodesUnwatched(subjectId: number, episodeIds: number[]): Promise<void>;
   setSubjectCollectionType(subjectId: number, type: 2 | 3 | 4): Promise<void>;
   addSubjectToWatching(subjectId: number): Promise<void>;
+  addSubjectToWishlist(subjectId: number): Promise<void>;
   searchAnimeSubjects(keyword: string): Promise<AnimeSearchSubject[]>;
 };
 
@@ -343,6 +348,7 @@ export type DashboardService = {
   markEpisodeUnwatched(episodeId: number): Promise<void>;
   markSubjectEpisodesWatchedThrough(subjectId: number, episodeId: number): Promise<void>;
   addSubjectToWatching(subjectId: number): Promise<SyncResult>;
+  addSubjectToWishlist(subjectId: number): Promise<SyncResult>;
   startSubject(subjectId: number): Promise<SyncResult>;
   pauseBacklogSubject(subjectId: number): Promise<void>;
   resumeBacklogSubject(subjectId: number): Promise<void>;

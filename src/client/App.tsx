@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  addSubjectToWishlist,
   addSubjectToWatching,
   getAuthStatus,
   getBacklog,
@@ -33,6 +34,7 @@ type BacklogState = {
 
 type ActiveView = 'watching' | 'backlog' | 'wishlist' | 'calendar';
 type PendingAction = 'search' | 'oauth';
+type SearchDestination = 'backlog' | 'wishlist';
 
 const emptyState: LoadState = { auth: null, dashboard: null, error: null };
 const emptyBacklogState: BacklogState = { data: null, loading: false, error: null };
@@ -183,14 +185,25 @@ export default function App() {
     }
   }
 
-  async function runAnimeWatchAction(result: AnimeSearchResult) {
-    if (!result.watchAction) return;
-    const optimisticResult: AnimeSearchResult = {
-      ...result,
-      collectionType: 3,
-      watchAction: null,
-      watchActionLabel: '已在看'
-    };
+  async function runAnimeCollectionAction(result: AnimeSearchResult, destination: SearchDestination) {
+    if (destination === 'backlog' && !result.watchAction) return;
+    if (destination === 'wishlist' && !result.wishlistAction) return;
+    const optimisticResult: AnimeSearchResult = destination === 'backlog'
+      ? {
+          ...result,
+          collectionType: 3,
+          watchAction: null,
+          watchActionLabel: '已在看',
+          wishlistAction: null,
+          wishlistActionLabel: '已在看'
+        }
+      : {
+          ...result,
+          collectionType: 1,
+          watchAction: null,
+          wishlistAction: null,
+          wishlistActionLabel: '已在想看'
+        };
     setAnimeSearch((current) => ({
       ...current,
       error: null,
@@ -198,22 +211,29 @@ export default function App() {
     }));
 
     try {
-      if (result.watchAction === 'add') await addSubjectToWatching(result.id);
-      if (result.watchAction === 'start') await startSubject(result.id);
-      if (result.watchAction === 'resume') await resumeBacklog(result.id);
-      await load();
+      if (destination === 'wishlist') {
+        await addSubjectToWishlist(result.id);
+        setAnimeSearch((current) => ({
+          ...current,
+          results: current.results.map((item) => item.id === result.id
+            ? {
+                ...item,
+                watchAction: result.watchAction === 'add' ? 'start' : result.watchAction,
+                watchActionLabel: result.watchAction === 'add' ? '加入补番' : result.watchActionLabel
+              }
+            : item)
+        }));
+      } else {
+        if (result.watchAction === 'add') await addSubjectToWatching(result.id);
+        if (result.watchAction === 'start') await startSubject(result.id);
+        if (result.watchAction === 'resume') await resumeBacklog(result.id);
+      }
+      await refreshBacklogAndDashboard();
     } catch (error) {
       setAnimeSearch((current) => ({
         ...current,
         error: error instanceof Error ? error.message : String(error),
-        results: current.results.map((item) => (
-          item.id === result.id
-          && item.collectionType === 3
-          && item.watchAction === null
-          && item.watchActionLabel === '已在看'
-            ? result
-            : item
-        ))
+        results: current.results.map((item) => item.id === result.id ? result : item)
       }));
     }
   }
@@ -313,25 +333,32 @@ export default function App() {
               disabled={isPending}
               oauthForm={oauthForm}
               setOauthForm={setOauthForm}
-              animeSearch={animeSearch}
-              setAnimeSearch={setAnimeSearch}
               pendingAction={pendingAction}
-              onSearch={runAnimeSearch}
-              onAction={runAnimeWatchAction}
               onSaveOAuth={saveOAuthSettings}
             />
           </>
         ) : null}
 
         {activeView === 'backlog' ? (
-          backlogState.data ? (
-            <BacklogView
-              data={backlogState.data}
-              disabled={isPending || backlogState.loading}
-              onChanged={refreshBacklogAndDashboard}
-              onError={showError}
+          <>
+            <AnimeSearchPanel
+              authenticated={Boolean(state.auth?.authenticated)}
+              disabled={isPending}
+              search={animeSearch}
+              setSearch={setAnimeSearch}
+              pendingAction={pendingAction}
+              onSearch={runAnimeSearch}
+              onAction={runAnimeCollectionAction}
             />
-          ) : <div className="empty">{backlogState.error || '正在加载补番计划。'}</div>
+            {backlogState.data ? (
+              <BacklogView
+                data={backlogState.data}
+                disabled={isPending || backlogState.loading}
+                onChanged={refreshBacklogAndDashboard}
+                onError={showError}
+              />
+            ) : <div className="empty">{backlogState.error || '正在加载补番计划。'}</div>}
+          </>
         ) : null}
 
         {activeView === 'wishlist' ? <WishlistView disabled={isPending} onChanged={load} onError={showError} /> : null}
@@ -358,27 +385,99 @@ function Tab({ mark, active, onClick, children }: { mark: string; active: boolea
 
 type SearchState = { error: string | null; keyword: string; results: AnimeSearchResult[] };
 
+function AnimeSearchPanel({
+  authenticated,
+  disabled,
+  search,
+  setSearch,
+  pendingAction,
+  onSearch,
+  onAction
+}: {
+  authenticated: boolean;
+  disabled: boolean;
+  search: SearchState;
+  setSearch: React.Dispatch<React.SetStateAction<SearchState>>;
+  pendingAction: PendingAction | null;
+  onSearch(event: React.FormEvent<HTMLFormElement>): Promise<void>;
+  onAction(result: AnimeSearchResult, destination: SearchDestination): Promise<void>;
+}) {
+  return (
+    <section className="panel anime-search-panel" aria-label="添加动画">
+      <div className="panel-title compact">
+        <div><span className="panel-eyebrow">Bangumi 全站</span><h2>搜索动画</h2></div>
+        <strong>{search.results.length > 0 ? `${search.results.length} 个结果` : '全部动画'}</strong>
+      </div>
+      <div className="add-subject">
+        <form className="anime-search-form" onSubmit={(event) => void onSearch(event)}>
+          <label>
+            <span>搜索动画</span>
+            <input
+              value={search.keyword}
+              onChange={(event) => setSearch((current) => ({ ...current, keyword: event.target.value }))}
+              placeholder="番名、中文名或原名"
+              disabled={!authenticated || disabled}
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={!authenticated || disabled || !search.keyword.trim()}
+            aria-busy={pendingAction === 'search'}
+          >
+            {pendingAction === 'search' ? '搜索中' : '搜索'}
+          </button>
+        </form>
+        {search.error ? <p className="search-error">{search.error}</p> : null}
+        {search.results.length > 0 ? (
+          <div className="search-results">
+            {search.results.map((result) => (
+              <article key={result.id} className="search-result">
+                <a href={result.url} target="_blank" rel="noreferrer">
+                  {result.image ? <img src={result.image} alt="" /> : <span>{result.nameCn || result.name}</span>}
+                </a>
+                <div>
+                  <strong>{displaySubjectName(result.name, result.nameCn)}</strong>
+                  <p>{result.eps ? `${result.eps} 集` : '总集数未知'}</p>
+                </div>
+                <div className="search-result-actions">
+                  <button
+                    type="button"
+                    onClick={() => void onAction(result, 'backlog')}
+                    disabled={!result.watchAction || disabled}
+                  >
+                    {result.watchActionLabel}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => void onAction(result, 'wishlist')}
+                    disabled={!result.wishlistAction || disabled}
+                  >
+                    {result.wishlistActionLabel}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function SettingsPanel({
   auth,
   disabled,
   oauthForm,
   setOauthForm,
-  animeSearch,
-  setAnimeSearch,
   pendingAction,
-  onSearch,
-  onAction,
   onSaveOAuth
 }: {
   auth: AuthStatus | null;
   disabled: boolean;
   oauthForm: { clientId: string; clientSecret: string };
   setOauthForm: React.Dispatch<React.SetStateAction<{ clientId: string; clientSecret: string }>>;
-  animeSearch: SearchState;
-  setAnimeSearch: React.Dispatch<React.SetStateAction<SearchState>>;
   pendingAction: PendingAction | null;
-  onSearch(event: React.FormEvent<HTMLFormElement>): Promise<void>;
-  onAction(result: AnimeSearchResult): Promise<void>;
   onSaveOAuth(event: React.FormEvent<HTMLFormElement>): Promise<void>;
 }) {
   return (
@@ -386,49 +485,6 @@ function SettingsPanel({
       <div className="panel-title compact">
         <div><span className="panel-eyebrow">偏好与连接</span><h2>设置</h2></div>
         <strong>{auth?.authenticated ? auth.username : '未连接'}</strong>
-      </div>
-
-      <div className="add-subject">
-        <form className="anime-search-form" onSubmit={(event) => void onSearch(event)}>
-          <label>
-            <span>搜索动画</span>
-            <input
-              value={animeSearch.keyword}
-              onChange={(event) => setAnimeSearch((current) => ({ ...current, keyword: event.target.value }))}
-              placeholder="番名、中文名或原名"
-              disabled={!auth?.authenticated || disabled}
-            />
-          </label>
-          <button
-            type="submit"
-            disabled={!auth?.authenticated || disabled || !animeSearch.keyword.trim()}
-            aria-busy={pendingAction === 'search'}
-          >
-            {pendingAction === 'search' ? '搜索中' : '搜索'}
-          </button>
-        </form>
-        {animeSearch.error ? <p className="search-error">{animeSearch.error}</p> : null}
-        {animeSearch.results.length > 0 ? (
-          <div className="search-results">
-            {animeSearch.results.map((result) => {
-              return (
-                <article key={result.id} className="search-result">
-                  <a href={result.url} target="_blank" rel="noreferrer">
-                    {result.image ? <img src={result.image} alt="" /> : <span>{result.nameCn || result.name}</span>}
-                  </a>
-                  <div><strong>{displaySubjectName(result.name, result.nameCn)}</strong><p>{result.eps ? `${result.eps} 集` : '总集数未知'}</p></div>
-                  <button
-                    type="button"
-                    onClick={() => void onAction(result)}
-                    disabled={!result.watchAction || disabled}
-                  >
-                    {result.watchActionLabel}
-                  </button>
-                </article>
-              );
-            })}
-          </div>
-        ) : null}
       </div>
 
       <div className="settings-row">

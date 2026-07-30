@@ -106,6 +106,10 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
     dashboard.addSubjectToWatching(parsePositiveInteger(request.params.subjectId))
   );
 
+  app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/wishlist', async (request) =>
+    dashboard.addSubjectToWishlist(parsePositiveInteger(request.params.subjectId))
+  );
+
   app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/start', async (request) =>
     dashboard.startSubject(parsePositiveInteger(request.params.subjectId))
   );

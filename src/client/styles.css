@@ -684,6 +684,14 @@ button.ghost:hover {
   gap: 8px;
 }
 
+.anime-search-panel {
+  margin-bottom: var(--space-lg);
+}
+
+.anime-search-panel .add-subject {
+  border-bottom: 0;
+}
+
 .search-result {
   min-height: 64px;
   display: grid;
@@ -729,6 +737,16 @@ button.ghost:hover {
   margin: 3px 0 0;
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.search-result-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-result-actions button {
+  white-space: nowrap;
 }
 
 .settings-row {

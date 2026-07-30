@@ -78,12 +78,28 @@ describe('dashboard service', () => {
     ]);
   });
 
+  it('adds a subject to the wishlist and runs one refresh sync', async () => {
+    const addSubjectToWishlist = vi.fn(async () => undefined);
+    const getAnimeCollections = vi.fn(async () => ({ total: 0, data: [] }));
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ addSubjectToWishlist, getAnimeCollections }),
+      repository: repository()
+    });
+
+    await service.addSubjectToWishlist(456);
+
+    expect(addSubjectToWishlist).toHaveBeenCalledWith(456);
+    expect(getAnimeCollections).toHaveBeenCalledTimes(3);
+  });
+
   it('adds the legal collection action to every anime search result', async () => {
     const searchAnimeSubjects = vi.fn(async (): Promise<AnimeSearchSubject[]> =>
-      Array.from({ length: 7 }, (_, index) => ({
+      Array.from({ length: 8 }, (_, index) => ({
         id: 451 + index,
         name: `Test Anime ${index + 1}`,
         nameCn: `测试动画 ${index + 1}`,
+        airDate: index === 7 ? '2099-01-01' : '2024-01-01',
         eps: 12,
         image: null,
         url: `https://bgm.tv/subject/${451 + index}`
@@ -106,13 +122,14 @@ describe('dashboard service', () => {
     });
 
     await expect(service.searchAnimeSubjects('  测试  ')).resolves.toEqual([
-      expect.objectContaining({ id: 451, collectionType: null, watchAction: 'add', watchActionLabel: '加入在看' }),
-      expect.objectContaining({ id: 452, collectionType: 1, watchAction: null, watchActionLabel: '尚未播出' }),
-      expect.objectContaining({ id: 453, collectionType: 1, watchAction: 'start', watchActionLabel: '开始追番' }),
-      expect.objectContaining({ id: 454, collectionType: 1, watchAction: 'start', watchActionLabel: '加入补番' }),
-      expect.objectContaining({ id: 455, collectionType: 3, watchAction: null, watchActionLabel: '已在看' }),
-      expect.objectContaining({ id: 456, collectionType: 4, watchAction: 'resume', watchActionLabel: '恢复补番' }),
-      expect.objectContaining({ id: 457, collectionType: 2, watchAction: null, watchActionLabel: '已看过' })
+      expect.objectContaining({ id: 451, collectionType: null, watchAction: 'add', watchActionLabel: '加入补番', wishlistAction: 'add', wishlistActionLabel: '加入想看' }),
+      expect.objectContaining({ id: 452, collectionType: 1, watchAction: null, watchActionLabel: '尚未播出', wishlistAction: null, wishlistActionLabel: '已在想看' }),
+      expect.objectContaining({ id: 453, collectionType: 1, watchAction: 'start', watchActionLabel: '开始追番', wishlistAction: null, wishlistActionLabel: '已在想看' }),
+      expect.objectContaining({ id: 454, collectionType: 1, watchAction: 'start', watchActionLabel: '加入补番', wishlistAction: null, wishlistActionLabel: '已在想看' }),
+      expect.objectContaining({ id: 455, collectionType: 3, watchAction: null, watchActionLabel: '已在看', wishlistAction: null, wishlistActionLabel: '已在看' }),
+      expect.objectContaining({ id: 456, collectionType: 4, watchAction: 'resume', watchActionLabel: '恢复补番', wishlistAction: null, wishlistActionLabel: '已搁置' }),
+      expect.objectContaining({ id: 457, collectionType: 2, watchAction: null, watchActionLabel: '已看过', wishlistAction: null, wishlistActionLabel: '已看过' }),
+      expect.objectContaining({ id: 458, collectionType: null, watchAction: null, watchActionLabel: '尚未播出', wishlistAction: 'add', wishlistActionLabel: '加入想看' })
     ]);
     expect(searchAnimeSubjects).toHaveBeenCalledWith('测试');
   });
@@ -908,6 +925,7 @@ function client(overrides: Partial<BangumiClient> = {}): BangumiClient {
     markEpisodesUnwatched: vi.fn(),
     setSubjectCollectionType: vi.fn(),
     addSubjectToWatching: vi.fn(),
+    addSubjectToWishlist: vi.fn(),
     searchAnimeSubjects: vi.fn(),
     ...overrides
   };

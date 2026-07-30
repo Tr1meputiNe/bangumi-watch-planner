@@ -354,6 +354,25 @@ describe('Bangumi client', () => {
     );
   });
 
+  it('adds an anime subject to the wishlist collection', async () => {
+    const fetch = vi.fn(async () => ({ ok: true, status: 204, text: async () => '' }));
+    const client = createBangumiClient({
+      fetch,
+      getAccessToken: async () => 'token-1',
+      userAgent: 'tester/bangumi-watch-planner'
+    });
+
+    await client.addSubjectToWishlist(456);
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.bgm.tv/v0/users/-/collections/456',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ type: 1 })
+      })
+    );
+  });
+
   it('searches only anime subjects', async () => {
     const fetch = vi.fn(async () => ({
       ok: true,
@@ -366,6 +385,7 @@ describe('Bangumi client', () => {
             type: 2,
             name: 'Test Anime',
             name_cn: '测试动画',
+            date: '2026-07-01',
             eps: 12,
             images: { common: 'cover.jpg' }
           }
@@ -392,6 +412,7 @@ describe('Bangumi client', () => {
         id: 789,
         name: 'Test Anime',
         nameCn: '测试动画',
+        airDate: '2026-07-01',
         eps: 12,
         image: 'cover.jpg',
         url: 'https://bgm.tv/subject/789'

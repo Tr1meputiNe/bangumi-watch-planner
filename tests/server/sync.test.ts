@@ -173,6 +173,7 @@ function bangumiClient(overrides: Partial<BangumiClient> = {}): BangumiClient {
     markEpisodesUnwatched: vi.fn(),
     setSubjectCollectionType: vi.fn(),
     addSubjectToWatching: vi.fn(),
+    addSubjectToWishlist: vi.fn(),
     searchAnimeSubjects: vi.fn(async () => []),
     ...overrides
   };

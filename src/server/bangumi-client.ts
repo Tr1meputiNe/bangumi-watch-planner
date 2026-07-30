@@ -169,6 +169,16 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
       });
     },
 
+    async addSubjectToWishlist(subjectId) {
+      await request<void>(`/v0/users/-/collections/${subjectId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ type: 1 })
+      });
+    },
+
     async searchAnimeSubjects(keyword) {
       const params = new URLSearchParams({
         limit: '8',
@@ -254,6 +264,7 @@ function mapSearchResult(subject: BangumiSubjectSearchPage['data'][number]): Ani
     id: subject.id,
     name: subject.name,
     nameCn: subject.name_cn ?? '',
+    airDate: subject.date ?? '',
     eps: subject.eps ?? 0,
     image: subject.images?.common ?? subject.images?.medium ?? subject.images?.small ?? null,
     url: `https://bgm.tv/subject/${subject.id}`
