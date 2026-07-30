@@ -253,9 +253,9 @@ function upcomingShanghaiDateForWeekday(weekdayId: number): Date {
 
 function weekdayFromDate(dateString: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return null;
-  const date = new Date(`${dateString}T00:00:00+08:00`);
+  const date = new Date(`${dateString}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return null;
-  return date.getDay() || 7;
+  return date.getUTCDay() || 7;
 }
 
 function normalizeBangumiUrl(url: string): string {

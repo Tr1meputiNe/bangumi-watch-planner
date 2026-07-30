@@ -13,6 +13,7 @@ import type {
 } from './types.js';
 
 export type Repository = SyncRepository & {
+  close(): void;
   listEpisodes(): Promise<EpisodeRow[]>;
   listSubjectMainEpisodes(subjectId: number): Promise<EpisodeRow[]>;
   listSubjects(): Promise<DashboardSubject[]>;
@@ -42,6 +43,10 @@ export function createRepository(dbPath: string): Repository {
   migrate(db);
 
   return {
+    close() {
+      db.close();
+    },
+
     async getSetting(key) {
       const row = db.prepare('select value from settings where key = ?').get(key) as { value: string } | undefined;
       return row?.value ?? null;

@@ -186,7 +186,7 @@ export function parseAcgSecretsSeason(html: string, seasonKey: string): SeasonCa
     const normalPremiereDate = shanghaiDate(date);
     const airTime = extractShanghaiTime(date.toISOString());
     const sourceWeekday = '一二三四五六日'.indexOf(card.weekday) + 1;
-    const actualWeekday = new Date(`${normalPremiereDate}T00:00:00+08:00`).getDay() || 7;
+    const actualWeekday = new Date(`${normalPremiereDate}T00:00:00Z`).getUTCDay() || 7;
     const dayOffset = (actualWeekday - sourceWeekday + 7) % 7 === 1 ? 1 : 0;
     entries.set(subjectId, {
       subjectId,

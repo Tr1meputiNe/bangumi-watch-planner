@@ -997,6 +997,7 @@ function client(overrides: Partial<BangumiClient> = {}): BangumiClient {
 
 function repository(overrides: Partial<Repository> = {}): Repository {
   return {
+    close: vi.fn(),
     getSetting: vi.fn(async () => null),
     setSetting: vi.fn(async () => undefined),
     upsertSubject: vi.fn(async () => undefined),

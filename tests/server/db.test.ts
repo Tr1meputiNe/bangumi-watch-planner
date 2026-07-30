@@ -15,6 +15,7 @@ describe('repository', () => {
   });
 
   afterEach(() => {
+    repository.close();
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -184,6 +185,7 @@ describe('repository', () => {
       completedAt: null
     });
     await expect(migrated.getEpisode(11)).resolves.toMatchObject({ id: 11, snoozedUntil: null });
+    migrated.close();
   });
 
   it('separates seasonal, backlog, held, wishlist, and completed subjects', async () => {

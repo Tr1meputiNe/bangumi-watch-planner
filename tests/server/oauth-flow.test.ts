@@ -1,7 +1,7 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../../src/server/app.js';
 import { createBangumiClient } from '../../src/server/bangumi-client.js';
 import { createDashboardService } from '../../src/server/dashboard.js';
@@ -9,9 +9,21 @@ import { createRepository } from '../../src/server/db.js';
 import { createOAuthManager } from '../../src/server/oauth.js';
 
 describe('OAuth callback to backlog planner flow', () => {
+  let cleanup = () => undefined;
+
+  afterEach(() => {
+    cleanup();
+    cleanup = () => undefined;
+  });
+
   it('keeps seasonal, backlog, wishlist, held, completed, and reopened states consistent', async () => {
-    const dbPath = join(mkdtempSync(join(tmpdir(), 'bwp-oauth-flow-')), 'app.sqlite');
+    const tempDir = mkdtempSync(join(tmpdir(), 'bwp-oauth-flow-'));
+    const dbPath = join(tempDir, 'app.sqlite');
     const repository = createRepository(dbPath);
+    cleanup = () => {
+      repository.close();
+      rmSync(tempDir, { recursive: true, force: true });
+    };
     const collectionUrls: string[] = [];
     const subjectWrites: Array<{ subjectId: number; type: number }> = [];
     const episodeWrites: Array<{ subjectId: number; episodeIds: number[]; type: number }> = [];

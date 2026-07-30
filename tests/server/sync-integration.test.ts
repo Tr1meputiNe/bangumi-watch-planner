@@ -18,6 +18,7 @@ describe('collection sync integration', () => {
   });
 
   afterEach(() => {
+    repository.close();
     rmSync(tempDir, { recursive: true, force: true });
   });
 
