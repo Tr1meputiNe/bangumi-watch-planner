@@ -17,8 +17,10 @@ export default function WishlistView({ disabled, onChanged, onError }: WishlistV
   const [year, setYear] = useState<number | null | 'unknown'>(null);
   const [data, setData] = useState<WishlistData>(emptyWishlist);
   const [loading, setLoading] = useState(true);
-  const [startingId, setStartingId] = useState<number | null>(null);
   const requestSequence = useRef(0);
+  const filterKey = `${debouncedQuery}\n${year ?? 'all'}`;
+  const filterKeyRef = useRef(filterKey);
+  filterKeyRef.current = filterKey;
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 250);
@@ -49,17 +51,36 @@ export default function WishlistView({ disabled, onChanged, onError }: WishlistV
   }, [debouncedQuery, onError, year]);
 
   async function start(subjectId: number) {
-    setStartingId(subjectId);
+    const index = data.items.findIndex((item) => item.id === subjectId);
+    const subject = data.items[index];
+    if (!subject) return;
+    const actionFilterKey = filterKey;
+    requestSequence.current += 1;
+    setLoading(false);
+    setData((current) => ({
+      ...current,
+      items: current.items.filter((item) => item.id !== subjectId)
+    }));
+
     try {
       await startSubject(subjectId);
+    } catch (error) {
+      if (filterKeyRef.current === actionFilterKey) {
+        setData((current) => {
+          if (current.items.some((item) => item.id === subjectId)) return current;
+          const items = [...current.items];
+          items.splice(Math.min(index, items.length), 0, subject);
+          return { ...current, items };
+        });
+      }
+      onError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+
+    try {
       await onChanged();
-      const sequence = ++requestSequence.current;
-      const result = await getWishlist(debouncedQuery, year);
-      if (sequence === requestSequence.current) setData(result);
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setStartingId(null);
     }
   }
 
@@ -114,11 +135,10 @@ export default function WishlistView({ disabled, onChanged, onError }: WishlistV
               </div>
               <button
                 type="button"
-                disabled={disabled || subject.isUpcoming || startingId === subject.id}
-                aria-busy={startingId === subject.id}
+                disabled={disabled || subject.isUpcoming}
                 onClick={() => void start(subject.id)}
               >
-                {startingId === subject.id ? '处理中' : subject.isUpcoming ? '尚未播出' : subject.isCurrentSeason ? '开始追番' : '加入补番'}
+                {subject.isUpcoming ? '尚未播出' : subject.isCurrentSeason ? '开始追番' : '加入补番'}
               </button>
             </article>
           ))}

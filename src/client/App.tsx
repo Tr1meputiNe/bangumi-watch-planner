@@ -44,7 +44,6 @@ export default function App() {
   const [backlogState, setBacklogState] = useState<BacklogState>(emptyBacklogState);
   const [calendarState, setCalendarState] = useState<CalendarViewState>(emptyCalendarState);
   const [oauthForm, setOauthForm] = useState({ clientId: '', clientSecret: '' });
-  const [addingSubjectId, setAddingSubjectId] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
@@ -186,23 +185,36 @@ export default function App() {
 
   async function runAnimeWatchAction(result: AnimeSearchResult) {
     if (!result.watchAction) return;
-    setAddingSubjectId(result.id);
+    const optimisticResult: AnimeSearchResult = {
+      ...result,
+      collectionType: 3,
+      watchAction: null,
+      watchActionLabel: '已在看'
+    };
+    setAnimeSearch((current) => ({
+      ...current,
+      error: null,
+      results: current.results.map((item) => item.id === result.id ? optimisticResult : item)
+    }));
+
     try {
       if (result.watchAction === 'add') await addSubjectToWatching(result.id);
       if (result.watchAction === 'start') await startSubject(result.id);
       if (result.watchAction === 'resume') await resumeBacklog(result.id);
       await load();
+    } catch (error) {
       setAnimeSearch((current) => ({
         ...current,
-        error: null,
-        results: current.results.map((item) => item.id === result.id
-          ? { ...item, collectionType: 3, watchAction: null, watchActionLabel: '已在看' }
-          : item)
+        error: error instanceof Error ? error.message : String(error),
+        results: current.results.map((item) => (
+          item.id === result.id
+          && item.collectionType === 3
+          && item.watchAction === null
+          && item.watchActionLabel === '已在看'
+            ? result
+            : item
+        ))
       }));
-    } catch (error) {
-      setAnimeSearch((current) => ({ ...current, error: error instanceof Error ? error.message : String(error) }));
-    } finally {
-      setAddingSubjectId(null);
     }
   }
 
@@ -303,7 +315,6 @@ export default function App() {
               setOauthForm={setOauthForm}
               animeSearch={animeSearch}
               setAnimeSearch={setAnimeSearch}
-              addingSubjectId={addingSubjectId}
               pendingAction={pendingAction}
               onSearch={runAnimeSearch}
               onAction={runAnimeWatchAction}
@@ -354,7 +365,6 @@ function SettingsPanel({
   setOauthForm,
   animeSearch,
   setAnimeSearch,
-  addingSubjectId,
   pendingAction,
   onSearch,
   onAction,
@@ -366,7 +376,6 @@ function SettingsPanel({
   setOauthForm: React.Dispatch<React.SetStateAction<{ clientId: string; clientSecret: string }>>;
   animeSearch: SearchState;
   setAnimeSearch: React.Dispatch<React.SetStateAction<SearchState>>;
-  addingSubjectId: number | null;
   pendingAction: PendingAction | null;
   onSearch(event: React.FormEvent<HTMLFormElement>): Promise<void>;
   onAction(result: AnimeSearchResult): Promise<void>;
@@ -411,10 +420,9 @@ function SettingsPanel({
                   <button
                     type="button"
                     onClick={() => void onAction(result)}
-                    disabled={!result.watchAction || disabled || addingSubjectId === result.id}
-                    aria-busy={addingSubjectId === result.id}
+                    disabled={!result.watchAction || disabled}
                   >
-                    {addingSubjectId === result.id ? '处理中' : result.watchActionLabel}
+                    {result.watchActionLabel}
                   </button>
                 </article>
               );

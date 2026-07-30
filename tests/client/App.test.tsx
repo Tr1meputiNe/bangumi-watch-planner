@@ -736,11 +736,12 @@ describe('App', () => {
     expect(screen.getByText(/321 人在看/)).toBeInTheDocument();
   });
 
-  it('searches anime and can add a result to watching', async () => {
+  it('optimistically marks a search result as watching while the request runs in the background', async () => {
     let resolveWatching!: (response: Response) => void;
     const watchingResponse = new Promise<Response>((resolve) => {
       resolveWatching = resolve;
     });
+    let dashboardRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -752,6 +753,7 @@ describe('App', () => {
         });
       }
       if (url === '/api/dashboard') {
+        dashboardRequests += 1;
         return Response.json(dashboard);
       }
       if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
@@ -786,17 +788,18 @@ describe('App', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '加入在看' }));
 
-    const pendingButton = screen.getByRole('button', { name: '处理中' });
-    expect(pendingButton).toBeDisabled();
-    expect(pendingButton).toHaveAttribute('aria-busy', 'true');
+    const watching = screen.getByRole('button', { name: '已在看' });
+    expect(watching).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '处理中' })).not.toBeInTheDocument();
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/subjects/456/watching', {
         method: 'POST'
       });
     });
+    expect(dashboardRequests).toBe(1);
+
     resolveWatching(Response.json({ subjectsSynced: 1, episodesSynced: 12 }));
-    const watching = await screen.findByRole('button', { name: '已在看' });
-    expect(watching).toBeDisabled();
+    await waitFor(() => expect(dashboardRequests).toBe(2));
     expect(screen.getAllByText('测试动画')).toHaveLength(2);
   });
 

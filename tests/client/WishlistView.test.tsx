@@ -37,10 +37,14 @@ describe('WishlistView', () => {
   });
 
   it('labels current, older, and upcoming titles and starts only the clicked title', async () => {
+    let resolveStart!: (response: Response) => void;
+    const startResponse = new Promise<Response>((resolve) => {
+      resolveStart = resolve;
+    });
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (input.toString() === '/api/wishlist?q=&year=all') return Response.json(wishlistData());
       if (input.toString() === '/api/subjects/201/start' && init?.method === 'POST') {
-        return Response.json({ subjectsSynced: 1, episodesSynced: 12 });
+        return startResponse;
       }
       throw new Error(`Unexpected request ${input.toString()}`);
     });
@@ -57,8 +61,39 @@ describe('WishlistView', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '开始追番' }));
 
+    expect(screen.queryByText('本季度想看')).not.toBeInTheDocument();
+    expect(screen.getByText('2 部')).toHaveClass('wishlist-count');
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/subjects/201/start', { method: 'POST' }));
-    expect(onChanged).toHaveBeenCalledOnce();
+    expect(onChanged).not.toHaveBeenCalled();
+
+    resolveStart(Response.json({ subjectsSynced: 1, episodesSynced: 12 }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+  });
+
+  it('restores an optimistically removed title when the background request fails', async () => {
+    let rejectStart!: (response: Response) => void;
+    const startResponse = new Promise<Response>((resolve) => {
+      rejectStart = resolve;
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input.toString() === '/api/wishlist?q=&year=all') return Response.json(wishlistData());
+      if (input.toString() === '/api/subjects/202/start' && init?.method === 'POST') return startResponse;
+      throw new Error(`Unexpected request ${input.toString()}`);
+    }));
+    const onError = vi.fn();
+    const onChanged = vi.fn();
+    render(<WishlistView disabled={false} onChanged={onChanged} onError={onError} />);
+
+    await screen.findByText('旧番想看');
+    await userEvent.click(screen.getByRole('button', { name: '加入补番' }));
+    expect(screen.queryByText('旧番想看')).not.toBeInTheDocument();
+
+    rejectStart(Response.json({ error: 'Bangumi write failed' }, { status: 502 }));
+
+    expect(await screen.findByText('旧番想看')).toBeInTheDocument();
+    expect(screen.getByText('3 部')).toHaveClass('wishlist-count');
+    expect(onChanged).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith('Bangumi write failed');
   });
 });
 
