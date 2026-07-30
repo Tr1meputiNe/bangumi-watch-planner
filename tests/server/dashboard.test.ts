@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { canAutoComplete, createDashboardService } from '../../src/server/dashboard.js';
 import type {
-  AnimeSearchResult,
+  AnimeSearchSubject,
   BacklogTaskRow,
   BangumiClient,
   DashboardSubject,
   EpisodeRow,
-  SubjectRow
+  SubjectRow,
+  SyncProgress
 } from '../../src/server/types.js';
 import type { Repository } from '../../src/server/db.js';
 
@@ -77,29 +78,41 @@ describe('dashboard service', () => {
     ]);
   });
 
-  it('adds the local collection status to anime search results', async () => {
-    const searchAnimeSubjects = vi.fn(async (): Promise<AnimeSearchResult[]> => [
-      {
-        id: 456,
-        name: 'Test Anime',
-        nameCn: '测试动画',
+  it('adds the legal collection action to every anime search result', async () => {
+    const searchAnimeSubjects = vi.fn(async (): Promise<AnimeSearchSubject[]> =>
+      Array.from({ length: 7 }, (_, index) => ({
+        id: 451 + index,
+        name: `Test Anime ${index + 1}`,
+        nameCn: `测试动画 ${index + 1}`,
         eps: 12,
         image: null,
-        url: 'https://bgm.tv/subject/456'
-      }
+        url: `https://bgm.tv/subject/${451 + index}`
+      }))
+    );
+    const subjects = new Map([
+      [452, subject({ id: 452, collectionType: 1, airDate: '2099-01-01' })],
+      [453, subject({ id: 453, collectionType: 1, seasonKey: '2026Q3', airDate: '2026-07-01' })],
+      [454, subject({ id: 454, collectionType: 1, airDate: '2024-01-01' })],
+      [455, subject({ id: 455, collectionType: 3 })],
+      [456, subject({ id: 456, collectionType: 4 })],
+      [457, subject({ id: 457, collectionType: 2, completedAt: '2026-07-28T00:00:00+08:00' })]
     ]);
     const service = createDashboardService({
       auth: authStatus(),
       client: client({ searchAnimeSubjects }),
       repository: repository({
-        getSubject: async (subjectId) => subjectId === 456
-          ? subject({ id: 456, collectionType: 2, completedAt: '2026-07-28T00:00:00+08:00' })
-          : null
+        getSubject: async (subjectId) => subjects.get(subjectId) ?? null
       })
     });
 
     await expect(service.searchAnimeSubjects('  测试  ')).resolves.toEqual([
-      expect.objectContaining({ id: 456, collectionType: 2 })
+      expect.objectContaining({ id: 451, collectionType: null, watchAction: 'add', watchActionLabel: '加入在看' }),
+      expect.objectContaining({ id: 452, collectionType: 1, watchAction: null, watchActionLabel: '尚未播出' }),
+      expect.objectContaining({ id: 453, collectionType: 1, watchAction: 'start', watchActionLabel: '开始追番' }),
+      expect.objectContaining({ id: 454, collectionType: 1, watchAction: 'start', watchActionLabel: '加入补番' }),
+      expect.objectContaining({ id: 455, collectionType: 3, watchAction: null, watchActionLabel: '已在看' }),
+      expect.objectContaining({ id: 456, collectionType: 4, watchAction: 'resume', watchActionLabel: '恢复补番' }),
+      expect.objectContaining({ id: 457, collectionType: 2, watchAction: null, watchActionLabel: '已看过' })
     ]);
     expect(searchAnimeSubjects).toHaveBeenCalledWith('测试');
   });
@@ -222,6 +235,48 @@ describe('dashboard service', () => {
     expect(getAnimeCollections).toHaveBeenCalledTimes(3);
   });
 
+  it('starts a background sync and reports progress without making the caller wait', async () => {
+    let reportProgress!: (progress: SyncProgress) => void;
+    let finishSync!: () => void;
+    const syncCollections = vi.fn(async (input: { onProgress?: (progress: SyncProgress) => void }) => {
+      reportProgress = input.onProgress!;
+      await new Promise<void>((resolve) => {
+        finishSync = resolve;
+      });
+      return { subjectsSynced: 4, episodesSynced: 48 };
+    });
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client(),
+      repository: repository(),
+      clock: () => new Date('2026-07-30T12:00:00.000Z'),
+      syncCollections: syncCollections as never
+    });
+
+    expect(service.startSync()).toMatchObject({
+      state: 'running',
+      processedSubjects: 0,
+      totalSubjects: 0
+    });
+
+    await vi.waitFor(() => expect(syncCollections).toHaveBeenCalledOnce());
+    reportProgress({ processedSubjects: 2, totalSubjects: 4 });
+    expect(service.getSyncStatus()).toMatchObject({
+      state: 'running',
+      processedSubjects: 2,
+      totalSubjects: 4
+    });
+
+    finishSync();
+    await expect(service.syncNow()).resolves.toEqual({ subjectsSynced: 4, episodesSynced: 48 });
+    expect(service.getSyncStatus()).toMatchObject({
+      state: 'idle',
+      processedSubjects: 4,
+      totalSubjects: 4,
+      result: { subjectsSynced: 4, episodesSynced: 48 }
+    });
+  });
+
   it('stores and throws a readable sync error for transient Bangumi failures', async () => {
     const setSetting = vi.fn(async () => undefined);
     const service = createDashboardService({
@@ -240,6 +295,10 @@ describe('dashboard service', () => {
       expose: true
     });
     expect(setSetting).toHaveBeenCalledWith('last_error', 'Bangumi 同步暂时失败，请稍后再试');
+    expect(service.getSyncStatus()).toMatchObject({
+      state: 'error',
+      error: 'Bangumi 同步暂时失败，请稍后再试'
+    });
   });
 
   it('auto-completes only known totals with enough fetched and watched main episodes', () => {

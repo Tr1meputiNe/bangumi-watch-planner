@@ -428,8 +428,18 @@ describe('HTTP API', () => {
     await app.close();
   });
 
-  it('accepts state-changing API requests with the local API cookie', async () => {
-    const syncNow = vi.fn(async () => ({ subjectsSynced: 1, episodesSynced: 2 }));
+  it('starts manual sync without waiting and exposes its status', async () => {
+    const runningStatus = {
+      state: 'running' as const,
+      startedAt: '2026-07-30T12:00:00.000Z',
+      completedAt: null,
+      error: null,
+      processedSubjects: 0,
+      totalSubjects: 3,
+      result: null
+    };
+    const startSync = vi.fn(() => runningStatus);
+    const getSyncStatus = vi.fn(() => runningStatus);
     const app = buildApp({
       auth: {
         createAuthorizationUrl: vi.fn(),
@@ -439,7 +449,9 @@ describe('HTTP API', () => {
       },
       dashboard: {
         getDashboard: vi.fn(),
-        syncNow,
+        syncNow: vi.fn(),
+        startSync,
+        getSyncStatus,
         markEpisodeWatched: vi.fn(),
         dismissEpisode: vi.fn()
       },
@@ -455,15 +467,19 @@ describe('HTTP API', () => {
       url: '/api/sync',
       headers: { cookie: 'bwp_token=secret-token' }
     });
+    const statusResponse = await app.inject({ method: 'GET', url: '/api/sync/status' });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ subjectsSynced: 1, episodesSynced: 2 });
-    expect(syncNow).toHaveBeenCalled();
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toEqual(runningStatus);
+    expect(statusResponse.statusCode).toBe(200);
+    expect(statusResponse.json()).toEqual(runningStatus);
+    expect(startSync).toHaveBeenCalledOnce();
+    expect(getSyncStatus).toHaveBeenCalledOnce();
 
     await app.close();
   });
 
-  it('exposes safe sync error messages instead of a generic server error', async () => {
+  it('exposes a failed background sync through the status endpoint', async () => {
     const app = buildApp({
       auth: {
         createAuthorizationUrl: vi.fn(),
@@ -473,9 +489,16 @@ describe('HTTP API', () => {
       },
       dashboard: {
         getDashboard: vi.fn(),
-        syncNow: vi.fn(async () => {
-          throw Object.assign(new Error('Bangumi 同步暂时失败，请稍后再试'), { statusCode: 502, expose: true });
-        }),
+        syncNow: vi.fn(),
+        getSyncStatus: vi.fn(() => ({
+          state: 'error',
+          startedAt: '2026-07-30T12:00:00.000Z',
+          completedAt: '2026-07-30T12:00:05.000Z',
+          error: 'Bangumi 同步暂时失败，请稍后再试',
+          processedSubjects: 0,
+          totalSubjects: 0,
+          result: null
+        })),
         markEpisodeWatched: vi.fn(),
         dismissEpisode: vi.fn()
       },
@@ -487,13 +510,15 @@ describe('HTTP API', () => {
     });
 
     const response = await app.inject({
-      method: 'POST',
-      url: '/api/sync',
-      headers: { 'x-bwp-token': 'secret-token' }
+      method: 'GET',
+      url: '/api/sync/status'
     });
 
-    expect(response.statusCode).toBe(502);
-    expect(response.json()).toEqual({ error: 'Bangumi 同步暂时失败，请稍后再试' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      state: 'error',
+      error: 'Bangumi 同步暂时失败，请稍后再试'
+    });
 
     await app.close();
   });

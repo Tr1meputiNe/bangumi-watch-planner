@@ -1,5 +1,5 @@
 import type {
-  AnimeSearchResult,
+  AnimeSearchSubject,
   BangumiCalendarDay,
   BangumiClient,
   BangumiCollectionPage,
@@ -249,7 +249,7 @@ function normalizeBangumiUrl(url: string): string {
   return url.replace(/^http:\/\/bgm\.tv\//, 'https://bgm.tv/');
 }
 
-function mapSearchResult(subject: BangumiSubjectSearchPage['data'][number]): AnimeSearchResult {
+function mapSearchResult(subject: BangumiSubjectSearchPage['data'][number]): AnimeSearchSubject {
   return {
     id: subject.id,
     name: subject.name,

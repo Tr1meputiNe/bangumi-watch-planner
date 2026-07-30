@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Repository } from '../../src/server/db.js';
 import { rebuildBacklogPlan, syncAnimeCollections } from '../../src/server/sync.js';
-import type { BangumiClient, BroadcastCatalog, EpisodeRow, SubjectWrite, SyncRepository } from '../../src/server/types.js';
+import type { BangumiClient, BroadcastCatalog, EpisodeRow, SubjectWrite, SyncProgress, SyncRepository } from '../../src/server/types.js';
 
 describe('syncAnimeCollections', () => {
   it('paginates wishlist, watching, and held independently without fetching wishlist episodes', async () => {
@@ -110,6 +110,39 @@ describe('syncAnimeCollections', () => {
 
     expect(getSubjectEpisodes.mock.calls).toEqual([[1, 1000, 0], [1, 1000, 1000]]);
     expect(result.episodesSynced).toBe(2);
+  });
+
+  it('reports subject progress and limits episode fetches to three at a time', async () => {
+    let activeRequests = 0;
+    let maxActiveRequests = 0;
+    const progress: SyncProgress[] = [];
+    const getSubjectEpisodes = vi.fn(async () => {
+      activeRequests += 1;
+      maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      activeRequests -= 1;
+      return { total: 0, data: [] };
+    });
+
+    await syncAnimeCollections({
+      username: 'sai',
+      today: '2026-07-19',
+      client: bangumiClient({
+        getAnimeCollections: vi.fn(async (_username, type) => ({
+          total: type === 3 ? 7 : 0,
+          data: type === 3 ? Array.from({ length: 7 }, (_, index) => collection(index + 1, 3)) : []
+        })),
+        getSubjectEpisodes
+      }),
+      repository: syncRepository(),
+      onProgress: (update) => progress.push(update)
+    });
+
+    expect(maxActiveRequests).toBe(3);
+    expect(progress).toEqual(Array.from({ length: 8 }, (_, processedSubjects) => ({
+      processedSubjects,
+      totalSubjects: 7
+    })));
   });
 });
 

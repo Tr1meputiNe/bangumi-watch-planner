@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/client/App.js';
+import type { AnimeSearchResult, BangumiCollectionType } from '../../src/server/types.js';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -116,7 +117,117 @@ const dashboard = {
   lastError: null
 };
 
+function searchResult(
+  id: number,
+  collectionType: BangumiCollectionType | null,
+  watchAction: AnimeSearchResult['watchAction'],
+  watchActionLabel: string
+): AnimeSearchResult {
+  return {
+    id,
+    name: `Test Anime ${id}`,
+    nameCn: `测试动画 ${id}`,
+    eps: 12,
+    image: null,
+    url: `https://bgm.tv/subject/${id}`,
+    collectionType,
+    watchAction,
+    watchActionLabel
+  };
+}
+
 describe('App', () => {
+  it('keeps cached controls usable while background sync runs, then refreshes', async () => {
+    let dashboardRequests = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') {
+        dashboardRequests += 1;
+        return Response.json(dashboard);
+      }
+      if (url === '/api/sync' && init?.method === 'POST') {
+        return Response.json({
+          state: 'running',
+          startedAt: '2026-07-30T12:00:00.000Z',
+          completedAt: null,
+          error: null,
+          processedSubjects: 0,
+          totalSubjects: 4,
+          result: null
+        }, { status: 202 });
+      }
+      if (url === '/api/sync/status') {
+        return Response.json({
+          state: 'idle',
+          startedAt: '2026-07-30T12:00:00.000Z',
+          completedAt: '2026-07-30T12:00:05.000Z',
+          error: null,
+          processedSubjects: 4,
+          totalSubjects: 4,
+          result: { subjectsSynced: 4, episodesSynced: 48 }
+        });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole('button', { name: '立即同步' }));
+
+    const pendingButton = await screen.findByRole('button', { name: '同步中 0/4' });
+    expect(pendingButton).toBeDisabled();
+    expect(pendingButton).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('tab', { name: /补番计划/ })).toBeEnabled();
+    expect(screen.getByLabelText('搜索动画')).toBeEnabled();
+    expect(fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/sync')).toHaveLength(1);
+
+    expect(await screen.findByRole('status', {}, { timeout: 2_000 })).toHaveTextContent('同步完成：4 部番剧，48 集分集');
+    expect(screen.getByRole('button', { name: '立即同步' })).toBeEnabled();
+    expect(dashboardRequests).toBe(2);
+  });
+
+  it('shows a readable local-service error instead of Failed to fetch', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/sync' && init?.method === 'POST') throw new TypeError('Failed to fetch');
+      throw new Error(`Unexpected request ${url}`);
+    }));
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole('button', { name: '立即同步' }));
+
+    expect(await screen.findByText('无法连接本机服务，请确认应用仍在运行后重试。')).toBeInTheDocument();
+    expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '立即同步' })).toBeEnabled();
+  });
+
+  it('shows an HTTP fallback when an error response has no usable message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/sync' && init?.method === 'POST') return new Response(null, { status: 502 });
+      throw new Error(`Unexpected request ${url}`);
+    }));
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole('button', { name: '立即同步' }));
+
+    expect(await screen.findByText('请求失败（HTTP 502）')).toBeInTheDocument();
+  });
+
   it('shows four tabs in the required order and loads backlog only when opened', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
@@ -344,7 +455,26 @@ describe('App', () => {
       }
       if (url === '/api/sync' && init?.method === 'POST') {
         snoozed = false;
-        return Response.json({ subjectsSynced: 1, episodesSynced: 1 });
+        return Response.json({
+          state: 'running',
+          startedAt: '2026-07-30T12:00:00.000Z',
+          completedAt: null,
+          error: null,
+          processedSubjects: 0,
+          totalSubjects: 1,
+          result: null
+        }, { status: 202 });
+      }
+      if (url === '/api/sync/status') {
+        return Response.json({
+          state: 'idle',
+          startedAt: '2026-07-30T12:00:00.000Z',
+          completedAt: '2026-07-30T12:00:01.000Z',
+          error: null,
+          processedSubjects: 1,
+          totalSubjects: 1,
+          result: { subjectsSynced: 1, episodesSynced: 1 }
+        });
       }
       throw new Error(`Unexpected request ${url}`);
     });
@@ -358,7 +488,7 @@ describe('App', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '立即同步' }));
 
-    expect(await within(backlog).findByText('第一集')).toBeInTheDocument();
+    expect(await within(backlog).findByText('第一集', {}, { timeout: 2_000 })).toBeInTheDocument();
   });
 
   it('shows the total unwatched main episode count for a subject', async () => {
@@ -607,6 +737,10 @@ describe('App', () => {
   });
 
   it('searches anime and can add a result to watching', async () => {
+    let resolveWatching!: (response: Response) => void;
+    const watchingResponse = new Promise<Response>((resolve) => {
+      resolveWatching = resolve;
+    });
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -629,13 +763,16 @@ describe('App', () => {
               nameCn: '测试动画',
               eps: 12,
               image: null,
-              url: 'https://bgm.tv/subject/456'
+              url: 'https://bgm.tv/subject/456',
+              collectionType: null,
+              watchAction: 'add',
+              watchActionLabel: '加入在看'
             }
           ]
         });
       }
       if (url === '/api/subjects/456/watching' && init?.method === 'POST') {
-        return Response.json({ subjectsSynced: 1, episodesSynced: 12 });
+        return watchingResponse;
       }
       throw new Error(`Unexpected request ${url}`);
     });
@@ -649,18 +786,22 @@ describe('App', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '加入在看' }));
 
+    const pendingButton = screen.getByRole('button', { name: '处理中' });
+    expect(pendingButton).toBeDisabled();
+    expect(pendingButton).toHaveAttribute('aria-busy', 'true');
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/subjects/456/watching', {
         method: 'POST'
       });
     });
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: '加入在看' })).not.toBeInTheDocument();
-    });
+    resolveWatching(Response.json({ subjectsSynced: 1, episodesSynced: 12 }));
+    const watching = await screen.findByRole('button', { name: '已在看' });
+    expect(watching).toBeDisabled();
+    expect(screen.getAllByText('测试动画')).toHaveLength(2);
   });
 
-  it('shows completed anime as watched in search results', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+  it('renders every saved search state and calls only its legal transition', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
         return Response.json({
@@ -673,16 +814,62 @@ describe('App', () => {
       if (url === '/api/dashboard') return Response.json(dashboard);
       if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
         return Response.json({
-          results: [{
-            id: 456,
-            name: 'Test Anime',
-            nameCn: '测试动画',
-            eps: 12,
-            image: null,
-            url: 'https://bgm.tv/subject/456',
-            collectionType: 2
-          }]
+          results: [
+            searchResult(451, 1, null, '尚未播出'),
+            searchResult(452, 1, 'start', '开始追番'),
+            searchResult(453, 1, 'start', '加入补番'),
+            searchResult(454, 3, null, '已在看'),
+            searchResult(455, 4, 'resume', '恢复补番'),
+            searchResult(456, 2, null, '已看过')
+          ]
         });
+      }
+      if (url === '/api/subjects/452/start' && init?.method === 'POST') {
+        return Response.json({ subjectsSynced: 1, episodesSynced: 12 });
+      }
+      if (url === '/api/subjects/453/start' && init?.method === 'POST') {
+        return Response.json({ subjectsSynced: 1, episodesSynced: 12 });
+      }
+      if (url === '/api/backlog/455/resume' && init?.method === 'POST') {
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+
+    for (const label of ['尚未播出', '已在看', '已看过']) {
+      expect(await screen.findByRole('button', { name: label })).toBeDisabled();
+    }
+
+    await userEvent.click(screen.getByRole('button', { name: '开始追番' }));
+    await userEvent.click(screen.getByRole('button', { name: '加入补番' }));
+    await userEvent.click(screen.getByRole('button', { name: '恢复补番' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/subjects/452/start', { method: 'POST' });
+      expect(fetchMock).toHaveBeenCalledWith('/api/subjects/453/start', { method: 'POST' });
+      expect(fetchMock).toHaveBeenCalledWith('/api/backlog/455/resume', { method: 'POST' });
+    });
+    expect(screen.getAllByRole('button', { name: '已在看' })).toHaveLength(4);
+  });
+
+  it('keeps the search state when a collection transition fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
+        return Response.json({ results: [searchResult(455, 4, 'resume', '恢复补番')] });
+      }
+      if (url === '/api/backlog/455/resume' && init?.method === 'POST') {
+        return Response.json({ error: 'Bangumi write failed' }, { status: 502 });
       }
       throw new Error(`Unexpected request ${url}`);
     }));
@@ -691,10 +878,43 @@ describe('App', () => {
 
     await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
     await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+    await userEvent.click(await screen.findByRole('button', { name: '恢复补番' }));
 
-    const watched = await screen.findByRole('button', { name: '已看过' });
-    expect(watched).toBeDisabled();
-    expect(screen.queryByRole('button', { name: '加入在看' })).not.toBeInTheDocument();
+    expect(await screen.findByText('Bangumi write failed')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '恢复补番' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '已在看' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the successful collection state when the dashboard refresh fails', async () => {
+    let dashboardRequests = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') {
+        dashboardRequests += 1;
+        return dashboardRequests === 1
+          ? Response.json(dashboard)
+          : Response.json({ error: 'Dashboard refresh failed' }, { status: 502 });
+      }
+      if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
+        return Response.json({ results: [searchResult(451, null, 'add', '加入在看')] });
+      }
+      if (url === '/api/subjects/451/watching' && init?.method === 'POST') {
+        return Response.json({ subjectsSynced: 1, episodesSynced: 12 });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    }));
+
+    render(<App />);
+
+    await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+    await userEvent.click(await screen.findByRole('button', { name: '加入在看' }));
+
+    expect(await screen.findByText('Dashboard refresh failed')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '已在看' })).toBeDisabled();
   });
 
   it('shows a login action when Bangumi is not connected', async () => {

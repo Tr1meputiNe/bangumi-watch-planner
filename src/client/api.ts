@@ -1,17 +1,21 @@
-import type { AnimeSearchResult, AuthStatus, BacklogData, CalendarDay, DashboardData, SyncResult, WishlistData } from '../server/types.js';
+import type { AnimeSearchResult, AuthStatus, BacklogData, CalendarDay, DashboardData, SyncResult, SyncStatus, WishlistData } from '../server/types.js';
 
 async function api<T>(input: RequestInfo | URL, init?: RequestInit, retryOnInvalidToken = true): Promise<T> {
   const headers = new Headers(init?.headers);
   const headerEntries = [...headers.entries()];
   const requestInit = headerEntries.length > 0 ? { ...init, headers: Object.fromEntries(headerEntries) } : init;
-  const response = requestInit ? await fetch(input, requestInit) : await fetch(input);
+  const response = await request(input, requestInit);
   if (!response.ok) {
-    const body = await response.json().catch(() => ({ error: response.statusText }));
-    if (isInvalidLocalToken(response, body) && retryOnInvalidToken && init?.method && init.method !== 'GET') {
+    const body = await response.json().catch(() => null) as unknown;
+    const bodyError = body && typeof body === 'object' && 'error' in body ? body.error : undefined;
+    if (isInvalidLocalToken(response, { error: bodyError }) && retryOnInvalidToken && init?.method && init.method !== 'GET') {
       await refreshApiToken();
       return api<T>(input, init, false);
     }
-    throw new Error(body.error || response.statusText);
+    const message = typeof bodyError === 'string' && bodyError.trim()
+      ? bodyError
+      : response.statusText || `请求失败（HTTP ${response.status}）`;
+    throw new Error(message);
   }
   if (response.status === 204) {
     return undefined as T;
@@ -19,12 +23,23 @@ async function api<T>(input: RequestInfo | URL, init?: RequestInit, retryOnInval
   return (await response.json()) as T;
 }
 
+async function request(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  try {
+    return init ? await fetch(input, init) : await fetch(input);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error('无法连接本机服务，请确认应用仍在运行后重试。');
+    }
+    throw error;
+  }
+}
+
 function isInvalidLocalToken(response: Response, body: { error?: unknown }): boolean {
   return response.status === 403 && typeof body.error === 'string' && body.error.includes('Invalid local API token');
 }
 
 async function refreshApiToken(): Promise<void> {
-  const response = await fetch('/api/auth/status');
+  const response = await request('/api/auth/status');
   if (!response.ok) {
     return;
   }
@@ -52,8 +67,12 @@ export function getCalendar(): Promise<CalendarDay[]> {
   return api<CalendarDay[]>('/api/calendar');
 }
 
-export function syncNow(): Promise<SyncResult> {
-  return api<SyncResult>('/api/sync', { method: 'POST' });
+export function startSync(): Promise<SyncStatus> {
+  return api<SyncStatus>('/api/sync', { method: 'POST' });
+}
+
+export function getSyncStatus(): Promise<SyncStatus> {
+  return api<SyncStatus>('/api/sync/status');
 }
 
 export function saveOAuthConfig(clientId: string, clientSecret: string): Promise<void> {

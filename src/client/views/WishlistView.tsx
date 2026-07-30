@@ -115,9 +115,10 @@ export default function WishlistView({ disabled, onChanged, onError }: WishlistV
               <button
                 type="button"
                 disabled={disabled || subject.isUpcoming || startingId === subject.id}
+                aria-busy={startingId === subject.id}
                 onClick={() => void start(subject.id)}
               >
-                {subject.isUpcoming ? '尚未播出' : subject.isCurrentSeason ? '开始追番' : '加入补番'}
+                {startingId === subject.id ? '处理中' : subject.isUpcoming ? '尚未播出' : subject.isCurrentSeason ? '开始追番' : '加入补番'}
               </button>
             </article>
           ))}

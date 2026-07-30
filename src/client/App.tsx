@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useState, useTransition } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   addSubjectToWatching,
   getAuthStatus,
   getBacklog,
   getCalendar,
   getDashboard,
+  getSyncStatus,
+  resumeBacklog,
   saveOAuthConfig,
   searchAnime,
-  syncNow
+  startSync,
+  startSubject
 } from './api.js';
-import type { AnimeSearchResult, AuthStatus, BacklogData, DashboardData } from '../server/types.js';
+import type { AnimeSearchResult, AuthStatus, BacklogData, DashboardData, SyncStatus } from '../server/types.js';
 import { displaySubjectName, formatDateTime } from '../shared/format.js';
 import BacklogView from './views/BacklogView.js';
 import CalendarView, { type CalendarViewState } from './views/CalendarView.js';
@@ -29,6 +32,7 @@ type BacklogState = {
 };
 
 type ActiveView = 'watching' | 'backlog' | 'wishlist' | 'calendar';
+type PendingAction = 'search' | 'oauth';
 
 const emptyState: LoadState = { auth: null, dashboard: null, error: null };
 const emptyBacklogState: BacklogState = { data: null, loading: false, error: null };
@@ -41,12 +45,16 @@ export default function App() {
   const [calendarState, setCalendarState] = useState<CalendarViewState>(emptyCalendarState);
   const [oauthForm, setOauthForm] = useState({ clientId: '', clientSecret: '' });
   const [addingSubjectId, setAddingSubjectId] = useState<number | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [animeSearch, setAnimeSearch] = useState<{ error: string | null; keyword: string; results: AnimeSearchResult[] }>({
     error: null,
     keyword: '',
     results: []
   });
-  const [isPending, startTransition] = useTransition();
+  const isPending = pendingAction !== null;
+  const isSyncing = syncStatus?.state === 'running';
 
   const showError = useCallback((message: string) => {
     setState((current) => ({ ...current, error: message }));
@@ -112,15 +120,46 @@ export default function App() {
     if (activeView === 'calendar' && !calendarState.days && !calendarState.loading) void loadCalendar();
   }, [activeView, calendarState.days, calendarState.loading, loadCalendar]);
 
-  async function runAction(action: () => Promise<unknown>) {
-    startTransition(() => {
-      void action()
-        .then(async () => {
+  useEffect(() => {
+    if (!isSyncing) return;
+    let polling = false;
+    const interval = window.setInterval(() => {
+      if (polling) return;
+      polling = true;
+      void getSyncStatus()
+        .then(async (nextStatus) => {
+          setSyncStatus(nextStatus);
+          if (nextStatus.state === 'running') return;
+          if (nextStatus.state === 'error') {
+            showError(nextStatus.error ?? '同步失败，请稍后再试。');
+            return;
+          }
+          const result = nextStatus.result;
+          setSyncNotice(result
+            ? `同步完成：${result.subjectsSynced} 部番剧，${result.episodesSynced} 集分集`
+            : '同步完成');
           if (activeView === 'backlog') await refreshBacklogAndDashboard();
           else await load();
         })
-        .catch((error) => showError(error instanceof Error ? error.message : String(error)));
-    });
+        .catch((error) => showError(error instanceof Error ? error.message : String(error)))
+        .finally(() => {
+          polling = false;
+        });
+    }, 1_000);
+    return () => window.clearInterval(interval);
+  }, [activeView, isSyncing, load, refreshBacklogAndDashboard, showError]);
+
+  async function runAction(name: PendingAction, action: () => Promise<unknown>) {
+    setPendingAction(name);
+    try {
+      await action();
+      if (activeView === 'backlog') await refreshBacklogAndDashboard();
+      else await load();
+    } catch (error) {
+      showError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   async function runAnimeSearch(event: React.FormEvent<HTMLFormElement>) {
@@ -130,23 +169,36 @@ export default function App() {
       setAnimeSearch((current) => ({ ...current, error: null, results: [] }));
       return;
     }
-    startTransition(() => {
-      void searchAnime(keyword)
-        .then((results) => setAnimeSearch((current) => ({ ...current, error: null, results })))
-        .catch((error) => setAnimeSearch((current) => ({
-          ...current,
-          error: error instanceof Error ? error.message : String(error),
-          results: []
-        })));
-    });
+    setPendingAction('search');
+    try {
+      const results = await searchAnime(keyword);
+      setAnimeSearch((current) => ({ ...current, error: null, results }));
+    } catch (error) {
+      setAnimeSearch((current) => ({
+        ...current,
+        error: error instanceof Error ? error.message : String(error),
+        results: []
+      }));
+    } finally {
+      setPendingAction(null);
+    }
   }
 
-  async function addAnimeToWatching(subjectId: number) {
-    setAddingSubjectId(subjectId);
+  async function runAnimeWatchAction(result: AnimeSearchResult) {
+    if (!result.watchAction) return;
+    setAddingSubjectId(result.id);
     try {
-      await addSubjectToWatching(subjectId);
+      if (result.watchAction === 'add') await addSubjectToWatching(result.id);
+      if (result.watchAction === 'start') await startSubject(result.id);
+      if (result.watchAction === 'resume') await resumeBacklog(result.id);
       await load();
-      setAnimeSearch((current) => ({ ...current, error: null, results: current.results.filter((result) => result.id !== subjectId) }));
+      setAnimeSearch((current) => ({
+        ...current,
+        error: null,
+        results: current.results.map((item) => item.id === result.id
+          ? { ...item, collectionType: 3, watchAction: null, watchActionLabel: '已在看' }
+          : item)
+      }));
     } catch (error) {
       setAnimeSearch((current) => ({ ...current, error: error instanceof Error ? error.message : String(error) }));
     } finally {
@@ -156,7 +208,16 @@ export default function App() {
 
   async function saveOAuthSettings(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await runAction(() => saveOAuthConfig(oauthForm.clientId, oauthForm.clientSecret));
+    await runAction('oauth', () => saveOAuthConfig(oauthForm.clientId, oauthForm.clientSecret));
+  }
+
+  async function startManualSync() {
+    setSyncNotice(null);
+    try {
+      setSyncStatus(await startSync());
+    } catch (error) {
+      showError(error instanceof Error ? error.message : String(error));
+    }
   }
 
   const pendingEpisodes = state.dashboard?.pendingEpisodes ?? [];
@@ -197,7 +258,18 @@ export default function App() {
             </div>
           ) : null}
           <div className="topbar-actions">
-            <button type="button" onClick={() => void runAction(syncNow)} disabled={isPending || !state.auth?.authenticated}>立即同步</button>
+            <button
+              type="button"
+              onClick={() => void startManualSync()}
+              disabled={isSyncing || !state.auth?.authenticated}
+              aria-busy={isSyncing}
+            >
+              {isSyncing
+                ? syncStatus.totalSubjects > 0
+                  ? `同步中 ${syncStatus.processedSubjects}/${syncStatus.totalSubjects}`
+                  : '同步中'
+                : '立即同步'}
+            </button>
           </div>
         </header>
 
@@ -216,6 +288,7 @@ export default function App() {
 
       <div className="app-content">
         {state.error ? <div className="notice error">{state.error}</div> : null}
+        {syncNotice ? <div className="notice" role="status">{syncNotice}</div> : null}
         {state.dashboard?.lastError ? <div className="notice warning">同步错误：{state.dashboard.lastError}</div> : null}
 
         {activeView === 'watching' ? (
@@ -231,8 +304,9 @@ export default function App() {
               animeSearch={animeSearch}
               setAnimeSearch={setAnimeSearch}
               addingSubjectId={addingSubjectId}
+              pendingAction={pendingAction}
               onSearch={runAnimeSearch}
-              onAdd={addAnimeToWatching}
+              onAction={runAnimeWatchAction}
               onSaveOAuth={saveOAuthSettings}
             />
           </>
@@ -281,8 +355,9 @@ function SettingsPanel({
   animeSearch,
   setAnimeSearch,
   addingSubjectId,
+  pendingAction,
   onSearch,
-  onAdd,
+  onAction,
   onSaveOAuth
 }: {
   auth: AuthStatus | null;
@@ -292,8 +367,9 @@ function SettingsPanel({
   animeSearch: SearchState;
   setAnimeSearch: React.Dispatch<React.SetStateAction<SearchState>>;
   addingSubjectId: number | null;
+  pendingAction: PendingAction | null;
   onSearch(event: React.FormEvent<HTMLFormElement>): Promise<void>;
-  onAdd(subjectId: number): Promise<void>;
+  onAction(result: AnimeSearchResult): Promise<void>;
   onSaveOAuth(event: React.FormEvent<HTMLFormElement>): Promise<void>;
 }) {
   return (
@@ -314,13 +390,18 @@ function SettingsPanel({
               disabled={!auth?.authenticated || disabled}
             />
           </label>
-          <button type="submit" disabled={!auth?.authenticated || disabled || !animeSearch.keyword.trim()}>搜索</button>
+          <button
+            type="submit"
+            disabled={!auth?.authenticated || disabled || !animeSearch.keyword.trim()}
+            aria-busy={pendingAction === 'search'}
+          >
+            {pendingAction === 'search' ? '搜索中' : '搜索'}
+          </button>
         </form>
         {animeSearch.error ? <p className="search-error">{animeSearch.error}</p> : null}
         {animeSearch.results.length > 0 ? (
           <div className="search-results">
             {animeSearch.results.map((result) => {
-              const watched = result.collectionType === 2;
               return (
                 <article key={result.id} className="search-result">
                   <a href={result.url} target="_blank" rel="noreferrer">
@@ -329,10 +410,11 @@ function SettingsPanel({
                   <div><strong>{displaySubjectName(result.name, result.nameCn)}</strong><p>{result.eps ? `${result.eps} 集` : '总集数未知'}</p></div>
                   <button
                     type="button"
-                    onClick={() => void onAdd(result.id)}
-                    disabled={watched || disabled || addingSubjectId === result.id}
+                    onClick={() => void onAction(result)}
+                    disabled={!result.watchAction || disabled || addingSubjectId === result.id}
+                    aria-busy={addingSubjectId === result.id}
                   >
-                    {watched ? '已看过' : addingSubjectId === result.id ? '添加中' : '加入在看'}
+                    {addingSubjectId === result.id ? '处理中' : result.watchActionLabel}
                   </button>
                 </article>
               );
@@ -365,7 +447,13 @@ function SettingsPanel({
           <form className="oauth-form" onSubmit={(event) => void onSaveOAuth(event)}>
             <label><span>Bangumi App ID</span><input value={oauthForm.clientId} onChange={(event) => setOauthForm((current) => ({ ...current, clientId: event.target.value }))} placeholder={auth.oauthClientId ?? 'App ID'} autoComplete="off" /></label>
             <label><span>Bangumi App Secret</span><input value={oauthForm.clientSecret} onChange={(event) => setOauthForm((current) => ({ ...current, clientSecret: event.target.value }))} placeholder="App Secret" type="password" autoComplete="off" /></label>
-            <button type="submit" disabled={disabled || !oauthForm.clientId.trim() || !oauthForm.clientSecret.trim()}>保存 OAuth 配置</button>
+            <button
+              type="submit"
+              disabled={disabled || !oauthForm.clientId.trim() || !oauthForm.clientSecret.trim()}
+              aria-busy={pendingAction === 'oauth'}
+            >
+              {pendingAction === 'oauth' ? '保存中' : '保存 OAuth 配置'}
+            </button>
           </form>
         </div>
       ) : null}

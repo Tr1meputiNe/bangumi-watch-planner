@@ -58,7 +58,8 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
     return reply.redirect('/');
   });
 
-  app.post('/api/sync', async () => dashboard.syncNow());
+  app.post('/api/sync', async (_request, reply) => reply.code(202).send(dashboard.startSync()));
+  app.get('/api/sync/status', async () => dashboard.getSyncStatus());
   app.get('/api/dashboard', async () => dashboard.getDashboard());
   app.get('/api/backlog', async () => dashboard.getBacklog());
   app.get<{ Querystring: { q?: string; year?: string } }>('/api/wishlist', async (request) =>

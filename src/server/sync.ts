@@ -8,6 +8,7 @@ import type {
   SeasonWindow,
   SubjectRow,
   SyncRepository,
+  SyncProgress,
   SyncResult
 } from './types.js';
 import type { Repository } from './db.js';
@@ -22,17 +23,23 @@ export async function syncAnimeCollections({
   client,
   repository,
   today = todayInShanghai(),
-  pageSize = 50
+  pageSize = 50,
+  onProgress
 }: {
   username: string;
   client: BangumiClient;
   repository: SyncRepository;
   today?: string;
   pageSize?: number;
+  onProgress?: (progress: SyncProgress) => void;
 }): Promise<SyncResult> {
   let subjectsSynced = 0;
   let episodesSynced = 0;
   const broadcastCatalog = await getBroadcastCatalog(client);
+  const collections: Array<{
+    collectionType: 1 | 3 | 4;
+    collection: BangumiSubjectCollection;
+  }> = [];
 
   for (const collectionType of [1, 3, 4] as const) {
     let offset = 0;
@@ -41,50 +48,67 @@ export async function syncAnimeCollections({
     while (offset < total) {
       const page = await client.getAnimeCollections(username, collectionType, pageSize, offset);
       total = page.total;
-
-      for (const collection of page.data) {
-        const subject = mapSubject(collection);
-        const classification = classifySubject(collectionType, subject.id, broadcastCatalog.seasonWindow);
-
-        if (collectionType === 1) {
-          await repository.upsertSubject({
-            ...subject,
-            ...classification,
-            airDate: getAirDate(collection.subject.date),
-            airYear: getAirYear(collection.subject.date),
-            totalEpisodesKnown: subject.eps > 0,
-            completedAt: null
-          });
-          subjectsSynced += 1;
-          continue;
-        }
-
-        const episodes = await getAllSubjectEpisodes(client, subject, broadcastCatalog.schedules);
-        const apiTotal = collection.subject.eps ?? 0;
-        const premiereDate = collection.subject.date ?? '';
-        const resolvedClassification = collectionType === 3
-          && classification.plannerMode === 'backlog'
-          && (isStillUpdating(episodes, today) || (isValidDateString(premiereDate) && premiereDate >= today))
-          ? { ...classification, plannerMode: 'seasonal' as const }
-          : classification;
-        await repository.upsertSubject({
-          ...subject,
-          ...resolvedClassification,
-          eps: Math.max(apiTotal, collection.ep_status, mainEpisodeCount(episodes), highestMainEpisodeNumber(episodes)),
-          airDate: getAirDate(collection.subject.date),
-          airYear: getAirYear(collection.subject.date),
-          totalEpisodesKnown: apiTotal > 0,
-          completedAt: null
-        });
-        await repository.replaceSubjectEpisodes(subject.id, episodes);
-        subjectsSynced += 1;
-        episodesSynced += episodes.length;
-      }
+      collections.push(...page.data.map((collection) => ({ collectionType, collection })));
 
       if (page.data.length === 0) break;
       offset += pageSize;
     }
   }
+
+  let processedSubjects = 0;
+  onProgress?.({ processedSubjects, totalSubjects: collections.length });
+
+  async function syncCollection({
+    collectionType,
+    collection
+  }: (typeof collections)[number]): Promise<void> {
+    const subject = mapSubject(collection);
+    const classification = classifySubject(collectionType, subject.id, broadcastCatalog.seasonWindow);
+
+    if (collectionType === 1) {
+      await repository.upsertSubject({
+        ...subject,
+        ...classification,
+        airDate: getAirDate(collection.subject.date),
+        airYear: getAirYear(collection.subject.date),
+        totalEpisodesKnown: subject.eps > 0,
+        completedAt: null
+      });
+    } else {
+      const episodes = await getAllSubjectEpisodes(client, subject, broadcastCatalog.schedules);
+      const apiTotal = collection.subject.eps ?? 0;
+      const premiereDate = collection.subject.date ?? '';
+      const resolvedClassification = collectionType === 3
+        && classification.plannerMode === 'backlog'
+        && (isStillUpdating(episodes, today) || (isValidDateString(premiereDate) && premiereDate >= today))
+        ? { ...classification, plannerMode: 'seasonal' as const }
+        : classification;
+      await repository.upsertSubject({
+        ...subject,
+        ...resolvedClassification,
+        eps: Math.max(apiTotal, collection.ep_status, mainEpisodeCount(episodes), highestMainEpisodeNumber(episodes)),
+        airDate: getAirDate(collection.subject.date),
+        airYear: getAirYear(collection.subject.date),
+        totalEpisodesKnown: apiTotal > 0,
+        completedAt: null
+      });
+      await repository.replaceSubjectEpisodes(subject.id, episodes);
+      episodesSynced += episodes.length;
+    }
+
+    subjectsSynced += 1;
+    processedSubjects += 1;
+    onProgress?.({ processedSubjects, totalSubjects: collections.length });
+  }
+
+  for (const entry of collections.filter(({ collectionType }) => collectionType === 1)) {
+    await syncCollection(entry);
+  }
+  await runWithConcurrency(
+    collections.filter(({ collectionType }) => collectionType !== 1),
+    3,
+    syncCollection
+  );
 
   await rebuildPlan({ repository, today, includeToday: false });
   await repository.setSetting('last_sync_at', new Date().toISOString());
@@ -323,4 +347,30 @@ function dateRange(from: string, through: string): string[] {
 function addDays(date: string, days: number): string {
   const [year, month, day] = date.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  task: (item: T) => Promise<void>
+): Promise<void> {
+  let nextIndex = 0;
+  let failed = false;
+  let firstError: unknown;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (!failed) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      try {
+        await task(items[index]);
+      } catch (error) {
+        failed = true;
+        firstError = error;
+      }
+    }
+  });
+
+  await Promise.all(workers);
+  if (failed) throw firstError;
 }

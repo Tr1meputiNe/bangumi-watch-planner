@@ -203,14 +203,19 @@ export type BangumiSubjectSearchPage = {
   data: BangumiSearchSubject[];
 };
 
-export type AnimeSearchResult = {
+export type AnimeSearchSubject = {
   id: number;
   name: string;
   nameCn: string;
   eps: number;
   image: string | null;
   url: string;
-  collectionType?: BangumiCollectionType | null;
+};
+
+export type AnimeSearchResult = AnimeSearchSubject & {
+  collectionType: BangumiCollectionType | null;
+  watchAction: 'add' | 'start' | 'resume' | null;
+  watchActionLabel: string;
 };
 
 export type BangumiCalendarSubject = {
@@ -279,7 +284,7 @@ export type BangumiClient = {
   markEpisodesUnwatched(subjectId: number, episodeIds: number[]): Promise<void>;
   setSubjectCollectionType(subjectId: number, type: 2 | 3 | 4): Promise<void>;
   addSubjectToWatching(subjectId: number): Promise<void>;
-  searchAnimeSubjects(keyword: string): Promise<AnimeSearchResult[]>;
+  searchAnimeSubjects(keyword: string): Promise<AnimeSearchSubject[]>;
 };
 
 export type SyncRepository = {
@@ -306,6 +311,19 @@ export type SyncResult = {
   episodesSynced: number;
 };
 
+export type SyncProgress = {
+  processedSubjects: number;
+  totalSubjects: number;
+};
+
+export type SyncStatus = SyncProgress & {
+  state: 'idle' | 'running' | 'error';
+  startedAt: string | null;
+  completedAt: string | null;
+  error: string | null;
+  result: SyncResult | null;
+};
+
 export type OAuthManager = {
   createAuthorizationUrl(): Promise<URL>;
   handleCallback(code: string, state: string): Promise<void>;
@@ -319,6 +337,8 @@ export type DashboardService = {
   getWishlist(query: string, year: number | null | 'unknown'): Promise<WishlistData>;
   getCalendar(): Promise<CalendarDay[]>;
   syncNow(): Promise<SyncResult>;
+  startSync(): SyncStatus;
+  getSyncStatus(): SyncStatus;
   markEpisodeWatched(episodeId: number): Promise<void>;
   markEpisodeUnwatched(episodeId: number): Promise<void>;
   markSubjectEpisodesWatchedThrough(subjectId: number, episodeId: number): Promise<void>;

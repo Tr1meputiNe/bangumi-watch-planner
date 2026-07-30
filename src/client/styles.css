@@ -81,6 +81,22 @@ button:disabled {
   opacity: 0.62;
 }
 
+button[aria-busy="true"]::before {
+  width: 0.8em;
+  height: 0.8em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  content: "";
+  animation: button-busy-spin 700ms linear infinite;
+}
+
+@keyframes button-busy-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible {

@@ -11,7 +11,9 @@ import type {
   EpisodeRow,
   OAuthManager,
   SubjectRow,
-  SyncResult
+  SyncProgress,
+  SyncResult,
+  SyncStatus
 } from './types.js';
 import type { Repository } from './db.js';
 
@@ -33,8 +35,17 @@ export function createDashboardService({
   rebuildPlan = rebuildBacklogPlan
 }: DashboardDeps): DashboardService {
   let syncInFlight: Promise<SyncResult> | null = null;
+  let syncStatus: SyncStatus = {
+    state: 'idle',
+    startedAt: null,
+    completedAt: null,
+    error: null,
+    processedSubjects: 0,
+    totalSubjects: 0,
+    result: null
+  };
 
-  async function executeSync(): Promise<SyncResult> {
+  async function executeSync(onProgress?: (progress: SyncProgress) => void): Promise<SyncResult> {
     const status = await auth.getAuthStatus();
     if (!status.username) {
       throw Object.assign(new Error('Bangumi is not connected'), { statusCode: 400, expose: true });
@@ -45,7 +56,8 @@ export function createDashboardService({
         username: status.username,
         client,
         repository,
-        today: todayInShanghai(clock())
+        today: todayInShanghai(clock()),
+        onProgress
       });
     } catch (error) {
       const message = getSafeSyncErrorMessage(error);
@@ -208,10 +220,54 @@ export function createDashboardService({
         return syncInFlight;
       }
 
-      syncInFlight = executeSync().finally(() => {
-        syncInFlight = null;
-      });
+      const startedAt = clock().toISOString();
+      syncStatus = {
+        state: 'running',
+        startedAt,
+        completedAt: null,
+        error: null,
+        processedSubjects: 0,
+        totalSubjects: 0,
+        result: null
+      };
+      syncInFlight = executeSync((progress) => {
+        syncStatus = { ...syncStatus, ...progress };
+      })
+        .then((result) => {
+          syncStatus = {
+            ...syncStatus,
+            state: 'idle',
+            completedAt: clock().toISOString(),
+            error: null,
+            processedSubjects: result.subjectsSynced,
+            totalSubjects: Math.max(syncStatus.totalSubjects, result.subjectsSynced),
+            result
+          };
+          return result;
+        })
+        .catch((error) => {
+          syncStatus = {
+            ...syncStatus,
+            state: 'error',
+            completedAt: clock().toISOString(),
+            error: error instanceof Error ? error.message : String(error),
+            result: null
+          };
+          throw error;
+        })
+        .finally(() => {
+          syncInFlight = null;
+        });
       return syncInFlight;
+    },
+
+    startSync(): SyncStatus {
+      void service.syncNow().catch(() => undefined);
+      return service.getSyncStatus();
+    },
+
+    getSyncStatus(): SyncStatus {
+      return { ...syncStatus };
     },
 
     async markEpisodeWatched(episodeId) {
@@ -370,10 +426,15 @@ export function createDashboardService({
         return [];
       }
       const results = await client.searchAnimeSubjects(trimmed);
-      return Promise.all(results.map(async (result) => ({
-        ...result,
-        collectionType: (await repository.getSubject(result.id))?.collectionType ?? null
-      })));
+      const today = todayInShanghai(clock());
+      return Promise.all(results.map(async (result) => {
+        const subject = await repository.getSubject(result.id);
+        return {
+          ...result,
+          collectionType: subject?.collectionType ?? null,
+          ...getAnimeSearchWatchAction(subject, today)
+        };
+      }));
     },
 
     async dismissEpisode(episodeId) {
@@ -408,6 +469,18 @@ export function canAutoComplete(subject: SubjectRow, episodes: EpisodeRow[]): bo
   if (!subject.totalEpisodesKnown || subject.eps <= 0) return false;
   const main = episodes.filter((episode) => episode.episodeType === 0);
   return main.length >= subject.eps && main.every((episode) => episode.collectionType === 2);
+}
+
+function getAnimeSearchWatchAction(subject: SubjectRow | null, today: string) {
+  if (!subject) return { watchAction: 'add' as const, watchActionLabel: '加入在看' };
+  if (subject.collectionType === 2) return { watchAction: null, watchActionLabel: '已看过' };
+  if (subject.collectionType === 3) return { watchAction: null, watchActionLabel: '已在看' };
+  if (subject.collectionType === 4) return { watchAction: 'resume' as const, watchActionLabel: '恢复补番' };
+  if (subject.airDate && subject.airDate > today) return { watchAction: null, watchActionLabel: '尚未播出' };
+  return {
+    watchAction: 'start' as const,
+    watchActionLabel: subject.seasonKey ? '开始追番' : '加入补番'
+  };
 }
 
 function episodeProgress(episode: { ep: number | null; sort: number }): number {
