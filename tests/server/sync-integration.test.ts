@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createDashboardService } from '../../src/server/dashboard.js';
 import { createRepository, type Repository } from '../../src/server/db.js';
 import { buildSeasonWindow } from '../../src/server/season-window.js';
 import { rebuildBacklogPlan, syncAnimeCollections } from '../../src/server/sync.js';
@@ -207,6 +208,38 @@ describe('collection sync integration', () => {
       { plannedDate: '2026-07-21', episodeId: 21 }
     ]);
     expect(await repository.getSetting('backlog_rotation_cursor')).toBe('2');
+  });
+
+  it('does not add more tasks today after the planned tasks are watched', async () => {
+    await repository.upsertSubject({ ...subjectWrite(2, 3), plannerMode: 'backlog' });
+    await repository.replaceSubjectEpisodes(2, [
+      episodeRow(21, 2, '2020-01-01'),
+      episodeRow(22, 2, '2020-01-08'),
+      episodeRow(23, 2, '2020-01-15'),
+      episodeRow(24, 2, '2020-01-22')
+    ]);
+    await rebuildBacklogPlan({ repository, today: '2026-07-19', includeToday: true });
+    const plannedToday = await repository.listBacklogTasks('2026-07-19', '2026-07-19');
+    expect(plannedToday).toHaveLength(2);
+
+    const service = createDashboardService({
+      auth: {
+        createAuthorizationUrl: vi.fn(),
+        handleCallback: vi.fn(),
+        getAccessToken: vi.fn(),
+        getAuthStatus: vi.fn()
+      },
+      client: clientFor({ 1: [], 3: [], 4: [] }, catalogFor('2026-07-19')),
+      repository,
+      clock: () => new Date('2026-07-19T04:00:00.000Z')
+    });
+
+    for (const task of plannedToday) {
+      await service.markEpisodeWatched(task.episodeId);
+    }
+
+    await expect(repository.listBacklogTasks('2026-07-19', '2026-07-19')).resolves.toEqual([]);
+    expect(await repository.listBacklogTasks('2026-07-20', '2026-07-25')).not.toHaveLength(0);
   });
 });
 

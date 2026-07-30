@@ -555,7 +555,7 @@ describe('dashboard service', () => {
     expect(rebuildPlan).toHaveBeenCalledOnce();
   });
 
-  it('removes a watched task and refills today only when it belongs to today\'s backlog plan', async () => {
+  it('removes a watched task without refilling today', async () => {
     const deleteBacklogTask = vi.fn(async () => undefined);
     const rebuildPlan = vi.fn(async () => undefined);
     const service = createDashboardService({
@@ -574,7 +574,7 @@ describe('dashboard service', () => {
     await service.markEpisodeWatched(11);
 
     expect(deleteBacklogTask).toHaveBeenCalledWith(11);
-    expect(rebuildPlan).toHaveBeenCalledWith(expect.objectContaining({ today: '2026-07-19', includeToday: true }));
+    expect(rebuildPlan).toHaveBeenCalledWith(expect.objectContaining({ today: '2026-07-19', includeToday: false }));
     expect(rebuildPlan).toHaveBeenCalledOnce();
   });
 

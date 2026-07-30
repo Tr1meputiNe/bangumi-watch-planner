@@ -123,7 +123,7 @@ export function createDashboardService({
     for (const episodeId of todayTaskIds) {
       await repository.deleteBacklogTask(episodeId);
     }
-    await replanAfterEpisodeMutation(() => completeIfEligible(subjectId, now), now, todayTaskIds.length > 0);
+    await replanAfterEpisodeMutation(() => completeIfEligible(subjectId, now), now);
   }
 
   async function clearTodayTasks(today: string): Promise<void> {
