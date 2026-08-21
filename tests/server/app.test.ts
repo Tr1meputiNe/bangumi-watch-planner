@@ -750,7 +750,7 @@ describe('HTTP API', () => {
     await app.close();
   });
 
-  it('serves backlog and strictly filtered wishlist reads without a write token', async () => {
+  it('serves backlog, held, and strictly filtered wishlist reads without a write token', async () => {
     const getBacklog = vi.fn(async () => ({
       today: '2026-07-19',
       todayTasks: [],
@@ -761,19 +761,23 @@ describe('HTTP API', () => {
       estimatedCompletionDate: null
     }));
     const getWishlist = vi.fn(async () => ({ items: [], years: [2024] }));
-    const app = testApp({ getBacklog, getWishlist });
+    const getHeldSubjects = vi.fn(async () => []);
+    const app = testApp({ getBacklog, getHeldSubjects, getWishlist });
 
     const backlog = await app.inject({ method: 'GET', url: '/api/backlog' });
+    const held = await app.inject({ method: 'GET', url: '/api/held' });
     const knownYear = await app.inject({ method: 'GET', url: '/api/wishlist?q=title&year=2024' });
     const unknownYear = await app.inject({ method: 'GET', url: '/api/wishlist?q=title&year=unknown' });
     const allYears = await app.inject({ method: 'GET', url: '/api/wishlist?year=all' });
 
     expect(backlog.statusCode).toBe(200);
+    expect(held.statusCode).toBe(200);
     expect(backlog.json()).toMatchObject({ today: '2026-07-19' });
     expect(knownYear.statusCode).toBe(200);
     expect(unknownYear.statusCode).toBe(200);
     expect(allYears.statusCode).toBe(200);
     expect(getBacklog).toHaveBeenCalledOnce();
+    expect(getHeldSubjects).toHaveBeenCalledOnce();
     expect(getWishlist.mock.calls).toEqual([
       ['title', 2024],
       ['title', 'unknown'],
@@ -792,7 +796,7 @@ describe('HTTP API', () => {
     await app.close();
   });
 
-  it('routes every backlog action with parsed positive ids and expected response codes', async () => {
+  it('routes every subject and backlog action with parsed positive ids and expected response codes', async () => {
     const startSubject = vi.fn(async () => ({
       state: 'running',
       startedAt: '2026-07-30T12:00:00.000Z',
@@ -804,12 +808,18 @@ describe('HTTP API', () => {
     }));
     const pauseBacklogSubject = vi.fn(async () => undefined);
     const resumeBacklogSubject = vi.fn(async () => undefined);
+    const holdSubject = vi.fn(async () => undefined);
+    const resumeHeldSubject = vi.fn(async () => undefined);
+    const dropSubject = vi.fn(async () => undefined);
     const completeBacklogSubject = vi.fn(async () => undefined);
     const swapBacklogTask = vi.fn(async () => undefined);
     const skipBacklogToday = vi.fn(async () => undefined);
     const replanBacklogToday = vi.fn(async () => undefined);
     const app = testApp({
       startSubject,
+      holdSubject,
+      resumeHeldSubject,
+      dropSubject,
       pauseBacklogSubject,
       resumeBacklogSubject,
       completeBacklogSubject,
@@ -821,6 +831,9 @@ describe('HTTP API', () => {
 
     const start = await app.inject({ method: 'POST', url: '/api/subjects/101/start', headers });
     const responses = await Promise.all([
+      app.inject({ method: 'POST', url: '/api/subjects/101/hold', headers }),
+      app.inject({ method: 'POST', url: '/api/subjects/101/resume', headers }),
+      app.inject({ method: 'POST', url: '/api/subjects/101/drop', headers }),
       app.inject({ method: 'POST', url: '/api/backlog/101/pause', headers }),
       app.inject({ method: 'POST', url: '/api/backlog/101/resume', headers }),
       app.inject({ method: 'POST', url: '/api/backlog/101/complete', headers }),
@@ -831,8 +844,11 @@ describe('HTTP API', () => {
 
     expect(start.statusCode).toBe(202);
     expect(start.json()).toEqual(expect.objectContaining({ state: 'running' }));
-    expect(responses.map((response) => response.statusCode)).toEqual([204, 204, 204, 204, 204, 204]);
+    expect(responses.map((response) => response.statusCode)).toEqual([204, 204, 204, 204, 204, 204, 204, 204, 204]);
     expect(startSubject).toHaveBeenCalledWith(101);
+    expect(holdSubject).toHaveBeenCalledWith(101);
+    expect(resumeHeldSubject).toHaveBeenCalledWith(101);
+    expect(dropSubject).toHaveBeenCalledWith(101);
     expect(pauseBacklogSubject).toHaveBeenCalledWith(101);
     expect(resumeBacklogSubject).toHaveBeenCalledWith(101);
     expect(completeBacklogSubject).toHaveBeenCalledWith(101);
@@ -846,6 +862,9 @@ describe('HTTP API', () => {
   it.each([
     '/api/subjects/0/start',
     '/api/subjects/01/start',
+    '/api/subjects/0/hold',
+    '/api/subjects/-1/resume',
+    '/api/subjects/1.5/drop',
     '/api/backlog/-1/pause',
     '/api/backlog/1.5/resume',
     '/api/backlog/9007199254740992/complete',
@@ -865,6 +884,9 @@ describe('HTTP API', () => {
 
   it.each([
     '/api/subjects/101/start',
+    '/api/subjects/101/hold',
+    '/api/subjects/101/resume',
+    '/api/subjects/101/drop',
     '/api/backlog/101/pause',
     '/api/backlog/101/resume',
     '/api/backlog/101/complete',
@@ -894,6 +916,7 @@ function testApp(dashboardOverrides: Record<string, unknown> = {}) {
       getDashboard: vi.fn(),
       getSubjectEpisodes: vi.fn(),
       getBacklog: vi.fn(),
+      getHeldSubjects: vi.fn(),
       getWishlist: vi.fn(),
       getCalendar: vi.fn(),
       saveBroadcastOverride: vi.fn(),
@@ -905,6 +928,9 @@ function testApp(dashboardOverrides: Record<string, unknown> = {}) {
       addSubjectToWatching: vi.fn(),
       addSubjectToWishlist: vi.fn(),
       startSubject: vi.fn(),
+      holdSubject: vi.fn(),
+      resumeHeldSubject: vi.fn(),
+      dropSubject: vi.fn(),
       pauseBacklogSubject: vi.fn(),
       resumeBacklogSubject: vi.fn(),
       completeBacklogSubject: vi.fn(),

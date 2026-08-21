@@ -6,7 +6,6 @@ import {
   markWatchedThrough,
   pauseBacklog,
   replanBacklogToday,
-  resumeBacklog,
   skipBacklogToday,
   swapBacklogTask
 } from '../api.js';
@@ -160,7 +159,7 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
                 disabled={actionDisabled(`pause-${subject.id}`)}
                 onClick={() => void runAction(`pause-${subject.id}`, () => pauseBacklog(subject.id))}
               >
-                暂停
+                搁置
               </button>
               {!subject.totalEpisodesKnown ? (
                 <button
@@ -173,24 +172,6 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
                 </button>
               ) : null}
             </>
-          )}
-        />
-        <SubjectSection
-          title="搁置"
-          subjects={data.held}
-          empty="没有搁置的补番。"
-          disabled={disabled || busyAction !== null}
-          onWatchedThrough={markThrough}
-          onUnwatched={markUnwatchedEpisode}
-          renderActions={(subject) => (
-            <button
-              type="button"
-              className="secondary"
-              disabled={actionDisabled(`resume-${subject.id}`)}
-              onClick={() => void runAction(`resume-${subject.id}`, () => resumeBacklog(subject.id))}
-            >
-              恢复
-            </button>
           )}
         />
         <SubjectSection

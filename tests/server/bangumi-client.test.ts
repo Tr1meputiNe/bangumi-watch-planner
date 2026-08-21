@@ -274,7 +274,7 @@ describe('Bangumi client', () => {
     expect(page.data[0]?.subject.date).toBe('2026-07-01');
   });
 
-  it.each([2, 3, 4] as const)('writes collection type %s with PATCH', async (type) => {
+  it.each([2, 3, 4, 5] as const)('writes collection type %s with PATCH', async (type) => {
     const fetch = vi.fn(async () => ({ ok: true, status: 204, text: async () => '' }));
     const client = createBangumiClient({
       fetch,

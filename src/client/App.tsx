@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CalendarCheck2,
+  CirclePause,
   HeartPlus,
   LibraryBig,
   ListVideo,
@@ -15,18 +16,20 @@ import {
   getBacklog,
   getCalendar,
   getDashboard,
+  getHeldSubjects,
   getSyncStatus,
-  resumeBacklog,
+  resumeHeldSubject,
   saveOAuthConfig,
   searchAnime,
   startSync,
   startSubject
 } from './api.js';
-import type { AnimeSearchResult, AuthStatus, BacklogData, DashboardData, SyncStatus } from '../server/types.js';
+import type { AnimeSearchResult, AuthStatus, BacklogData, DashboardData, DashboardSubject, SyncStatus } from '../server/types.js';
 import { displaySubjectName, formatDateTime } from '../shared/format.js';
 import BacklogView from './views/BacklogView.js';
 import CalendarView, { type CalendarViewState } from './views/CalendarView.js';
 import WatchingView from './views/WatchingView.js';
+import HeldView from './views/HeldView.js';
 import WishlistView from './views/WishlistView.js';
 
 type LoadState = {
@@ -41,19 +44,21 @@ type BacklogState = {
   error: string | null;
 };
 
-type ActiveView = 'today' | 'watching' | 'backlog' | 'wishlist' | 'calendar';
+type ActiveView = 'today' | 'watching' | 'backlog' | 'held' | 'wishlist' | 'calendar';
 type PendingAction = 'search' | 'oauth';
 type SearchDestination = 'backlog' | 'wishlist';
 
 const emptyState: LoadState = { auth: null, dashboard: null, error: null };
 const emptyBacklogState: BacklogState = { data: null, loading: false, error: null };
 const emptyCalendarState: CalendarViewState = { days: null, error: null, loading: false };
+const emptyHeldState = { data: null as DashboardSubject[] | null, loading: false, error: null as string | null };
 
 export default function App() {
   const [state, setState] = useState<LoadState>(emptyState);
   const [activeView, setActiveView] = useState<ActiveView>('today');
   const [backlogState, setBacklogState] = useState<BacklogState>(emptyBacklogState);
   const [calendarState, setCalendarState] = useState<CalendarViewState>(emptyCalendarState);
+  const [heldState, setHeldState] = useState(emptyHeldState);
   const [oauthForm, setOauthForm] = useState({ clientId: '', clientSecret: '' });
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -132,6 +137,21 @@ export default function App() {
     }
   }, []);
 
+  const loadHeld = useCallback(async () => {
+    setHeldState((current) => ({ ...current, loading: true, error: null }));
+    try {
+      setHeldState({ data: await getHeldSubjects(), loading: false, error: null });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setHeldState((current) => ({ ...current, loading: false, error: message }));
+      showError(message);
+    }
+  }, [showError]);
+
+  const refreshHeldAndPlanning = useCallback(async () => {
+    await Promise.all([loadHeld(), refreshBacklogAndDashboard()]);
+  }, [loadHeld, refreshBacklogAndDashboard]);
+
   const refreshAnimeSearch = useCallback(async () => {
     const keyword = submittedSearchKeyword.current;
     if (!keyword) return;
@@ -184,6 +204,10 @@ export default function App() {
   }, [activeView, calendarState.days, calendarState.loading, loadCalendar]);
 
   useEffect(() => {
+    if (activeView === 'held' && !heldState.data && !heldState.loading) void loadHeld();
+  }, [activeView, heldState.data, heldState.loading, loadHeld]);
+
+  useEffect(() => {
     if (!isSyncing) return;
     let polling = false;
     const interval = window.setInterval(() => {
@@ -204,6 +228,7 @@ export default function App() {
           }
           setCollectionRefreshVersion((version) => version + 1);
           if (activeView === 'today' || activeView === 'backlog') await refreshBacklogAndDashboard();
+          else if (activeView === 'held') await refreshHeldAndPlanning();
           else await load();
           if (activeView === 'backlog') await refreshAnimeSearch();
           if (syncError) showError(syncError);
@@ -214,7 +239,7 @@ export default function App() {
         });
     }, 1_000);
     return () => window.clearInterval(interval);
-  }, [activeView, isSyncing, load, refreshAnimeSearch, refreshBacklogAndDashboard, showError]);
+  }, [activeView, isSyncing, load, refreshAnimeSearch, refreshBacklogAndDashboard, refreshHeldAndPlanning, showError]);
 
   async function runAction(name: PendingAction, action: () => Promise<unknown>) {
     setPendingAction(name);
@@ -294,7 +319,7 @@ export default function App() {
       } else {
         if (result.watchAction === 'add') backgroundStatus = await addSubjectToWatching(result.id);
         if (result.watchAction === 'start') backgroundStatus = await startSubject(result.id);
-        if (result.watchAction === 'resume') await resumeBacklog(result.id);
+        if (result.watchAction === 'resume') await resumeHeldSubject(result.id);
       }
       if (backgroundStatus) {
         setSyncStatus(backgroundStatus);
@@ -401,6 +426,7 @@ export default function App() {
           <Tab icon={CalendarCheck2} active={activeView === 'today'} onClick={() => setActiveView('today')}>今日</Tab>
           <Tab icon={TvMinimalPlay} active={activeView === 'watching'} onClick={() => setActiveView('watching')}>追番</Tab>
           <Tab icon={LibraryBig} active={activeView === 'backlog'} onClick={() => setActiveView('backlog')}>补番计划</Tab>
+          <Tab icon={CirclePause} active={activeView === 'held'} onClick={() => setActiveView('held')}>搁置</Tab>
           <Tab icon={HeartPlus} active={activeView === 'wishlist'} onClick={() => setActiveView('wishlist')}>想看</Tab>
           <Tab icon={RadioTower} active={activeView === 'calendar'} onClick={() => setActiveView('calendar')}>每日放送</Tab>
         </div>
@@ -432,7 +458,7 @@ export default function App() {
         {activeView === 'watching' ? (
           <>
             {state.dashboard ? (
-              <WatchingView mode="watching" dashboard={state.dashboard} disabled={isPending} onChanged={load} onError={showError} />
+              <WatchingView mode="watching" dashboard={state.dashboard} disabled={isPending} onChanged={refreshBacklogAndDashboard} onError={showError} />
             ) : <div className="empty">正在加载追番。</div>}
             <SettingsPanel auth={state.auth} />
           </>
@@ -467,6 +493,16 @@ export default function App() {
             onSyncStarted={setSyncStatus}
             onError={showError}
           />
+        ) : null}
+        {activeView === 'held' ? (
+          heldState.data ? (
+            <HeldView
+              subjects={heldState.data}
+              disabled={isPending || heldState.loading}
+              onChanged={refreshHeldAndPlanning}
+              onError={showError}
+            />
+          ) : <div className="empty">{heldState.error || '正在加载搁置动画。'}</div>
         ) : null}
         {activeView === 'calendar' ? (
           <CalendarView state={calendarState} onRetry={loadCalendar} onError={showError} />

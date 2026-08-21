@@ -303,7 +303,7 @@ export type BangumiClient = {
   getBroadcastTimes?(): Promise<Map<number, { airDate: string; airTime: string; dayOffset: number }>>;
   markEpisodesWatched(subjectId: number, episodeIds: number[]): Promise<void>;
   markEpisodesUnwatched(subjectId: number, episodeIds: number[]): Promise<void>;
-  setSubjectCollectionType(subjectId: number, type: 2 | 3 | 4): Promise<void>;
+  setSubjectCollectionType(subjectId: number, type: 2 | 3 | 4 | 5): Promise<void>;
   addSubjectToWatching(subjectId: number): Promise<void>;
   addSubjectToWishlist(subjectId: number): Promise<void>;
   searchAnimeSubjects(keyword: string): Promise<AnimeSearchSubject[]>;
@@ -358,6 +358,7 @@ export type DashboardService = {
   getDashboard(): Promise<DashboardData>;
   getSubjectEpisodes(subjectId: number): Promise<EpisodeRow[]>;
   getBacklog(): Promise<BacklogData>;
+  getHeldSubjects(): Promise<DashboardSubject[]>;
   getWishlist(query: string, year: number | null | 'unknown'): Promise<WishlistData>;
   getCalendar(): Promise<CalendarDay[]>;
   saveBroadcastOverride(input: Omit<BroadcastOverride, 'updatedAt'>): Promise<void>;
@@ -371,6 +372,9 @@ export type DashboardService = {
   addSubjectToWatching(subjectId: number): Promise<SyncStatus>;
   addSubjectToWishlist(subjectId: number): Promise<SyncStatus>;
   startSubject(subjectId: number): Promise<SyncStatus>;
+  holdSubject(subjectId: number): Promise<void>;
+  resumeHeldSubject(subjectId: number): Promise<void>;
+  dropSubject(subjectId: number): Promise<void>;
   pauseBacklogSubject(subjectId: number): Promise<void>;
   resumeBacklogSubject(subjectId: number): Promise<void>;
   completeBacklogSubject(subjectId: number): Promise<void>;

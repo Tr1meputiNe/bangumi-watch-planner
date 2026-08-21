@@ -146,14 +146,16 @@ describe('collection sync integration', () => {
     updatingEpisode.episode.airdate = '2026-07-25';
     const finishedEpisode = episodeCollection(1511, 151, 1);
     finishedEpisode.episode.airdate = '2025-01-01';
+    const heldUpdatingEpisode = episodeCollection(1521, 152, 1);
+    heldUpdatingEpisode.episode.airdate = '2026-07-26';
     const client = clientFor({
       1: [],
       3: [collection(150, 3, 12, '2024-01-01'), collection(151, 3, 12, '2024-01-01')],
-      4: []
+      4: [collection(152, 4, 12, '2024-01-01')]
     }, catalogFor('2026-07-19'), {
       getSubjectEpisodes: vi.fn(async (subjectId) => ({
         total: 1,
-        data: subjectId === 150 ? [updatingEpisode] : [finishedEpisode]
+        data: subjectId === 150 ? [updatingEpisode] : subjectId === 152 ? [heldUpdatingEpisode] : [finishedEpisode]
       }))
     });
 
@@ -170,6 +172,7 @@ describe('collection sync integration', () => {
 
     await expect(repository.getSubject(150)).resolves.toMatchObject({ plannerMode: 'seasonal' });
     await expect(repository.getSubject(151)).resolves.toMatchObject({ plannerMode: 'backlog' });
+    await expect(repository.getSubject(152)).resolves.toMatchObject({ collectionType: 4, plannerMode: 'seasonal' });
     expect((await repository.listBacklogTasks('2026-07-19', '2026-07-25')).some((item) => item.subjectId === 150)).toBe(false);
   });
 

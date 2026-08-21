@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react';
 import {
   dismissReminder,
+  dropSubject,
   getSubjectEpisodes,
+  holdSubject,
   markUnwatched,
   markWatched,
   markWatchedThrough,
   snoozeReminderUntilTomorrow,
   swapBacklogTask
 } from '../api.js';
+import LongPressButton from '../LongPressButton.js';
 import type { BacklogData, BacklogTaskRow, DashboardData, DashboardSubject, DashboardSubjectSummary, EpisodeRow } from '../../server/types.js';
 import { displayEpisodeTitle, displaySubjectName } from '../../shared/format.js';
 
@@ -22,6 +25,7 @@ type WatchingViewProps = {
 
 export default function WatchingView({ mode, dashboard, backlog, disabled, onChanged, onError }: WatchingViewProps) {
   const [busyEpisodeId, setBusyEpisodeId] = useState<number | null>(null);
+  const [hiddenSubjectIds, setHiddenSubjectIds] = useState<Set<number>>(new Set());
   const pendingEpisodes = dashboard.pendingEpisodes;
   const todayLabel = useMemo(() => formatTodayLabel(), []);
   const subjectsById = useMemo(
@@ -43,6 +47,22 @@ export default function WatchingView({ mode, dashboard, backlog, disabled, onCha
       onError(error instanceof Error ? error.message : String(error));
     } finally {
       setBusyEpisodeId(null);
+    }
+  }
+
+  async function runSubjectAction(subjectId: number, action: () => Promise<void>) {
+    setHiddenSubjectIds((current) => new Set(current).add(subjectId));
+    try {
+      await action();
+      await onChanged();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setHiddenSubjectIds((current) => {
+        const next = new Set(current);
+        next.delete(subjectId);
+        return next;
+      });
     }
   }
 
@@ -117,7 +137,7 @@ export default function WatchingView({ mode, dashboard, backlog, disabled, onCha
           <strong>{dashboard.subjects.length}</strong>
         </div>
         <div className="subject-list">
-          {dashboard.subjects.map((subject) => (
+          {dashboard.subjects.filter((subject) => !hiddenSubjectIds.has(subject.id)).map((subject) => (
             <SubjectItem
               key={subject.id}
               subject={subject}
@@ -125,6 +145,8 @@ export default function WatchingView({ mode, dashboard, backlog, disabled, onCha
               disabled={disabled || busyEpisodeId !== null}
               onWatchedThrough={(episodeId) => runEpisodeAction(episodeId, () => markWatchedThrough(subject.id, episodeId))}
               onUnwatched={(episodeId) => runEpisodeAction(episodeId, () => markUnwatched(episodeId))}
+              onHold={() => void runSubjectAction(subject.id, () => holdSubject(subject.id))}
+              onDrop={() => void runSubjectAction(subject.id, () => dropSubject(subject.id))}
               onError={onError}
             />
           ))}
@@ -182,6 +204,8 @@ function SubjectItem({
   disabled,
   onWatchedThrough,
   onUnwatched,
+  onHold,
+  onDrop,
   onError
 }: {
   subject: DashboardSubjectSummary;
@@ -189,6 +213,8 @@ function SubjectItem({
   disabled: boolean;
   onWatchedThrough: (episodeId: number) => Promise<void>;
   onUnwatched: (episodeId: number) => Promise<void>;
+  onHold: () => void;
+  onDrop: () => void;
   onError: (message: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -228,8 +254,14 @@ function SubjectItem({
       </a>
       <div className="subject-detail">
         <div className="subject-heading">
-          <a href={subject.url} target="_blank" rel="noreferrer">{subjectTitle}</a>
-          <span>{unwatchedCount > 0 ? `${unwatchedCount} 集未看` : '已同步'}</span>
+          <div className="subject-heading-copy">
+            <a href={subject.url} target="_blank" rel="noreferrer">{subjectTitle}</a>
+            <span>{unwatchedCount > 0 ? `${unwatchedCount} 集未看` : '已同步'}</span>
+          </div>
+          <div className="subject-heading-actions">
+            <button type="button" className="secondary" disabled={disabled} onClick={onHold}>搁置</button>
+            <LongPressButton subjectTitle={subjectTitle} disabled={disabled} onCommit={onDrop} />
+          </div>
         </div>
         <div className="progress-row">
           <span>{progressText}</span>

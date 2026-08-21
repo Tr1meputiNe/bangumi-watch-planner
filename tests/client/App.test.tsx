@@ -389,7 +389,7 @@ describe('App', () => {
     expect(await screen.findByText('请求失败（HTTP 502）')).toBeInTheDocument();
   });
 
-  it('shows five tabs in the required order and loads today backlog immediately', async () => {
+  it('shows six tabs in the required order and loads today backlog immediately', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -419,13 +419,14 @@ describe('App', () => {
       '今日',
       '追番',
       '补番计划',
+      '搁置',
       '想看',
       '每日放送'
     ]);
     await screen.findByLabelText('今日补番');
     expect(fetchMock.mock.calls.some(([input]) => input.toString() === '/api/backlog')).toBe(true);
     expect(document.querySelector('.hallmark-workbench')).toBeInTheDocument();
-    expect(document.querySelectorAll('.page-tabs .tab-mark')).toHaveLength(5);
+    expect(document.querySelectorAll('.page-tabs .tab-mark')).toHaveLength(6);
     expect(document.querySelector('.app-footer')).toBeInTheDocument();
     expect(screen.getByLabelText('近期在看').querySelector('img')).toHaveAttribute('src', 'cover.jpg');
     expect(screen.getByLabelText('今日追番').querySelector('.title-cover-reel')).not.toBeInTheDocument();
@@ -439,6 +440,34 @@ describe('App', () => {
     expect(await screen.findByText('旧番标题')).toBeInTheDocument();
     expect(screen.getByLabelText('搜索动画')).toBeEnabled();
     expect(screen.queryByText('测试番剧')).not.toBeInTheDocument();
+  });
+
+  it('optimistically removes a seasonal title when it is held', async () => {
+    let held = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') return Response.json(held ? { ...dashboard, subjects: [] } : dashboard);
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
+      if (url === '/api/sync/status') return Response.json(completedSyncStatus());
+      if (url === '/api/subjects/1/hold' && init?.method === 'POST') {
+        held = true;
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole('tab', { name: '追番' }));
+    const watching = await screen.findByLabelText('在看动画');
+    await userEvent.click(within(watching).getByRole('button', { name: '搁置' }));
+
+    expect(within(watching).queryByText('测试番剧')).not.toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/subjects/1/hold', { method: 'POST' }));
   });
 
   it('renders pending episodes and can dismiss one reminder', async () => {
@@ -1163,7 +1192,7 @@ describe('App', () => {
         return Response.json(runningSyncStatus(), { status: 202 });
       }
       if (url === '/api/sync/status') return Response.json(completedSyncStatus());
-      if (url === '/api/backlog/455/resume' && init?.method === 'POST') {
+      if (url === '/api/subjects/455/resume' && init?.method === 'POST') {
         return new Response(null, { status: 204 });
       }
       throw new Error(`Unexpected request ${url}`);
@@ -1188,7 +1217,7 @@ describe('App', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/subjects/452/start', { method: 'POST' });
       expect(fetchMock).toHaveBeenCalledWith('/api/subjects/453/start', { method: 'POST' });
-      expect(fetchMock).toHaveBeenCalledWith('/api/backlog/455/resume', { method: 'POST' });
+      expect(fetchMock).toHaveBeenCalledWith('/api/subjects/455/resume', { method: 'POST' });
     });
     expect(screen.getAllByRole('button', { name: '已在看' })).toHaveLength(8);
   });
@@ -1204,7 +1233,7 @@ describe('App', () => {
       if (url === '/api/search/anime?q=%E6%B5%8B%E8%AF%95') {
         return Response.json({ results: [searchResult(455, 4, 'resume', '恢复补番')] });
       }
-      if (url === '/api/backlog/455/resume' && init?.method === 'POST') {
+      if (url === '/api/subjects/455/resume' && init?.method === 'POST') {
         return Response.json({ error: 'Bangumi write failed' }, { status: 502 });
       }
       throw new Error(`Unexpected request ${url}`);

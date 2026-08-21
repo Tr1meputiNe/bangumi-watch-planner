@@ -1,4 +1,4 @@
-import type { AnimeSearchResult, AuthStatus, BacklogData, CalendarDay, DashboardData, EpisodeRow, SyncStatus, WishlistData } from '../server/types.js';
+import type { AnimeSearchResult, AuthStatus, BacklogData, CalendarDay, DashboardData, DashboardSubject, EpisodeRow, SyncStatus, WishlistData } from '../server/types.js';
 
 async function api<T>(input: RequestInfo | URL, init?: RequestInit, retryOnInvalidToken = true): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -61,6 +61,10 @@ export async function getSubjectEpisodes(subjectId: number): Promise<EpisodeRow[
 
 export function getBacklog(): Promise<BacklogData> {
   return api<BacklogData>('/api/backlog');
+}
+
+export function getHeldSubjects(): Promise<DashboardSubject[]> {
+  return api<DashboardSubject[]>('/api/held');
 }
 
 export function getWishlist(query: string, year: number | null | 'unknown'): Promise<WishlistData> {
@@ -140,6 +144,18 @@ export function addSubjectToWishlist(subjectId: number): Promise<SyncStatus> {
 
 export function startSubject(subjectId: number): Promise<SyncStatus> {
   return api<SyncStatus>(`/api/subjects/${subjectId}/start`, { method: 'POST' });
+}
+
+export function holdSubject(subjectId: number): Promise<void> {
+  return api<void>(`/api/subjects/${subjectId}/hold`, { method: 'POST' });
+}
+
+export function resumeHeldSubject(subjectId: number): Promise<void> {
+  return api<void>(`/api/subjects/${subjectId}/resume`, { method: 'POST' });
+}
+
+export function dropSubject(subjectId: number): Promise<void> {
+  return api<void>(`/api/subjects/${subjectId}/drop`, { method: 'POST' });
 }
 
 export function pauseBacklog(subjectId: number): Promise<void> {

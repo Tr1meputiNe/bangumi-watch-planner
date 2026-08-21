@@ -69,6 +69,7 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
     episodes: await dashboard.getSubjectEpisodes(parsePositiveInteger(request.params.subjectId))
   }));
   app.get('/api/backlog', async () => dashboard.getBacklog());
+  app.get('/api/held', async () => dashboard.getHeldSubjects());
   app.get<{ Querystring: { q?: string; year?: string } }>('/api/wishlist', async (request) =>
     dashboard.getWishlist(request.query.q ?? '', parseWishlistYear(request.query.year))
   );
@@ -134,6 +135,21 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
   app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/start', async (request, reply) =>
     reply.code(202).send(await dashboard.startSubject(parsePositiveInteger(request.params.subjectId)))
   );
+
+  app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/hold', async (request, reply) => {
+    await dashboard.holdSubject(parsePositiveInteger(request.params.subjectId));
+    return reply.code(204).send();
+  });
+
+  app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/resume', async (request, reply) => {
+    await dashboard.resumeHeldSubject(parsePositiveInteger(request.params.subjectId));
+    return reply.code(204).send();
+  });
+
+  app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/drop', async (request, reply) => {
+    await dashboard.dropSubject(parsePositiveInteger(request.params.subjectId));
+    return reply.code(204).send();
+  });
 
   app.post<{ Params: { subjectId: string } }>('/api/backlog/:subjectId/pause', async (request, reply) => {
     await dashboard.pauseBacklogSubject(parsePositiveInteger(request.params.subjectId));

@@ -6,7 +6,7 @@ import BacklogView from '../../src/client/views/BacklogView.js';
 import type { BacklogData, DashboardSubject, EpisodeRow } from '../../src/server/types.js';
 
 describe('BacklogView', () => {
-  it('renders the seven-day plan and all backlog states', () => {
+  it('renders the seven-day plan without duplicating the unified held library', () => {
     render(<BacklogView data={backlogData()} disabled={false} onChanged={vi.fn()} onError={vi.fn()} />);
 
     expect(screen.getByRole('heading', { name: '补番计划' })).toBeInTheDocument();
@@ -18,7 +18,7 @@ describe('BacklogView', () => {
     expect(screen.getByText('新番 5 集 · 可补 0 集')).toBeInTheDocument();
     expect(screen.getByText('预计完成 2026-08-01')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '进行中' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '搁置' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '搁置' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '已完成' })).toBeInTheDocument();
     expect(screen.getByText('1 / ?')).toBeInTheDocument();
   });
@@ -38,7 +38,7 @@ describe('BacklogView', () => {
     });
     render(<BacklogView data={data} disabled={false} onChanged={onChanged} onError={vi.fn()} />);
 
-    for (const title of ['进行中的旧番', '搁置的旧番', '完成的旧番']) {
+    for (const title of ['进行中的旧番', '完成的旧番']) {
       expect(screen.getByLabelText(`${title}集数进度`)).toBeInTheDocument();
     }
     const activeSection = screen.getByLabelText('进行中');
@@ -66,18 +66,17 @@ describe('BacklogView', () => {
     const onChanged = vi.fn(async () => undefined);
     render(<BacklogView data={backlogData()} disabled={false} onChanged={onChanged} onError={vi.fn()} />);
 
-    for (const name of ['已看', '换一部', '今天跳过', '重新规划今天', '暂停', '恢复', '手动完成']) {
+    for (const name of ['已看', '换一部', '今天跳过', '重新规划今天', '搁置', '手动完成']) {
       await userEvent.click(screen.getByRole('button', { name }));
     }
 
-    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(7));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(6));
     expect(fetchMock.mock.calls.map(([input, init]) => [input.toString(), init?.method])).toEqual([
       ['/api/episodes/11/watched', 'POST'],
       ['/api/backlog/tasks/11/swap', 'POST'],
       ['/api/backlog/today/skip', 'POST'],
       ['/api/backlog/today/replan', 'POST'],
       ['/api/backlog/101/pause', 'POST'],
-      ['/api/backlog/102/resume', 'POST'],
       ['/api/backlog/101/complete', 'POST']
     ]);
   });

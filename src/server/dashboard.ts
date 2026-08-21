@@ -252,6 +252,11 @@ export function createDashboardService({
       };
     },
 
+    async getHeldSubjects() {
+      const subjects = await repository.listSubjectsByCollection([4]);
+      return subjects.sort((a, b) => Number(b.plannerMode === 'seasonal') - Number(a.plannerMode === 'seasonal'));
+    },
+
     async getWishlist(query, year) {
       const data = await repository.listWishlist(query.trim(), year);
       const today = todayInShanghai(clock());
@@ -414,19 +419,56 @@ export function createDashboardService({
       return startCollectionAction(() => client.setSubjectCollectionType(subjectId, 3));
     },
 
+    async holdSubject(subjectId) {
+      const subject = await requireSubject(subjectId);
+      if (!subject.plannerMode || subject.collectionType !== 3) {
+        throw Object.assign(new Error('Only active planning subjects can be held'), { statusCode: 400 });
+      }
+      await client.setSubjectCollectionType(subjectId, 4);
+      await repository.setSubjectState(subjectId, {
+        collectionType: 4,
+        plannerMode: subject.plannerMode,
+        completedAt: null
+      });
+      const now = clock();
+      await replan(await removeTodayTasksForSubject(subjectId, now), now);
+    },
+
+    async resumeHeldSubject(subjectId) {
+      const subject = await requireSubject(subjectId);
+      if (!subject.plannerMode || subject.collectionType !== 4) {
+        throw Object.assign(new Error('Only held planning subjects can be resumed'), { statusCode: 400 });
+      }
+      await client.setSubjectCollectionType(subjectId, 3);
+      await repository.setSubjectState(subjectId, {
+        collectionType: 3,
+        plannerMode: subject.plannerMode,
+        completedAt: null
+      });
+      await replan(false);
+    },
+
+    async dropSubject(subjectId) {
+      const subject = await requireSubject(subjectId);
+      if (!subject.plannerMode || ![3, 4].includes(subject.collectionType)) {
+        throw Object.assign(new Error('Only active or held planning subjects can be dropped'), { statusCode: 400 });
+      }
+      await client.setSubjectCollectionType(subjectId, 5);
+      await repository.setSubjectState(subjectId, {
+        collectionType: 5,
+        plannerMode: subject.plannerMode,
+        completedAt: null
+      });
+      const now = clock();
+      await replan(await removeTodayTasksForSubject(subjectId, now), now);
+    },
+
     async pauseBacklogSubject(subjectId) {
       const subject = await requireSubject(subjectId);
       if (subject.plannerMode !== 'backlog' || subject.collectionType !== 3) {
         throw Object.assign(new Error('Only active backlog subjects can be paused'), { statusCode: 400 });
       }
-      await client.setSubjectCollectionType(subjectId, 4);
-      await repository.setSubjectState(subjectId, {
-        collectionType: 4,
-        plannerMode: 'backlog',
-        completedAt: null
-      });
-      const now = clock();
-      await replan(await removeTodayTasksForSubject(subjectId, now), now);
+      await service.holdSubject(subjectId);
     },
 
     async resumeBacklogSubject(subjectId) {
@@ -434,13 +476,7 @@ export function createDashboardService({
       if (subject.plannerMode !== 'backlog' || subject.collectionType !== 4) {
         throw Object.assign(new Error('Only held backlog subjects can be resumed'), { statusCode: 400 });
       }
-      await client.setSubjectCollectionType(subjectId, 3);
-      await repository.setSubjectState(subjectId, {
-        collectionType: 3,
-        plannerMode: 'backlog',
-        completedAt: null
-      });
-      await replan(false);
+      await service.resumeHeldSubject(subjectId);
     },
 
     async completeBacklogSubject(subjectId) {
@@ -549,7 +585,11 @@ function getAnimeSearchWatchAction(result: { airDate: string }, subject: Subject
   }
   if (subject.collectionType === 2) return { watchAction: null, watchActionLabel: '已看过' };
   if (subject.collectionType === 3) return { watchAction: null, watchActionLabel: '已在看' };
-  if (subject.collectionType === 4) return { watchAction: 'resume' as const, watchActionLabel: '恢复补番' };
+  if (subject.collectionType === 4) return {
+    watchAction: 'resume' as const,
+    watchActionLabel: subject.plannerMode === 'seasonal' ? '恢复追番' : '恢复补番'
+  };
+  if (subject.collectionType === 5) return { watchAction: null, watchActionLabel: '已抛弃' };
   if (subject.airDate && subject.airDate > today) return { watchAction: null, watchActionLabel: '尚未播出' };
   return {
     watchAction: 'start' as const,

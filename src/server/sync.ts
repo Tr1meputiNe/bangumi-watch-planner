@@ -83,8 +83,7 @@ export async function syncAnimeCollections({
       const episodes = await getAllSubjectEpisodes(client, subject, broadcastSchedules);
       const apiTotal = collection.subject.eps ?? 0;
       const premiereDate = collection.subject.date ?? '';
-      const resolvedClassification = collectionType === 3
-        && classification.plannerMode === 'backlog'
+      const resolvedClassification = classification.plannerMode === 'backlog'
         && (isStillUpdating(episodes, today) || (isValidDateString(premiereDate) && premiereDate >= today))
         ? { ...classification, plannerMode: 'seasonal' as const }
         : classification;
@@ -277,9 +276,6 @@ function classifySubject(
   const season = seasonWindow.entries.get(subjectId);
   if (collectionType === 1) {
     return { collectionType, plannerMode: null, seasonKey: season?.seasonKey ?? null, seasonKind: season?.seasonKind ?? null };
-  }
-  if (collectionType === 4) {
-    return { collectionType, plannerMode: 'backlog', seasonKey: season?.seasonKey ?? null, seasonKind: season?.seasonKind ?? null };
   }
   return {
     collectionType,

@@ -104,11 +104,11 @@ describe('dashboard service', () => {
 
   it('adds the legal collection action to every anime search result', async () => {
     const searchAnimeSubjects = vi.fn(async (): Promise<AnimeSearchSubject[]> =>
-      Array.from({ length: 8 }, (_, index) => ({
+      Array.from({ length: 9 }, (_, index) => ({
         id: 451 + index,
         name: `Test Anime ${index + 1}`,
         nameCn: `测试动画 ${index + 1}`,
-        airDate: index === 7 ? '2099-01-01' : '2024-01-01',
+        airDate: index === 8 ? '2099-01-01' : '2024-01-01',
         eps: 12,
         image: null,
         url: `https://bgm.tv/subject/${451 + index}`
@@ -120,7 +120,8 @@ describe('dashboard service', () => {
       [454, subject({ id: 454, collectionType: 1, airDate: '2024-01-01' })],
       [455, subject({ id: 455, collectionType: 3 })],
       [456, subject({ id: 456, collectionType: 4 })],
-      [457, subject({ id: 457, collectionType: 2, completedAt: '2026-07-28T00:00:00+08:00' })]
+      [457, subject({ id: 457, collectionType: 2, completedAt: '2026-07-28T00:00:00+08:00' })],
+      [458, subject({ id: 458, collectionType: 5 })]
     ]);
     const service = createDashboardService({
       auth: authStatus(),
@@ -138,7 +139,8 @@ describe('dashboard service', () => {
       expect.objectContaining({ id: 455, collectionType: 3, watchAction: null, watchActionLabel: '已在看', wishlistAction: null, wishlistActionLabel: '已在看' }),
       expect.objectContaining({ id: 456, collectionType: 4, watchAction: 'resume', watchActionLabel: '恢复补番', wishlistAction: null, wishlistActionLabel: '已搁置' }),
       expect.objectContaining({ id: 457, collectionType: 2, watchAction: null, watchActionLabel: '已看过', wishlistAction: null, wishlistActionLabel: '已看过' }),
-      expect.objectContaining({ id: 458, collectionType: null, watchAction: null, watchActionLabel: '尚未播出', wishlistAction: 'add', wishlistActionLabel: '加入想看' })
+      expect.objectContaining({ id: 458, collectionType: 5, watchAction: null, watchActionLabel: '已抛弃', wishlistAction: null, wishlistActionLabel: '已抛弃' }),
+      expect.objectContaining({ id: 459, collectionType: null, watchAction: null, watchActionLabel: '尚未播出', wishlistAction: 'add', wishlistActionLabel: '加入想看' })
     ]);
     expect(searchAnimeSubjects).toHaveBeenCalledWith('测试');
   });
@@ -554,6 +556,43 @@ describe('dashboard service', () => {
       completedAt: null
     });
     expect(rebuildPlan).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['holdSubject', subject({ plannerMode: 'seasonal', collectionType: 3 }), 4, 'seasonal'],
+    ['resumeHeldSubject', subject({ plannerMode: 'backlog', collectionType: 4 }), 3, 'backlog'],
+    ['dropSubject', subject({ plannerMode: 'seasonal', collectionType: 3 }), 5, 'seasonal']
+  ] as const)('%s preserves the planning origin while changing Bangumi state', async (action, storedSubject, collectionType, plannerMode) => {
+    const setSubjectCollectionType = vi.fn(async () => undefined);
+    const setSubjectState = vi.fn(async () => undefined);
+    const rebuildPlan = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ setSubjectCollectionType }),
+      repository: repository({ getSubject: vi.fn(async () => storedSubject), setSubjectState }),
+      rebuildPlan,
+      clock: fixedClock
+    });
+
+    await service[action](1);
+
+    expect(setSubjectCollectionType).toHaveBeenCalledWith(1, collectionType);
+    expect(setSubjectState).toHaveBeenCalledWith(1, { collectionType, plannerMode, completedAt: null });
+    expect(rebuildPlan).toHaveBeenCalledOnce();
+  });
+
+  it('returns all held titles with seasonal titles first', async () => {
+    const backlog = dashboardSubject({ id: 1, plannerMode: 'backlog', collectionType: 4 });
+    const seasonal = dashboardSubject({ id: 2, plannerMode: 'seasonal', collectionType: 4 });
+    const listSubjectsByCollection = vi.fn(async () => [backlog, seasonal]);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client(),
+      repository: repository({ listSubjectsByCollection })
+    });
+
+    await expect(service.getHeldSubjects()).resolves.toEqual([seasonal, backlog]);
+    expect(listSubjectsByCollection).toHaveBeenCalledWith([4]);
   });
 
   it.each([
