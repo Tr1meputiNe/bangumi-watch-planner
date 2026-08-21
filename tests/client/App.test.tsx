@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/client/App.js';
@@ -300,8 +300,6 @@ describe('App', () => {
   });
 
   it('keeps cached controls usable while background sync runs, then refreshes', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     let dashboardRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
@@ -340,9 +338,13 @@ describe('App', () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole('button', { name: '立即同步' }));
+    const syncButton = await screen.findByRole('button', { name: '立即同步' });
+    vi.useFakeTimers();
+    await act(async () => {
+      fireEvent.click(syncButton);
+    });
 
-    const pendingButton = await screen.findByRole('button', { name: '同步中 0/4' });
+    const pendingButton = screen.getByRole('button', { name: '同步中 0/4' });
     expect(pendingButton).toBeDisabled();
     expect(pendingButton).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByRole('tab', { name: /补番计划/ })).toBeEnabled();
@@ -353,7 +355,7 @@ describe('App', () => {
       await vi.advanceTimersByTimeAsync(1_000);
     });
 
-    expect(await screen.findByRole('status', {}, { timeout: 2_000 })).toHaveTextContent('同步完成：4 部番剧，48 集分集');
+    expect(screen.getByRole('status')).toHaveTextContent('同步完成：4 部番剧，48 集分集');
     expect(screen.getByRole('button', { name: '立即同步' })).toBeEnabled();
     expect(dashboardRequests).toBe(2);
   });
