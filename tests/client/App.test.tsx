@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/client/App.js';
@@ -218,7 +218,8 @@ describe('App', () => {
     expect(screen.queryByText('今天看什么')).not.toBeInTheDocument();
     expect(screen.queryByText(/追番与补番分开安排/)).not.toBeInTheDocument();
     expect(screen.getByLabelText('今日追番')).toHaveTextContent('测试番剧');
-    expect(await screen.findByLabelText('今日补番')).toHaveTextContent('补番动画');
+    const backlogTitle = await screen.findByText('补番动画');
+    expect(screen.getByLabelText('今日补番')).toContainElement(backlogTitle);
     expect(screen.getByRole('tab', { name: '追番' })).toHaveAttribute('aria-selected', 'false');
   });
 
@@ -299,6 +300,8 @@ describe('App', () => {
   });
 
   it('keeps cached controls usable while background sync runs, then refreshes', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     let dashboardRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
@@ -337,7 +340,7 @@ describe('App', () => {
 
     render(<App />);
 
-    await userEvent.click(await screen.findByRole('button', { name: '立即同步' }));
+    await user.click(await screen.findByRole('button', { name: '立即同步' }));
 
     const pendingButton = await screen.findByRole('button', { name: '同步中 0/4' });
     expect(pendingButton).toBeDisabled();
@@ -345,6 +348,10 @@ describe('App', () => {
     expect(screen.getByRole('tab', { name: /补番计划/ })).toBeEnabled();
     expect(screen.queryByLabelText('搜索动画')).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/sync')).toHaveLength(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
 
     expect(await screen.findByRole('status', {}, { timeout: 2_000 })).toHaveTextContent('同步完成：4 部番剧，48 集分集');
     expect(screen.getByRole('button', { name: '立即同步' })).toBeEnabled();
