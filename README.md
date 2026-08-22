@@ -45,7 +45,7 @@ npm start
 
 ### 自行部署
 
-从 [Releases](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases) 最新版本下载名称以 `-self-host.zip` 结尾的文件，解压后运行：
+克隆本仓库后运行：
 
 ```bash
 npm ci
@@ -163,4 +163,4 @@ npm run build
 git diff --check
 ```
 
-Windows 便携包和自部署 ZIP 由 `.github/workflows/release.yml` 在推送 `v*` 标签后自动构建并发布。
+Windows 便携包由 `.github/workflows/release.yml` 在推送 `v*` 标签后自动构建并发布。
