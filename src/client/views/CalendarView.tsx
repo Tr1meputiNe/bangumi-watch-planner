@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { CalendarDay, CalendarSubject } from '../../server/types.js';
 import { displaySubjectName } from '../../shared/format.js';
 import { deleteBroadcastOverride, saveBroadcastOverride } from '../api.js';
+import { MotionValue, motionStyle } from '../motion.js';
 
 export type CalendarViewState = {
   days: CalendarDay[] | null;
@@ -33,7 +34,7 @@ export default function CalendarView({
           <p>{formatShanghaiToday()} · 本周 {totalCount} 部，今日 {today?.items.length ?? 0} 部</p>
         </div>
         <div className="calendar-overview-actions">
-          <span><strong>{today?.items.length ?? 0}</strong> 今日放送</span>
+          <span><strong><MotionValue value={today?.items.length ?? 0} /></strong> 今日放送</span>
           <button type="button" className="secondary" onClick={() => void onRetry()} disabled={state.loading}>刷新</button>
         </div>
       </header>
@@ -44,22 +45,23 @@ export default function CalendarView({
 
       {days.length > 0 ? (
         <div className="calendar-grid">
-          {days.map((day) => (
+          {days.map((day, dayIndex) => (
             <section
               key={day.weekday.id}
-              className={day.weekday.id === todayWeekdayId ? 'calendar-day is-today' : 'calendar-day'}
+              className={day.weekday.id === todayWeekdayId ? 'calendar-day is-today motion-item' : 'calendar-day motion-item'}
+              style={motionStyle(dayIndex, `calendar-day-${day.weekday.id}`)}
               aria-label={`${day.weekday.cn} ${day.items.length} 部`}
             >
               <header className="calendar-day-header">
                 <div className="calendar-day-heading"><span>{day.weekday.en}</span><h2>{day.weekday.cn}</h2></div>
                 <div className="calendar-day-summary">
                   {day.weekday.id === todayWeekdayId ? <span className="calendar-today-label">今天</span> : null}
-                  <strong>{day.items.length} 部</strong>
+                  <strong><MotionValue value={day.items.length}>{day.items.length} 部</MotionValue></strong>
                 </div>
               </header>
               <div className="calendar-items">
-                {orderCalendarItemsByBroadcastTime(day.items).map((item) => (
-                  <CalendarSubjectItem key={item.id} item={item} onChanged={onRetry} onError={onError} />
+                {orderCalendarItemsByBroadcastTime(day.items).map((item, itemIndex) => (
+                  <CalendarSubjectItem key={item.id} index={itemIndex} item={item} onChanged={onRetry} onError={onError} />
                 ))}
               </div>
             </section>
@@ -98,10 +100,12 @@ function compareAirTime(a: string, b: string): number {
 }
 
 function CalendarSubjectItem({
+  index,
   item,
   onChanged,
   onError
 }: {
+  index: number;
   item: CalendarSubject;
   onChanged: () => Promise<void>;
   onError: (message: string) => void;
@@ -148,7 +152,7 @@ function CalendarSubjectItem({
   }
 
   return (
-    <article className="calendar-subject">
+    <article className="calendar-subject motion-item" style={motionStyle(index, `calendar-subject-${item.id}`)}>
       <time className="calendar-air" dateTime={dateTime} aria-label={formatCalendarAirDateTime(item.airDate, item.airTime)}>
         <strong>{item.airTime || '待定'}</strong>
         <span>{item.airDate || '日期待定'}</span>

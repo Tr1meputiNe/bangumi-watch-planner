@@ -4129,22 +4129,53 @@ select[data-state="success"] {
 
 .long-press-button {
   position: relative;
-  isolation: isolate;
-  overflow: hidden;
+  gap: var(--space-2xs);
   touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
 }
 
-.long-press-button::before {
+.long-press-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  position: relative;
+  flex: 0 0 24px;
+}
+
+.long-press-icon::before {
+  position: absolute;
+  inset: 1px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
   content: "";
+  opacity: 0.18;
+}
+
+.long-press-icon > svg:not(.long-press-progress) {
+  width: 13px;
+  height: 13px;
+}
+
+.long-press-progress {
   position: absolute;
   inset: 0;
-  z-index: -1;
-  background: var(--color-coral-soft);
-  transform: scaleX(0);
-  transform-origin: left center;
-  transition: transform 0ms linear;
+  width: 24px;
+  height: 24px;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+
+.long-press-progress circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  opacity: 0;
+  transition: stroke-dashoffset 140ms ease-out, opacity 140ms ease-out;
 }
 
 .long-press-button.is-pressing {
@@ -4154,9 +4185,11 @@ select[data-state="success"] {
   transform: scale(0.98);
 }
 
-.long-press-button.is-pressing::before {
-  transform: scaleX(1);
-  transition-duration: 1500ms;
+.long-press-button.is-pressing .long-press-progress circle {
+  stroke-dashoffset: 0;
+  opacity: 1;
+  transition-duration: 1500ms, 100ms;
+  transition-timing-function: linear, ease-out;
 }
 
 .held-library .backlog-subject-list {
@@ -4215,7 +4248,164 @@ select[data-state="success"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .long-press-button.is-pressing::before {
-    transition-duration: 1500ms !important;
+  .long-press-button.is-pressing .long-press-progress circle {
+    transition-duration: 1500ms, 0.01ms !important;
   }
+}
+
+/* Interaction motion */
+:root {
+  --motion-duration: 250ms;
+  --motion-stagger: 30ms;
+  --motion-press: 90ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.view-motion {
+  animation: view-motion-enter var(--motion-duration) var(--motion-ease) backwards;
+}
+
+.motion-item {
+  animation: motion-item-enter var(--motion-duration) var(--motion-ease) backwards;
+  animation-delay: calc(var(--motion-index, 0) * var(--motion-stagger));
+}
+
+.motion-value-clip {
+  display: inline-grid;
+  overflow: clip;
+  vertical-align: bottom;
+}
+
+.motion-value {
+  grid-area: 1 / 1;
+  animation: motion-value-enter 180ms ease-out backwards;
+}
+
+.calendar-correction-form,
+.watch-progress-grid {
+  transform-origin: top center;
+  animation: motion-expand-enter var(--motion-duration) var(--motion-ease) backwards;
+}
+
+button,
+.button-link,
+.subject-row,
+.backlog-task,
+.backlog-day,
+.wishlist-item,
+.calendar-subject,
+.search-result,
+.subject-cover,
+.wishlist-cover {
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+button:active,
+.button-link:active {
+  transform: scale(0.97);
+  transition-duration: var(--motion-press);
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-group(*) {
+  animation-duration: var(--motion-duration);
+  animation-timing-function: var(--motion-ease);
+}
+
+::view-transition-old(*) {
+  animation: motion-view-old var(--motion-duration) var(--motion-ease) both;
+}
+
+::view-transition-new(*) {
+  animation: motion-view-new var(--motion-duration) var(--motion-ease) both;
+}
+
+@keyframes view-motion-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes motion-item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes motion-value-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.3em);
+  }
+}
+
+@keyframes motion-expand-enter {
+  from {
+    opacity: 0;
+    transform: scaleY(0.96) translateY(-4px);
+  }
+}
+
+@keyframes motion-view-old {
+  to {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+
+@keyframes motion-view-new {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  button:hover:not(:active),
+  .button-link:hover:not(:active) {
+    transform: translateY(-1px);
+  }
+
+  .subject-row:hover,
+  .backlog-task:hover,
+  .backlog-day:hover,
+  .wishlist-item:hover,
+  .calendar-subject:hover,
+  .search-result:hover {
+    transform: translateY(-2px);
+  }
+
+  .page-tabs button:hover {
+    transform: translateY(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-motion,
+  .motion-item,
+  .motion-value,
+  .calendar-correction-form,
+  .watch-progress-grid {
+    animation: motion-reduced-fade 120ms ease-out backwards !important;
+    transform: none !important;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0.01ms !important;
+    transform: none !important;
+  }
+}
+
+@keyframes motion-reduced-fade {
+  from { opacity: 0; }
 }

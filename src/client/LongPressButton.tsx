@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Trash2 } from 'lucide-react';
 
 const HOLD_DURATION_MS = 1_500;
 
@@ -75,7 +76,13 @@ export default function LongPressButton({ subjectTitle, disabled, onCommit }: {
         }
       }}
     >
-      长按抛弃
+      <span className="long-press-icon" aria-hidden="true">
+        <svg className="long-press-progress" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" pathLength="1" />
+        </svg>
+        <Trash2 />
+      </span>
+      <span>长按抛弃</span>
     </button>
   );
 }

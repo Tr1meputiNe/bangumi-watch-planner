@@ -3,6 +3,7 @@ import { dropSubject, resumeHeldSubject } from '../api.js';
 import LongPressButton from '../LongPressButton.js';
 import type { DashboardSubject } from '../../server/types.js';
 import { displayEpisodeTitle, displaySubjectName } from '../../shared/format.js';
+import { commitWithMotion, MotionValue, motionStyle } from '../motion.js';
 
 export default function HeldView({ subjects, disabled, onChanged, onError }: {
   subjects: DashboardSubject[];
@@ -15,18 +16,18 @@ export default function HeldView({ subjects, disabled, onChanged, onError }: {
   const visibleSubjects = subjects.filter((subject) => !hiddenSubjectIds.has(subject.id));
 
   async function runAction(subjectId: number, action: () => Promise<void>) {
-    setHiddenSubjectIds((current) => new Set(current).add(subjectId));
+    commitWithMotion(() => setHiddenSubjectIds((current) => new Set(current).add(subjectId)));
     try {
       await action();
       await onChanged();
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
     } finally {
-      setHiddenSubjectIds((current) => {
+      commitWithMotion(() => setHiddenSubjectIds((current) => {
         const next = new Set(current);
         next.delete(subjectId);
         return next;
-      });
+      }));
     }
   }
 
@@ -39,22 +40,23 @@ export default function HeldView({ subjects, disabled, onChanged, onError }: {
           <p>恢复后会回到原来的追番或补番计划。</p>
         </div>
         <dl className="backlog-overview-stats held-overview-stats">
-          <div><dt>全部</dt><dd>{subjects.length} 部</dd></div>
-          <div><dt>本季追番</dt><dd>{seasonalCount} 部</dd></div>
-          <div><dt>补番</dt><dd>{subjects.length - seasonalCount} 部</dd></div>
+          <div><dt>全部</dt><dd><MotionValue value={subjects.length}>{subjects.length} 部</MotionValue></dd></div>
+          <div><dt>本季追番</dt><dd><MotionValue value={seasonalCount}>{seasonalCount} 部</MotionValue></dd></div>
+          <div><dt>补番</dt><dd><MotionValue value={subjects.length - seasonalCount}>{subjects.length - seasonalCount} 部</MotionValue></dd></div>
         </dl>
       </header>
 
       <section className="backlog-section held-library" aria-label="已搁置动画">
         <header className="backlog-section-header">
           <div><span className="panel-eyebrow">统一片库</span><h2>已搁置动画</h2></div>
-          <strong className="backlog-section-count">{subjects.length} 部</strong>
+          <strong className="backlog-section-count"><MotionValue value={subjects.length}>{subjects.length} 部</MotionValue></strong>
         </header>
         {visibleSubjects.length > 0 ? (
           <div className="backlog-subject-list">
-            {visibleSubjects.map((subject) => (
+            {visibleSubjects.map((subject, index) => (
               <HeldSubjectItem
                 key={subject.id}
+                index={index}
                 subject={subject}
                 disabled={disabled}
                 onResume={() => void runAction(subject.id, () => resumeHeldSubject(subject.id))}
@@ -68,7 +70,8 @@ export default function HeldView({ subjects, disabled, onChanged, onError }: {
   );
 }
 
-function HeldSubjectItem({ subject, disabled, onResume, onDrop }: {
+function HeldSubjectItem({ index, subject, disabled, onResume, onDrop }: {
+  index: number;
   subject: DashboardSubject;
   disabled: boolean;
   onResume(): void;
@@ -78,7 +81,7 @@ function HeldSubjectItem({ subject, disabled, onResume, onDrop }: {
   const progressPercent = subject.eps > 0 ? Math.min(100, Math.round((subject.epStatus / subject.eps) * 100)) : 0;
 
   return (
-    <article className="subject-row backlog-subject-row held-subject-row">
+    <article className="subject-row backlog-subject-row held-subject-row motion-item" style={motionStyle(index, `held-subject-${subject.id}`)}>
       <a className="subject-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={title}>
         {subject.image ? <img src={subject.image} alt="" /> : <span>{title}</span>}
       </a>
@@ -88,7 +91,7 @@ function HeldSubjectItem({ subject, disabled, onResume, onDrop }: {
           <span>{subject.plannerMode === 'seasonal' ? '本季追番' : '补番'}</span>
         </div>
         <div className="progress-row">
-          <span>{subject.epStatus} / {subject.eps || '?'}</span>
+          <MotionValue value={`${subject.epStatus}/${subject.eps || '?'}`}>{subject.epStatus} / {subject.eps || '?'}</MotionValue>
           <div className="progress-track" aria-hidden="true"><i style={{ width: `${progressPercent}%` }} /></div>
         </div>
         {subject.nextEpisode ? (

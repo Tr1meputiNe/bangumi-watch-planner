@@ -15,6 +15,7 @@ describe('LongPressButton', () => {
 
     fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
     expect(button).toHaveClass('is-pressing');
+    expect(button.querySelector('.long-press-progress')).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(1_499));
     expect(onCommit).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));

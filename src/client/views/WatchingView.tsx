@@ -11,6 +11,7 @@ import {
   swapBacklogTask
 } from '../api.js';
 import LongPressButton from '../LongPressButton.js';
+import { commitWithMotion, MotionValue, motionStyle } from '../motion.js';
 import type { BacklogData, BacklogTaskRow, DashboardData, DashboardSubject, DashboardSubjectSummary, EpisodeRow } from '../../server/types.js';
 import { displayEpisodeTitle, displaySubjectName } from '../../shared/format.js';
 
@@ -51,18 +52,18 @@ export default function WatchingView({ mode, dashboard, backlog, disabled, onCha
   }
 
   async function runSubjectAction(subjectId: number, action: () => Promise<void>) {
-    setHiddenSubjectIds((current) => new Set(current).add(subjectId));
+    commitWithMotion(() => setHiddenSubjectIds((current) => new Set(current).add(subjectId)));
     try {
       await action();
       await onChanged();
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
     } finally {
-      setHiddenSubjectIds((current) => {
+      commitWithMotion(() => setHiddenSubjectIds((current) => {
         const next = new Set(current);
         next.delete(subjectId);
         return next;
-      });
+      }));
     }
   }
 
@@ -75,8 +76,8 @@ export default function WatchingView({ mode, dashboard, backlog, disabled, onCha
             <p>{todayLabel}</p>
           </div>
           <dl className="backlog-overview-stats">
-            <div><dt>追番</dt><dd>{pendingEpisodes.length} 集</dd></div>
-            <div><dt>补番</dt><dd>{backlog?.todayTasks.length ?? 0} 集</dd></div>
+            <div><dt>追番</dt><dd><MotionValue value={pendingEpisodes.length}>{pendingEpisodes.length} 集</MotionValue></dd></div>
+            <div><dt>补番</dt><dd><MotionValue value={backlog?.todayTasks.length ?? 0}>{backlog?.todayTasks.length ?? 0} 集</MotionValue></dd></div>
           </dl>
         </header>
       ) : null}
@@ -84,13 +85,14 @@ export default function WatchingView({ mode, dashboard, backlog, disabled, onCha
       {mode === 'today' ? <section className="panel backlog-panel" aria-label="今日追番">
         <div className="panel-title">
           <div><span className="panel-eyebrow">本季新番</span><h2>今日追番</h2><p className="today-date">{todayLabel}</p></div>
-          <strong>{pendingEpisodes.length}</strong>
+          <strong><MotionValue value={pendingEpisodes.length} /></strong>
         </div>
         {pendingEpisodes.length > 0 ? (
           <div className="episode-list">
-            {pendingEpisodes.map((episode) => (
+            {pendingEpisodes.map((episode, index) => (
               <EpisodeItem
                 key={episode.id}
+                index={index}
                 episode={episode}
                 subject={subjectsById.get(episode.subjectId)}
                 disabled={disabled || busyEpisodeId === episode.id}
@@ -108,7 +110,7 @@ export default function WatchingView({ mode, dashboard, backlog, disabled, onCha
         <section className="backlog-section backlog-today" aria-label="今日补番">
           <header className="backlog-section-header">
             <div><span className="panel-eyebrow">旧番计划</span><h2>今日补番</h2></div>
-            <strong className="backlog-section-count">{backlog?.todayTasks.length ?? 0} 集</strong>
+            <strong className="backlog-section-count"><MotionValue value={backlog?.todayTasks.length ?? 0}>{backlog?.todayTasks.length ?? 0} 集</MotionValue></strong>
           </header>
           {backlog === undefined || backlog === null ? (
             <div className="empty">正在加载补番安排。</div>
@@ -134,12 +136,13 @@ export default function WatchingView({ mode, dashboard, backlog, disabled, onCha
       {mode === 'watching' ? <section className="panel watching-panel" aria-label="在看动画">
         <div className="panel-title compact">
           <div><span className="panel-eyebrow">本季追番</span><h2>在看动画</h2></div>
-          <strong>{dashboard.subjects.length}</strong>
+          <strong><MotionValue value={dashboard.subjects.length} /></strong>
         </div>
         <div className="subject-list">
-          {dashboard.subjects.filter((subject) => !hiddenSubjectIds.has(subject.id)).map((subject) => (
+          {dashboard.subjects.filter((subject) => !hiddenSubjectIds.has(subject.id)).map((subject, index) => (
             <SubjectItem
               key={subject.id}
+              index={index}
               subject={subject}
               pendingCount={pendingBySubject.get(subject.id) ?? 0}
               disabled={disabled || busyEpisodeId !== null}
@@ -177,7 +180,7 @@ function TodayBacklogTask({
   const episodeNumber = task.episode.ep ?? task.episode.sort;
 
   return (
-    <article className="backlog-task">
+    <article className="backlog-task motion-item" style={motionStyle(index - 1, `today-backlog-task-${task.id}`)}>
       <a className="backlog-task-cover" href={task.episode.subjectUrl} target="_blank" rel="noreferrer" aria-label={subjectTitle}>
         {subject?.image ? <img src={subject.image} alt="" /> : <span>{String(index).padStart(2, '0')}</span>}
       </a>
@@ -199,6 +202,7 @@ function findBacklogSubject(backlog: BacklogData, subjectId: number): DashboardS
 }
 
 function SubjectItem({
+  index,
   subject,
   pendingCount,
   disabled,
@@ -208,6 +212,7 @@ function SubjectItem({
   onDrop,
   onError
 }: {
+  index: number;
   subject: DashboardSubjectSummary;
   pendingCount: number;
   disabled: boolean;
@@ -248,7 +253,7 @@ function SubjectItem({
   }
 
   return (
-    <article className="subject-row">
+    <article className="subject-row motion-item" style={motionStyle(index, `watching-subject-${subject.id}`)}>
       <a className="subject-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={subjectTitle}>
         {subject.image ? <img src={subject.image} alt="" /> : <span>{subject.nameCn || subject.name}</span>}
       </a>
@@ -264,7 +269,7 @@ function SubjectItem({
           </div>
         </div>
         <div className="progress-row">
-          <span>{progressText}</span>
+          <MotionValue value={progressText}>{progressText}</MotionValue>
           <div className="progress-track" aria-hidden="true"><i style={{ width: `${progressPercent}%` }} /></div>
         </div>
         {subject.nextEpisode ? (
@@ -309,7 +314,7 @@ function WatchProgressGrid({
 }) {
   return (
     <div className="watch-progress-grid" aria-label={`${subjectTitle}集数进度`}>
-      {episodes.map((episode) => {
+      {episodes.map((episode, index) => {
         const progress = Number(episode.ep ?? episode.sort);
         const watched = episode.collectionType === 2;
         const aired = hasAired(episode.airdate);
@@ -317,7 +322,8 @@ function WatchProgressGrid({
           <button
             key={episode.id}
             type="button"
-            className={['watch-episode-button', watched ? 'is-watched' : aired ? 'is-aired' : 'is-unaired'].join(' ')}
+            className={['watch-episode-button', 'motion-item', watched ? 'is-watched' : aired ? 'is-aired' : 'is-unaired'].join(' ')}
+            style={motionStyle(index, `watching-episode-${episode.id}`)}
             onClick={() => (watched ? onUnwatched(episode.id) : onWatchedThrough(episode.id))}
             disabled={disabled}
             aria-label={watched ? `${subjectTitle} 第 ${progress} 集 取消看过` : `${subjectTitle} 第 ${progress} 集 标为看过`}
@@ -332,6 +338,7 @@ function WatchProgressGrid({
 }
 
 function EpisodeItem({
+  index,
   episode,
   subject,
   disabled,
@@ -340,6 +347,7 @@ function EpisodeItem({
   onSnooze,
   onDismiss
 }: {
+  index: number;
   episode: EpisodeRow;
   subject?: DashboardSubjectSummary;
   disabled: boolean;
@@ -351,7 +359,7 @@ function EpisodeItem({
   const subjectTitle = displaySubjectName(episode.subjectName, episode.subjectNameCn);
 
   return (
-    <article className="episode-row">
+    <article className="episode-row motion-item" style={motionStyle(index, `pending-episode-${episode.id}`)}>
       <a className="episode-visual" href={episode.subjectUrl} target="_blank" rel="noreferrer" aria-label={subjectTitle}>
         {subject?.image ? <img src={subject.image} alt="" /> : <span>{subjectTitle}</span>}
         <span className="episode-index" title={formatEpisodeAirdate(episode.airdate, episode.airTime)}>

@@ -11,6 +11,7 @@ import {
 } from '../api.js';
 import type { BacklogData, BacklogTaskRow, DashboardSubject, EpisodeRow } from '../../server/types.js';
 import { displayEpisodeTitle, displaySubjectName } from '../../shared/format.js';
+import { MotionValue, motionStyle } from '../motion.js';
 
 type BacklogViewProps = {
   data: BacklogData;
@@ -50,8 +51,8 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
           <p>公平轮转多部旧番，依据每日新番负载自动调整。</p>
         </div>
         <dl className="backlog-overview-stats">
-          <div><dt>今日</dt><dd>{data.todayTasks.length} 集</dd></div>
-          <div><dt>进行中</dt><dd>{data.active.length} 部</dd></div>
+          <div><dt>今日</dt><dd><MotionValue value={data.todayTasks.length}>{data.todayTasks.length} 集</MotionValue></dd></div>
+          <div><dt>进行中</dt><dd><MotionValue value={data.active.length}>{data.active.length} 部</MotionValue></dd></div>
           <div><dt>预计完成</dt><dd>{data.estimatedCompletionDate || '待估算'}</dd></div>
         </dl>
       </header>
@@ -115,18 +116,18 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
           <span className="backlog-section-count">按新番负载动态排期</span>
         </header>
         <div className="backlog-days">
-          {data.futureDays.map((day) => (
-            <section key={day.date} className="backlog-day" aria-label={day.date}>
+          {data.futureDays.map((day, dayIndex) => (
+            <section key={day.date} className="backlog-day motion-item" style={motionStyle(dayIndex, `backlog-day-${day.date}`)} aria-label={day.date}>
               <header>
                 <strong>{formatPlanDate(day.date)}</strong>
                 <span>新番 {day.seasonalLoad} 集 · 可补 {day.capacity} 集</span>
               </header>
               {day.tasks.length > 0 ? (
                 <ul>
-                  {day.tasks.map((task) => {
+                  {day.tasks.map((task, taskIndex) => {
                     const subject = subjectsById.get(task.subjectId);
                     return (
-                      <li key={task.id} className="backlog-day-task">
+                      <li key={task.id} className="backlog-day-task motion-item" style={motionStyle(taskIndex, `backlog-future-task-${task.id}`)}>
                         <a className="backlog-day-cover" href={task.episode.subjectUrl} target="_blank" rel="noreferrer" aria-label={taskLabel(task)}>
                           {subject?.image ? <img src={subject.image} alt="" /> : <span>{episodeNumber(task)}</span>}
                         </a>
@@ -203,7 +204,7 @@ function BacklogTask({
   onAction(key: string, action: () => Promise<unknown>): Promise<void>;
 }) {
   return (
-    <article className="backlog-task">
+    <article className="backlog-task motion-item" style={motionStyle(index - 1, `backlog-task-${task.id}`)}>
       <a className="backlog-task-cover" href={task.episode.subjectUrl} target="_blank" rel="noreferrer" aria-label={taskLabel(task)}>
         {subject?.image ? <img src={subject.image} alt="" /> : <span>{String(index).padStart(2, '0')}</span>}
       </a>
@@ -254,13 +255,14 @@ function SubjectSection({
     <section className="backlog-section backlog-subject-section" aria-label={title}>
       <header className="backlog-section-header">
         <div><span className="panel-eyebrow">补番片库</span><h2>{title}</h2></div>
-        <strong className="backlog-section-count">{subjects.length} 部</strong>
+        <strong className="backlog-section-count"><MotionValue value={subjects.length}>{subjects.length} 部</MotionValue></strong>
       </header>
       {subjects.length > 0 ? (
         <div className="backlog-subject-list">
-          {subjects.map((subject) => (
+          {subjects.map((subject, index) => (
             <BacklogSubjectItem
               key={subject.id}
+              index={index}
               subject={subject}
               disabled={disabled}
               renderActions={renderActions}
@@ -277,12 +279,14 @@ function SubjectSection({
 }
 
 function BacklogSubjectItem({
+  index,
   subject,
   disabled,
   renderActions,
   onWatchedThrough,
   onUnwatched
 }: {
+  index: number;
   subject: DashboardSubject;
   disabled: boolean;
   renderActions?: (subject: DashboardSubject) => React.ReactNode;
@@ -295,7 +299,7 @@ function BacklogSubjectItem({
   const episodeOptions = subject.mainEpisodes.length > 0 ? subject.mainEpisodes : subject.unwatchedMainEpisodes;
 
   return (
-    <article className="subject-row backlog-subject-row">
+    <article className="subject-row backlog-subject-row motion-item" style={motionStyle(index, `backlog-subject-${subject.id}`)}>
       <a className="subject-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={subjectTitle}>
         {subject.image ? <img src={subject.image} alt="" /> : <span>{subject.nameCn || subject.name}</span>}
       </a>
@@ -305,7 +309,7 @@ function BacklogSubjectItem({
           <span>{subject.unwatchedMainEpisodeCount > 0 ? `${subject.unwatchedMainEpisodeCount} 集未看` : '已同步'}</span>
         </div>
         <div className="progress-row">
-          <span>{progressText}</span>
+          <MotionValue value={progressText}>{progressText}</MotionValue>
           <div className="progress-track" aria-hidden="true"><i style={{ width: `${progressPercent}%` }} /></div>
         </div>
         {subject.nextEpisode ? (
@@ -341,7 +345,7 @@ function WatchProgressGrid({
 }) {
   return (
     <div className="watch-progress-grid" aria-label={`${subjectTitle}集数进度`}>
-      {episodes.map((episode) => {
+      {episodes.map((episode, index) => {
         const progress = Number(episode.ep ?? episode.sort);
         const watched = episode.collectionType === 2;
         const aired = hasAired(episode.airdate);
@@ -349,7 +353,8 @@ function WatchProgressGrid({
           <button
             key={episode.id}
             type="button"
-            className={['watch-episode-button', watched ? 'is-watched' : aired ? 'is-aired' : 'is-unaired'].join(' ')}
+            className={['watch-episode-button', 'motion-item', watched ? 'is-watched' : aired ? 'is-aired' : 'is-unaired'].join(' ')}
+            style={motionStyle(index, `backlog-episode-${episode.id}`)}
             onClick={() => (watched ? onUnwatched(episode.id) : onWatchedThrough(episode.id))}
             disabled={disabled}
             aria-label={watched ? `${subjectTitle} 第 ${progress} 集 取消看过` : `${subjectTitle} 第 ${progress} 集 标为看过`}

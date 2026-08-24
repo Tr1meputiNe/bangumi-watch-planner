@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getWishlist, startSubject } from '../api.js';
 import type { SyncStatus, WishlistData } from '../../server/types.js';
 import { displaySubjectName } from '../../shared/format.js';
+import { commitWithMotion, MotionValue, motionStyle } from '../motion.js';
 
 type WishlistViewProps = {
   disabled: boolean;
@@ -37,7 +38,7 @@ export default function WishlistView({ disabled, refreshVersion, onSyncStarted, 
       try {
         const result = await getWishlist(debouncedQuery, year);
         if (sequence === requestSequence.current) {
-          setData(result);
+          commitWithMotion(() => setData(result));
         }
       } catch (error) {
         if (sequence === requestSequence.current) {
@@ -58,21 +59,21 @@ export default function WishlistView({ disabled, refreshVersion, onSyncStarted, 
     const actionFilterKey = filterKey;
     requestSequence.current += 1;
     setLoading(false);
-    setData((current) => ({
+    commitWithMotion(() => setData((current) => ({
       ...current,
       items: current.items.filter((item) => item.id !== subjectId)
-    }));
+    })));
 
     try {
       onSyncStarted(await startSubject(subjectId));
     } catch (error) {
       if (filterKeyRef.current === actionFilterKey) {
-        setData((current) => {
-          if (current.items.some((item) => item.id === subjectId)) return current;
-          const items = [...current.items];
-          items.splice(Math.min(index, items.length), 0, subject);
-          return { ...current, items };
-        });
+        commitWithMotion(() => setData((current) => {
+            if (current.items.some((item) => item.id === subjectId)) return current;
+            const items = [...current.items];
+            items.splice(Math.min(index, items.length), 0, subject);
+            return { ...current, items };
+          }));
       }
       onError(error instanceof Error ? error.message : String(error));
     }
@@ -85,7 +86,7 @@ export default function WishlistView({ disabled, refreshVersion, onSyncStarted, 
           <span className="panel-eyebrow">我的片单</span>
           <h1>想看</h1>
         </div>
-        <strong className="wishlist-count" aria-live="polite">{data.items.length} 部</strong>
+        <strong aria-live="polite"><MotionValue value={data.items.length} className="wishlist-count">{data.items.length} 部</MotionValue></strong>
       </header>
 
       <div className="wishlist-filters" role="search">
@@ -112,8 +113,8 @@ export default function WishlistView({ disabled, refreshVersion, onSyncStarted, 
       {!loading && data.items.length === 0 ? <div className="empty">没有符合条件的想看动画。</div> : null}
       {data.items.length > 0 ? (
         <div className="wishlist-list">
-          {data.items.map((subject) => (
-            <article key={subject.id} className="wishlist-item">
+          {data.items.map((subject, index) => (
+            <article key={subject.id} className="wishlist-item motion-item" style={motionStyle(index, `wishlist-subject-${subject.id}`)}>
               <a className="wishlist-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={displaySubjectName(subject.name, subject.nameCn)}>
                 {subject.image ? <img src={subject.image} alt="" /> : <span>暂无封面</span>}
               </a>
