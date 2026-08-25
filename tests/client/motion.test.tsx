@@ -10,7 +10,11 @@ afterEach(() => {
 
 describe('motion helpers', () => {
   it('uses native view transitions and clamps stagger delays', () => {
-    const startViewTransition = vi.fn((update: () => void) => update());
+    const catchSkippedTransition = vi.fn();
+    const startViewTransition = vi.fn((update: () => void) => {
+      update();
+      return { ready: { catch: catchSkippedTransition } };
+    });
     Object.defineProperty(document, 'startViewTransition', { configurable: true, value: startViewTransition });
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
     const update = vi.fn();
@@ -18,6 +22,7 @@ describe('motion helpers', () => {
     commitWithMotion(update);
 
     expect(startViewTransition).toHaveBeenCalledOnce();
+    expect(catchSkippedTransition).toHaveBeenCalledOnce();
     expect(update).toHaveBeenCalledOnce();
     expect(motionStyle(12, 'subject-1')).toEqual({ '--motion-index': 5, viewTransitionName: 'subject-1' });
   });

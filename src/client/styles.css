@@ -184,7 +184,7 @@ p {
   justify-content: flex-end;
 }
 
-.topbar-stats span {
+.topbar-stats > span {
   min-height: 30px;
   display: inline-flex;
   align-items: center;
@@ -1727,12 +1727,12 @@ body {
   justify-content: stretch;
 }
 
-.topbar-stats span {
+.topbar-stats > span {
   justify-content: center;
   padding-inline: 7px;
 }
 
-.topbar-stats span:last-child {
+.topbar-stats > span:last-child {
   grid-column: 1 / -1;
 }
 
@@ -2149,7 +2149,7 @@ body {
     grid-column: 1 / -1;
   }
 
-  .topbar-stats span:last-child {
+  .topbar-stats > span:last-child {
     grid-column: auto;
   }
 
@@ -2221,7 +2221,7 @@ body {
     display: none;
   }
 
-  .topbar-stats span {
+  .topbar-stats > span {
     font-size: 0.8rem;
   }
 
@@ -2446,7 +2446,7 @@ body {
     color: #f0a0b8;
   }
 
-  .topbar-stats span {
+  .topbar-stats > span {
     border-color: #454753;
     background: #2a2b35;
   }
@@ -2865,7 +2865,7 @@ select[data-state="success"] {
   gap: var(--space-2xs);
 }
 
-.topbar-stats span {
+.topbar-stats > span {
   min-width: 0;
   min-height: 36px;
   justify-content: center;
@@ -3775,7 +3775,7 @@ select[data-state="success"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .topbar-stats span:last-child {
+  .topbar-stats > span:last-child {
     grid-column: 1 / -1;
   }
 
@@ -4259,6 +4259,7 @@ select[data-state="success"] {
   --motion-stagger: 30ms;
   --motion-press: 90ms;
   --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-button-shadow: 0 5px 12px rgb(8 7 12 / 18%);
 }
 
 .view-motion {
@@ -4369,9 +4370,10 @@ button:active,
 }
 
 @media (hover: hover) and (pointer: fine) {
-  button:hover:not(:active),
+  button:not(:disabled):hover:not(:active),
   .button-link:hover:not(:active) {
-    transform: translateY(-1px);
+    box-shadow: var(--motion-button-shadow);
+    transform: translateY(-2px);
   }
 
   .subject-row:hover,
@@ -4383,7 +4385,8 @@ button:active,
     transform: translateY(-2px);
   }
 
-  .page-tabs button:hover {
+  .page-tabs button:not(:disabled):hover:not(:active) {
+    box-shadow: none;
     transform: translateY(-1px);
   }
 }

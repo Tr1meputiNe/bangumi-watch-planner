@@ -7,7 +7,7 @@ type MotionStyle = CSSProperties & {
 };
 
 type ViewTransitionDocument = Document & {
-  startViewTransition?: (update: () => void) => unknown;
+  startViewTransition?: (update: () => void) => { ready?: Promise<unknown> } | undefined;
 };
 
 export function motionStyle(index: number, name: string): MotionStyle {
@@ -32,7 +32,8 @@ export function commitWithMotion(update: () => void): void {
     flushSync(update);
   };
   try {
-    documentWithTransition.startViewTransition(commit);
+    const transition = documentWithTransition.startViewTransition(commit);
+    void transition?.ready?.catch(() => undefined);
   } catch {
     commit();
   }
