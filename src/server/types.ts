@@ -103,11 +103,13 @@ export type EpisodeRow = {
 export type DashboardSubject = SubjectRow & {
   nextEpisode: EpisodeRow | null;
   mainEpisodes: EpisodeRow[];
+  progressEpisodes: EpisodeRow[];
   unwatchedMainEpisodeCount: number;
+  unwatchedProgressEpisodeCount: number;
   unwatchedMainEpisodes: EpisodeRow[];
 };
 
-export type DashboardSubjectSummary = Omit<DashboardSubject, 'mainEpisodes' | 'unwatchedMainEpisodes'>;
+export type DashboardSubjectSummary = Omit<DashboardSubject, 'mainEpisodes' | 'progressEpisodes' | 'unwatchedMainEpisodes'>;
 
 export type DashboardData = {
   pendingEpisodes: EpisodeRow[];

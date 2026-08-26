@@ -3268,6 +3268,14 @@ select[data-state="success"] {
   color: var(--color-muted);
 }
 
+.watch-episode-button.is-missing {
+  border-style: dashed;
+  background: transparent;
+  color: var(--color-muted);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .empty {
   min-height: 112px;
   display: grid;

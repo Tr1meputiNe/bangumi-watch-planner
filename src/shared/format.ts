@@ -7,6 +7,10 @@ export function displayEpisodeTitle(name: string, nameCn: string, sort: number):
   return title || `第 ${sort} 集`;
 }
 
+export function episodeProgress(episode: { ep: number | null; sort: number }): number {
+  return Number(episode.ep && episode.ep > 0 ? episode.ep : episode.sort);
+}
+
 export function formatDateTime(value: string | null): string {
   if (!value) return '尚未同步';
   const date = new Date(value);

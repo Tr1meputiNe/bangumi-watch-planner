@@ -66,7 +66,9 @@ function subject(id: number, nameCn: string, plannerMode: 'seasonal' | 'backlog'
     completedAt: null,
     nextEpisode: null,
     mainEpisodes: [],
+    progressEpisodes: [],
     unwatchedMainEpisodeCount: 9,
+    unwatchedProgressEpisodeCount: 9,
     unwatchedMainEpisodes: []
   };
 }

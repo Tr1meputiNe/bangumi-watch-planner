@@ -383,7 +383,7 @@ describe('dashboard service', () => {
     });
   });
 
-  it('auto-completes only known totals with enough fetched and watched main episodes', () => {
+  it('auto-completes only known totals with enough fetched and watched progress episodes', () => {
     const complete = [episode({ id: 11, collectionType: 2 }), episode({ id: 12, sort: 2, ep: 2, collectionType: 2 })];
 
     expect(canAutoComplete(subject(), complete)).toBe(true);
@@ -391,6 +391,18 @@ describe('dashboard service', () => {
     expect(canAutoComplete(subject({ eps: 3 }), complete)).toBe(false);
     expect(canAutoComplete(subject(), [complete[0], { ...complete[1], collectionType: 0 }])).toBe(false);
     expect(canAutoComplete(subject(), [...complete, episode({ id: 99, episodeType: 1, collectionType: 0 })])).toBe(true);
+    expect(canAutoComplete(
+      subject({ eps: 3 }),
+      [...complete, episode({ id: 13, episodeType: 1, sort: 3, ep: 0, collectionType: 2 })]
+    )).toBe(true);
+    expect(canAutoComplete(
+      subject({ eps: 4 }),
+      [
+        ...complete,
+        episode({ id: 13, episodeType: 1, sort: 3, ep: 0, collectionType: 2 }),
+        episode({ id: 14, episodeType: 1, sort: 4, ep: 0, collectionType: 2 })
+      ]
+    )).toBe(false);
   });
 
   it.each([
@@ -1042,7 +1054,7 @@ function repository(overrides: Partial<Repository> = {}): Repository {
     upsertSubject: vi.fn(async () => undefined),
     replaceSubjectEpisodes: vi.fn(async () => undefined),
     listEpisodes: vi.fn(async () => []),
-    listSubjectMainEpisodes: vi.fn(async () => []),
+    listSubjectProgressEpisodes: vi.fn(async () => []),
     listSubjects: vi.fn(async () => []),
     getSubject: vi.fn(async () => null),
     listSubjectsByCollection: vi.fn(async () => []),
@@ -1118,7 +1130,9 @@ function dashboardSubject(overrides: Partial<DashboardSubject> = {}): DashboardS
     ...subject(overrides),
     nextEpisode: null,
     mainEpisodes: [],
+    progressEpisodes: [],
     unwatchedMainEpisodeCount: 0,
+    unwatchedProgressEpisodeCount: 0,
     unwatchedMainEpisodes: [],
     ...overrides
   };

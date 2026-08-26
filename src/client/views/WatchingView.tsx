@@ -11,6 +11,7 @@ import {
   swapBacklogTask
 } from '../api.js';
 import LongPressButton from '../LongPressButton.js';
+import WatchProgressGrid from '../WatchProgressGrid.js';
 import { commitWithMotion, MotionValue, motionStyle } from '../motion.js';
 import type { BacklogData, BacklogTaskRow, DashboardData, DashboardSubject, DashboardSubjectSummary, EpisodeRow } from '../../server/types.js';
 import { displayEpisodeTitle, displaySubjectName } from '../../shared/format.js';
@@ -147,6 +148,7 @@ export default function WatchingView({ mode, dashboard, backlog, disabled, onCha
               pendingCount={pendingBySubject.get(subject.id) ?? 0}
               disabled={disabled || busyEpisodeId !== null}
               onWatchedThrough={(episodeId) => runEpisodeAction(episodeId, () => markWatchedThrough(subject.id, episodeId))}
+              onWatched={(episodeId) => runEpisodeAction(episodeId, () => markWatched(episodeId))}
               onUnwatched={(episodeId) => runEpisodeAction(episodeId, () => markUnwatched(episodeId))}
               onHold={() => void runSubjectAction(subject.id, () => holdSubject(subject.id))}
               onDrop={() => void runSubjectAction(subject.id, () => dropSubject(subject.id))}
@@ -207,6 +209,7 @@ function SubjectItem({
   pendingCount,
   disabled,
   onWatchedThrough,
+  onWatched,
   onUnwatched,
   onHold,
   onDrop,
@@ -217,6 +220,7 @@ function SubjectItem({
   pendingCount: number;
   disabled: boolean;
   onWatchedThrough: (episodeId: number) => Promise<void>;
+  onWatched: (episodeId: number) => Promise<void>;
   onUnwatched: (episodeId: number) => Promise<void>;
   onHold: () => void;
   onDrop: () => void;
@@ -228,7 +232,9 @@ function SubjectItem({
   const subjectTitle = displaySubjectName(subject.name, subject.nameCn);
   const progressText = `${subject.epStatus} / ${subject.eps || '?'}`;
   const progressPercent = subject.eps > 0 ? Math.min(100, Math.round((subject.epStatus / subject.eps) * 100)) : 0;
-  const unwatchedCount = subject.unwatchedMainEpisodeCount ?? pendingCount;
+  const unwatchedCount = subject.unwatchedProgressEpisodeCount
+    ?? subject.unwatchedMainEpisodeCount
+    ?? pendingCount;
 
   async function loadEpisodes() {
     setLoadingEpisodes(true);
@@ -285,55 +291,20 @@ function SubjectItem({
         >
           {loadingEpisodes ? '加载中' : expanded ? '收起集数' : '查看集数'}
         </button>
-        {expanded && episodes && episodes.length > 0 ? (
+        {expanded && episodes ? (
           <WatchProgressGrid
             subjectTitle={subjectTitle}
             episodes={episodes}
+            totalEpisodes={subject.eps}
             disabled={disabled || loadingEpisodes}
+            motionKey="watching-episode"
             onWatchedThrough={(episodeId) => void runGridAction(() => onWatchedThrough(episodeId))}
+            onWatched={(episodeId) => void runGridAction(() => onWatched(episodeId))}
             onUnwatched={(episodeId) => void runGridAction(() => onUnwatched(episodeId))}
           />
         ) : null}
       </div>
     </article>
-  );
-}
-
-function WatchProgressGrid({
-  subjectTitle,
-  episodes,
-  disabled,
-  onWatchedThrough,
-  onUnwatched
-}: {
-  subjectTitle: string;
-  episodes: EpisodeRow[];
-  disabled: boolean;
-  onWatchedThrough: (episodeId: number) => void;
-  onUnwatched: (episodeId: number) => void;
-}) {
-  return (
-    <div className="watch-progress-grid" aria-label={`${subjectTitle}集数进度`}>
-      {episodes.map((episode, index) => {
-        const progress = Number(episode.ep ?? episode.sort);
-        const watched = episode.collectionType === 2;
-        const aired = hasAired(episode.airdate);
-        return (
-          <button
-            key={episode.id}
-            type="button"
-            className={['watch-episode-button', 'motion-item', watched ? 'is-watched' : aired ? 'is-aired' : 'is-unaired'].join(' ')}
-            style={motionStyle(index, `watching-episode-${episode.id}`)}
-            onClick={() => (watched ? onUnwatched(episode.id) : onWatchedThrough(episode.id))}
-            disabled={disabled}
-            aria-label={watched ? `${subjectTitle} 第 ${progress} 集 取消看过` : `${subjectTitle} 第 ${progress} 集 标为看过`}
-            title={`${displayEpisodeTitle(episode.name, episode.nameCn, episode.sort)}${episode.airdate ? ` · ${episode.airdate}` : ''}`}
-          >
-            {formatEpisodeProgress(progress)}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
@@ -379,21 +350,6 @@ function EpisodeItem({
       </div>
     </article>
   );
-}
-
-function hasAired(airdate: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(airdate) && airdate <= todayInShanghai();
-}
-
-function todayInShanghai(): string {
-  const parts = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
-function formatEpisodeProgress(progress: number): string {
-  if (!Number.isFinite(progress)) return '?';
-  return Number.isInteger(progress) ? String(progress).padStart(2, '0') : String(progress);
 }
 
 function formatEpisodeAirdate(airdate: string, airTime = ''): string {

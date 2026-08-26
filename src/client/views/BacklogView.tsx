@@ -9,9 +9,10 @@ import {
   skipBacklogToday,
   swapBacklogTask
 } from '../api.js';
-import type { BacklogData, BacklogTaskRow, DashboardSubject, EpisodeRow } from '../../server/types.js';
+import type { BacklogData, BacklogTaskRow, DashboardSubject } from '../../server/types.js';
 import { displayEpisodeTitle, displaySubjectName } from '../../shared/format.js';
 import { MotionValue, motionStyle } from '../motion.js';
+import WatchProgressGrid from '../WatchProgressGrid.js';
 
 type BacklogViewProps = {
   data: BacklogData;
@@ -40,6 +41,7 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
 
   const actionDisabled = (key: string) => disabled || busyAction === key;
   const markThrough = (subjectId: number, episodeId: number) => void runAction(`watched-through-${episodeId}`, () => markWatchedThrough(subjectId, episodeId));
+  const markOne = (episodeId: number) => void runAction(`watched-${episodeId}`, () => markWatched(episodeId));
   const markUnwatchedEpisode = (episodeId: number) => void runAction(`unwatched-${episodeId}`, () => markUnwatched(episodeId));
 
   return (
@@ -151,6 +153,7 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
           empty="没有进行中的补番。"
           disabled={disabled || busyAction !== null}
           onWatchedThrough={markThrough}
+          onWatched={markOne}
           onUnwatched={markUnwatchedEpisode}
           renderActions={(subject) => (
             <>
@@ -181,6 +184,7 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
           empty="还没有完成的补番。"
           disabled={disabled || busyAction !== null}
           onWatchedThrough={markThrough}
+          onWatched={markOne}
           onUnwatched={markUnwatchedEpisode}
         />
       </div>
@@ -240,6 +244,7 @@ function SubjectSection({
   empty,
   disabled,
   onWatchedThrough,
+  onWatched,
   onUnwatched,
   renderActions
 }: {
@@ -248,6 +253,7 @@ function SubjectSection({
   empty: string;
   disabled: boolean;
   onWatchedThrough: (subjectId: number, episodeId: number) => void;
+  onWatched: (episodeId: number) => void;
   onUnwatched: (episodeId: number) => void;
   renderActions?: (subject: DashboardSubject) => React.ReactNode;
 }) {
@@ -267,6 +273,7 @@ function SubjectSection({
               disabled={disabled}
               renderActions={renderActions}
               onWatchedThrough={onWatchedThrough}
+              onWatched={onWatched}
               onUnwatched={onUnwatched}
             />
           ))}
@@ -284,6 +291,7 @@ function BacklogSubjectItem({
   disabled,
   renderActions,
   onWatchedThrough,
+  onWatched,
   onUnwatched
 }: {
   index: number;
@@ -291,12 +299,15 @@ function BacklogSubjectItem({
   disabled: boolean;
   renderActions?: (subject: DashboardSubject) => React.ReactNode;
   onWatchedThrough: (subjectId: number, episodeId: number) => void;
+  onWatched: (episodeId: number) => void;
   onUnwatched: (episodeId: number) => void;
 }) {
   const subjectTitle = displaySubjectName(subject.name, subject.nameCn);
   const progressText = `${subject.epStatus} / ${subject.eps || '?'}`;
   const progressPercent = subject.eps > 0 ? Math.min(100, Math.round((subject.epStatus / subject.eps) * 100)) : 0;
-  const episodeOptions = subject.mainEpisodes.length > 0 ? subject.mainEpisodes : subject.unwatchedMainEpisodes;
+  const episodeOptions = subject.progressEpisodes ?? subject.mainEpisodes ?? subject.unwatchedMainEpisodes ?? [];
+  const unwatchedProgressCount = subject.unwatchedProgressEpisodeCount
+    ?? episodeOptions.filter((episode) => episode.collectionType !== 2).length;
 
   return (
     <article className="subject-row backlog-subject-row motion-item" style={motionStyle(index, `backlog-subject-${subject.id}`)}>
@@ -306,7 +317,7 @@ function BacklogSubjectItem({
       <div className="subject-detail">
         <div className="subject-heading">
           <a href={subject.url} target="_blank" rel="noreferrer">{subjectTitle}</a>
-          <span>{subject.unwatchedMainEpisodeCount > 0 ? `${subject.unwatchedMainEpisodeCount} 集未看` : '已同步'}</span>
+          <span>{unwatchedProgressCount > 0 ? `${unwatchedProgressCount} 集未看` : '已同步'}</span>
         </div>
         <div className="progress-row">
           <MotionValue value={progressText}>{progressText}</MotionValue>
@@ -315,12 +326,15 @@ function BacklogSubjectItem({
         {subject.nextEpisode ? (
           <p>下一集：{displayEpisodeTitle(subject.nextEpisode.name, subject.nextEpisode.nameCn, subject.nextEpisode.sort)} · {formatEpisodeAirdate(subject.nextEpisode.airdate, subject.nextEpisode.airTime)}</p>
         ) : <p>暂无未看的本篇集数</p>}
-        {episodeOptions.length > 0 ? (
+        {subject.eps > 0 || episodeOptions.length > 0 ? (
           <WatchProgressGrid
             subjectTitle={subjectTitle}
             episodes={episodeOptions}
+            totalEpisodes={subject.eps}
             disabled={disabled}
+            motionKey="backlog-episode"
             onWatchedThrough={(episodeId) => onWatchedThrough(subject.id, episodeId)}
+            onWatched={onWatched}
             onUnwatched={onUnwatched}
           />
         ) : null}
@@ -330,65 +344,12 @@ function BacklogSubjectItem({
   );
 }
 
-function WatchProgressGrid({
-  subjectTitle,
-  episodes,
-  disabled,
-  onWatchedThrough,
-  onUnwatched
-}: {
-  subjectTitle: string;
-  episodes: EpisodeRow[];
-  disabled: boolean;
-  onWatchedThrough: (episodeId: number) => void;
-  onUnwatched: (episodeId: number) => void;
-}) {
-  return (
-    <div className="watch-progress-grid" aria-label={`${subjectTitle}集数进度`}>
-      {episodes.map((episode, index) => {
-        const progress = Number(episode.ep ?? episode.sort);
-        const watched = episode.collectionType === 2;
-        const aired = hasAired(episode.airdate);
-        return (
-          <button
-            key={episode.id}
-            type="button"
-            className={['watch-episode-button', 'motion-item', watched ? 'is-watched' : aired ? 'is-aired' : 'is-unaired'].join(' ')}
-            style={motionStyle(index, `backlog-episode-${episode.id}`)}
-            onClick={() => (watched ? onUnwatched(episode.id) : onWatchedThrough(episode.id))}
-            disabled={disabled}
-            aria-label={watched ? `${subjectTitle} 第 ${progress} 集 取消看过` : `${subjectTitle} 第 ${progress} 集 标为看过`}
-            title={`${displayEpisodeTitle(episode.name, episode.nameCn, episode.sort)}${episode.airdate ? ` · ${episode.airdate}` : ''}`}
-          >
-            {formatEpisodeProgress(progress)}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function taskLabel(task: BacklogTaskRow): string {
   return `${task.episode.subjectNameCn || task.episode.subjectName} 第 ${episodeNumber(task)} 集`;
 }
 
 function episodeNumber(task: BacklogTaskRow): number {
   return task.episode.ep ?? task.episode.sort;
-}
-
-function hasAired(airdate: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(airdate) && airdate <= todayInShanghai();
-}
-
-function todayInShanghai(): string {
-  const parts = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
-function formatEpisodeProgress(progress: number): string {
-  if (!Number.isFinite(progress)) return '?';
-  return Number.isInteger(progress) ? String(progress).padStart(2, '0') : String(progress);
 }
 
 function formatEpisodeAirdate(airdate: string, airTime = ''): string {

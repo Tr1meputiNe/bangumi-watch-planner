@@ -60,6 +60,59 @@ describe('BacklogView', () => {
     });
   });
 
+  it('renders every declared progress slot and marks a trailing SP as one episode', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const data = backlogData();
+    const mainEpisodes = Array.from({ length: 13 }, (_, index) => episode({
+      id: 100 + index,
+      sort: index + 1,
+      ep: index + 1
+    }));
+    const trailingSp = episode({ id: 214, episodeType: 1, sort: 14, ep: 0 });
+    data.active[0] = subject({
+      nameCn: '吹响吧！上低音号',
+      eps: 14,
+      mainEpisodes,
+      progressEpisodes: [...mainEpisodes, trailingSp],
+      unwatchedMainEpisodes: mainEpisodes,
+      unwatchedMainEpisodeCount: 13,
+      unwatchedProgressEpisodeCount: 4
+    });
+
+    render(<BacklogView data={data} disabled={false} onChanged={vi.fn(async () => undefined)} onError={vi.fn()} />);
+
+    const grid = screen.getByLabelText('吹响吧！上低音号集数进度');
+    expect(within(grid).getAllByRole('button')).toHaveLength(14);
+    expect(within(screen.getByLabelText('进行中')).getByText(/^4 集未看$/)).toBeInTheDocument();
+    await userEvent.click(within(grid).getByRole('button', { name: '吹响吧！上低音号 第 14 集 标为看过' }));
+    expect(fetchMock).toHaveBeenCalledWith('/api/episodes/214/watched', { method: 'POST' });
+  });
+
+  it('keeps a disabled slot when a declared episode has not synced yet', () => {
+    const data = backlogData();
+    const syncedEpisodes = Array.from({ length: 12 }, (_, index) => episode({
+      id: 100 + index,
+      sort: index + 1,
+      ep: index + 1
+    }));
+    data.active[0] = subject({
+      nameCn: '尚未同步完整的番剧',
+      eps: 13,
+      mainEpisodes: syncedEpisodes,
+      progressEpisodes: syncedEpisodes,
+      unwatchedMainEpisodes: syncedEpisodes,
+      unwatchedMainEpisodeCount: 12,
+      unwatchedProgressEpisodeCount: 12
+    });
+
+    render(<BacklogView data={data} disabled={false} onChanged={vi.fn(async () => undefined)} onError={vi.fn()} />);
+
+    const missing = screen.getByRole('button', { name: '尚未同步完整的番剧 第 13 集 尚未同步' });
+    expect(missing).toBeDisabled();
+    expect(screen.getByLabelText('尚未同步完整的番剧集数进度')).toHaveTextContent('13');
+  });
+
   it('sends every backlog action and refreshes after each success', async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
     vi.stubGlobal('fetch', fetchMock);
@@ -117,6 +170,7 @@ function backlogData(): BacklogData {
 }
 
 function subject(overrides: Partial<DashboardSubject> = {}): DashboardSubject {
+  const defaultEpisodes = [episode()];
   return {
     id: 101,
     name: 'Old Anime',
@@ -133,8 +187,10 @@ function subject(overrides: Partial<DashboardSubject> = {}): DashboardSubject {
     totalEpisodesKnown: true,
     completedAt: null,
     nextEpisode: episode(),
-    mainEpisodes: [episode()],
+    mainEpisodes: defaultEpisodes,
+    progressEpisodes: overrides.progressEpisodes ?? overrides.mainEpisodes ?? defaultEpisodes,
     unwatchedMainEpisodeCount: 1,
+    unwatchedProgressEpisodeCount: 1,
     unwatchedMainEpisodes: [episode()],
     ...overrides
   };

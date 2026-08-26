@@ -108,6 +108,68 @@ describe('repository', () => {
     });
   });
 
+  it('uses a trailing numbered SP as the final progress episode without including ordinary SPs', async () => {
+    await repository.upsertSubject({
+      id: 1,
+      name: 'Sound! Euphonium',
+      nameCn: '吹响吧！上低音号',
+      eps: 14,
+      epStatus: 0,
+      image: null,
+      url: 'https://bgm.tv/subject/1'
+    });
+    await repository.replaceSubjectEpisodes(1, [
+      ...Array.from({ length: 13 }, (_, index) => episode({
+        id: 100 + index,
+        sort: index + 1,
+        ep: index + 1
+      })),
+      ...Array.from({ length: 7 }, (_, index) => episode({
+        id: 200 + index,
+        episodeType: 1,
+        sort: index + 1,
+        ep: 0
+      })),
+      episode({ id: 214, episodeType: 1, sort: 14, ep: 0 })
+    ]);
+
+    const [subject] = await repository.listSubjects();
+
+    expect(subject.mainEpisodes).toHaveLength(13);
+    expect(subject).toMatchObject({
+      unwatchedProgressEpisodeCount: 14,
+      progressEpisodes: [
+        ...Array.from({ length: 13 }, (_, index) => expect.objectContaining({ id: 100 + index })),
+        expect.objectContaining({ id: 214, episodeType: 1, sort: 14 })
+      ]
+    });
+  });
+
+  it('does not use SPs to fill multiple missing main episode slots', async () => {
+    await repository.upsertSubject({
+      id: 1,
+      name: 'Incomplete Anime',
+      nameCn: '尚未同步完整的番剧',
+      eps: 14,
+      epStatus: 0,
+      image: null,
+      url: 'https://bgm.tv/subject/1'
+    });
+    await repository.replaceSubjectEpisodes(1, [
+      ...Array.from({ length: 12 }, (_, index) => episode({
+        id: 100 + index,
+        sort: index + 1,
+        ep: index + 1
+      })),
+      episode({ id: 213, episodeType: 1, sort: 13, ep: 0 }),
+      episode({ id: 214, episodeType: 1, sort: 14, ep: 0 })
+    ]);
+
+    const [subject] = await repository.listSubjects();
+
+    expect(subject.progressEpisodes).toHaveLength(12);
+  });
+
   it('orders subjects by the nearest next episode broadcast time', async () => {
     await repository.upsertSubject({
       id: 1,

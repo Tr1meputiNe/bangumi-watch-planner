@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { dirname } from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { episodeProgress } from '../shared/format.js';
 import type {
   BacklogTaskRow,
   BangumiCollectionType,
@@ -15,7 +16,7 @@ import type {
 export type Repository = SyncRepository & {
   close(): void;
   listEpisodes(): Promise<EpisodeRow[]>;
-  listSubjectMainEpisodes(subjectId: number): Promise<EpisodeRow[]>;
+  listSubjectProgressEpisodes(subjectId: number): Promise<EpisodeRow[]>;
   listSubjects(): Promise<DashboardSubject[]>;
   getSubject(subjectId: number): Promise<SubjectRow | null>;
   listSubjectsByCollection(types: BangumiCollectionType[]): Promise<DashboardSubject[]>;
@@ -162,9 +163,10 @@ export function createRepository(dbPath: string): Repository {
       return selectEpisodes(db, '');
     },
 
-    async listSubjectMainEpisodes(subjectId) {
-      return selectEpisodes(db, 'where subject_id = ? and episode_type = 0', [subjectId])
-        .sort(compareEpisodeProgress);
+    async listSubjectProgressEpisodes(subjectId) {
+      const subject = selectSubjects(db, 'where id = ?', [subjectId])[0];
+      if (!subject) return [];
+      return progressEpisodesFor(subject, selectEpisodes(db, 'where subject_id = ?', [subjectId]));
     },
 
     async listSubjects() {
@@ -333,7 +335,7 @@ export function createRepository(dbPath: string): Repository {
 
     async markEpisodeWatched(episodeId) {
       const episode = selectEpisodes(db, 'where id = ?', [episodeId])[0] ?? null;
-      const progress = episode ? Number(episode.ep ?? episode.sort) : NaN;
+      const progress = episode ? episodeProgress(episode) : NaN;
       const markWatched = db.transaction(() => {
         db.prepare('update episodes set collection_type = 2, snoozed_until = null where id = ?').run(episodeId);
         if (episode && Number.isFinite(progress) && progress > 0) {
@@ -481,12 +483,18 @@ function selectSubjects(db: Database.Database, whereClause = '', params: unknown
 
 function selectDashboardSubjects(db: Database.Database, whereClause = '', params: unknown[] = []): DashboardSubject[] {
   const subjects = selectSubjects(db, whereClause, params);
-  const mainEpisodes = selectEpisodes(db, 'where episode_type = 0');
+  const episodes = selectEpisodes(db, '');
   const bySubject = new Map<number, EpisodeRow>();
   const countsBySubject = new Map<number, number>();
+  const episodesBySubject = new Map<number, EpisodeRow[]>();
   const mainEpisodesBySubject = new Map<number, EpisodeRow[]>();
   const unwatchedEpisodesBySubject = new Map<number, EpisodeRow[]>();
-  for (const episode of mainEpisodes) {
+  for (const episode of episodes) {
+    const allSubjectEpisodes = episodesBySubject.get(episode.subjectId) ?? [];
+    allSubjectEpisodes.push(episode);
+    episodesBySubject.set(episode.subjectId, allSubjectEpisodes);
+    if (episode.episodeType !== 0) continue;
+
     const subjectMainEpisodes = mainEpisodesBySubject.get(episode.subjectId) ?? [];
     subjectMainEpisodes.push(episode);
     mainEpisodesBySubject.set(episode.subjectId, subjectMainEpisodes);
@@ -501,13 +509,18 @@ function selectDashboardSubjects(db: Database.Database, whereClause = '', params
       bySubject.set(episode.subjectId, episode);
     }
   }
-  return subjects.map((subject) => ({
-    ...subject,
-    nextEpisode: bySubject.get(subject.id) ?? null,
-    mainEpisodes: (mainEpisodesBySubject.get(subject.id) ?? []).sort(compareEpisodeProgress),
-    unwatchedMainEpisodeCount: countsBySubject.get(subject.id) ?? 0,
-    unwatchedMainEpisodes: (unwatchedEpisodesBySubject.get(subject.id) ?? []).sort(compareEpisodeProgress)
-  })).sort(compareSubjectNextEpisode);
+  return subjects.map((subject) => {
+    const progressEpisodes = progressEpisodesFor(subject, episodesBySubject.get(subject.id) ?? []);
+    return {
+      ...subject,
+      nextEpisode: bySubject.get(subject.id) ?? null,
+      mainEpisodes: (mainEpisodesBySubject.get(subject.id) ?? []).sort(compareEpisodeProgress),
+      progressEpisodes,
+      unwatchedMainEpisodeCount: countsBySubject.get(subject.id) ?? 0,
+      unwatchedProgressEpisodeCount: progressEpisodes.filter((episode) => episode.collectionType !== 2).length,
+      unwatchedMainEpisodes: (unwatchedEpisodesBySubject.get(subject.id) ?? []).sort(compareEpisodeProgress)
+    };
+  }).sort(compareSubjectNextEpisode);
 }
 
 function placeholders(values: { length: number }): string {
@@ -572,12 +585,24 @@ function displaySubject(subject: SubjectRow): string {
 }
 
 function compareEpisodeProgress(a: EpisodeRow, b: EpisodeRow): number {
-  return Number(a.ep ?? a.sort) - Number(b.ep ?? b.sort);
+  return episodeProgress(a) - episodeProgress(b);
+}
+
+export function progressEpisodesFor(subject: SubjectRow, episodes: EpisodeRow[]): EpisodeRow[] {
+  const mainEpisodes = episodes.filter((episode) => episode.episodeType === 0);
+  const mainProgress = new Set(mainEpisodes.map(episodeProgress).filter((progress) => Number.isInteger(progress) && progress > 0));
+  const mainReachesFinalSlot = subject.eps > 1
+    && mainProgress.size === subject.eps - 1
+    && Array.from({ length: subject.eps - 1 }, (_, index) => index + 1).every((progress) => mainProgress.has(progress));
+  const finalSpecial = mainReachesFinalSlot
+    ? episodes.find((episode) => episode.episodeType === 1 && episode.ep === 0 && episode.sort === subject.eps)
+    : undefined;
+  return [...mainEpisodes, ...(finalSpecial ? [finalSpecial] : [])].sort(compareEpisodeProgress);
 }
 
 function highestWatchedMainEpisodeProgress(db: Database.Database, subjectId: number): number {
   return selectEpisodes(db, 'where subject_id = ? and episode_type = 0 and collection_type = 2', [subjectId]).reduce((highest, episode) => {
-    const progress = Number(episode.ep ?? episode.sort);
+    const progress = episodeProgress(episode);
     if (!Number.isFinite(progress) || progress <= 0) return highest;
     return Math.max(highest, Math.floor(progress));
   }, 0);

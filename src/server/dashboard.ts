@@ -1,4 +1,5 @@
 import { buildReminderCandidates, todayInShanghai } from './reminders.js';
+import { episodeProgress } from '../shared/format.js';
 import { capacityForSeasonalLoad, countSeasonalLoad, estimateBacklogCompletionDate } from './backlog-planner.js';
 import { shiftAirDate } from './broadcast-schedule.js';
 import { rebuildBacklogPlan, syncAnimeCollections } from './sync.js';
@@ -19,7 +20,7 @@ import type {
   SyncResult,
   SyncStatus
 } from './types.js';
-import type { Repository } from './db.js';
+import { progressEpisodesFor, type Repository } from './db.js';
 
 type DashboardDeps = {
   auth: OAuthManager;
@@ -215,7 +216,7 @@ export function createDashboardService({
 
     async getSubjectEpisodes(subjectId) {
       await requireSubject(subjectId);
-      return repository.listSubjectMainEpisodes(subjectId);
+      return repository.listSubjectProgressEpisodes(subjectId);
     },
 
     async getBacklog(): Promise<BacklogData> {
@@ -573,8 +574,13 @@ export function createDashboardService({
 
 export function canAutoComplete(subject: SubjectRow, episodes: EpisodeRow[]): boolean {
   if (!subject.totalEpisodesKnown || subject.eps <= 0) return false;
-  const main = episodes.filter((episode) => episode.episodeType === 0);
-  return main.length >= subject.eps && main.every((episode) => episode.collectionType === 2);
+  const watchedProgress = new Set(
+    progressEpisodesFor(subject, episodes)
+      .filter((episode) => episode.collectionType === 2)
+      .map(episodeProgress)
+      .filter((progress) => Number.isInteger(progress) && progress > 0 && progress <= subject.eps)
+  );
+  return watchedProgress.size === subject.eps;
 }
 
 function getAnimeSearchWatchAction(result: { airDate: string }, subject: SubjectRow | null, today: string) {
@@ -641,16 +647,14 @@ function weekdayFromDate(dateString: string): number | null {
   return Number.isNaN(date.getTime()) ? null : date.getUTCDay() || 7;
 }
 
-function episodeProgress(episode: { ep: number | null; sort: number }): number {
-  return Number(episode.ep ?? episode.sort);
-}
-
 function compactSubject({
   mainEpisodes: _mainEpisodes,
+  progressEpisodes: _progressEpisodes,
   unwatchedMainEpisodes: _unwatchedMainEpisodes,
   ...subject
 }: DashboardSubject): DashboardSubjectSummary {
   void _mainEpisodes;
+  void _progressEpisodes;
   void _unwatchedMainEpisodes;
   return subject;
 }
