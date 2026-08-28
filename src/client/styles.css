@@ -4135,8 +4135,11 @@ select[data-state="success"] {
   min-height: 44px;
 }
 
-.long-press-button {
+button.long-press-button {
   position: relative;
+  border-color: var(--color-error);
+  background: var(--color-coral-soft);
+  color: var(--color-error);
   gap: var(--space-2xs);
   touch-action: pan-y;
   user-select: none;
@@ -4243,14 +4246,14 @@ select[data-state="success"] {
 
 @media (hover: hover) and (pointer: fine) {
   .long-press-button:not(.is-pressing):hover {
-    border-color: var(--color-rule-2);
-    background: var(--color-paper-2);
-    color: var(--color-ink-2);
+    border-color: var(--color-error);
+    background: color-mix(in oklch, var(--color-coral-soft), var(--color-error) 12%);
+    color: var(--color-error);
   }
 
   .long-press-button.is-pressing:hover {
     border-color: var(--color-error);
-    background: transparent;
+    background: var(--color-coral-soft);
     color: var(--color-error);
   }
 }
