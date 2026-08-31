@@ -21,16 +21,20 @@ import { isValidDateString, todayInShanghai } from './reminders.js';
 type SyncedSubject = Pick<SubjectRow, 'id' | 'name' | 'nameCn' | 'eps' | 'epStatus' | 'image' | 'url'>;
 type AutoWatchQueueItem = { subjectId: number; seasonKey: string };
 const AUTO_WATCH_QUEUE_SETTING = 'auto_watch_queue';
+// ponytail: one local account, replace with a repository transaction if multi-account writes are added.
+let autoWatchQueueMutation: Promise<void> = Promise.resolve();
 
 export async function queueAutoWatchSubject(
   repository: Pick<SyncRepository, 'getSetting' | 'setSetting'>,
   item: AutoWatchQueueItem
 ): Promise<void> {
-  const queue = await readAutoWatchQueue(repository);
-  await repository.setSetting(AUTO_WATCH_QUEUE_SETTING, JSON.stringify([
-    ...queue.filter((entry) => entry.subjectId !== item.subjectId),
-    item
-  ]));
+  return serializeAutoWatchQueue(async () => {
+    const queue = await readAutoWatchQueue(repository);
+    await repository.setSetting(AUTO_WATCH_QUEUE_SETTING, JSON.stringify([
+      ...queue.filter((entry) => entry.subjectId !== item.subjectId),
+      item
+    ]));
+  });
 }
 
 export async function syncAnimeCollections({
@@ -156,28 +160,37 @@ async function startQueuedSubjects(
   client: BangumiClient,
   repository: Pick<SyncRepository, 'getSetting' | 'setSetting'>
 ): Promise<void> {
-  const queue = await readAutoWatchQueue(repository);
-  if (queue.length === 0) return;
-  const collectionsById = new Map(collections.map((entry) => [entry.collection.subject.id ?? entry.collection.subject_id, entry]));
-  const remaining: AutoWatchQueueItem[] = [];
+  return serializeAutoWatchQueue(async () => {
+    const queue = await readAutoWatchQueue(repository);
+    if (queue.length === 0) return;
+    const collectionsById = new Map(collections.map((entry) => [entry.collection.subject.id ?? entry.collection.subject_id, entry]));
+    const remaining: AutoWatchQueueItem[] = [];
 
-  for (const item of queue) {
-    if (item.seasonKey !== currentSeasonKey) {
-      remaining.push(item);
-      continue;
+    for (const item of queue) {
+      if (item.seasonKey > currentSeasonKey) {
+        remaining.push(item);
+        continue;
+      }
+      if (item.seasonKey < currentSeasonKey) continue;
+      const entry = collectionsById.get(item.subjectId);
+      if (entry?.collectionType !== 1) continue;
+      try {
+        await client.setSubjectCollectionType(item.subjectId, 3);
+        entry.collectionType = 3;
+        entry.collection.type = 3;
+      } catch (error) {
+        if (!(error instanceof BangumiApiError)) throw error;
+        remaining.push(item);
+      }
     }
-    const entry = collectionsById.get(item.subjectId);
-    if (entry?.collectionType !== 1) continue;
-    try {
-      await client.setSubjectCollectionType(item.subjectId, 3);
-      entry.collectionType = 3;
-      entry.collection.type = 3;
-    } catch (error) {
-      if (!(error instanceof BangumiApiError)) throw error;
-      remaining.push(item);
-    }
-  }
-  await repository.setSetting(AUTO_WATCH_QUEUE_SETTING, JSON.stringify(remaining));
+    await repository.setSetting(AUTO_WATCH_QUEUE_SETTING, JSON.stringify(remaining));
+  });
+}
+
+function serializeAutoWatchQueue(action: () => Promise<void>): Promise<void> {
+  const run = autoWatchQueueMutation.then(action, action);
+  autoWatchQueueMutation = run.catch(() => undefined);
+  return run;
 }
 
 async function readAutoWatchQueue(

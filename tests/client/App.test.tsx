@@ -299,6 +299,32 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: '立即同步' })).toBeEnabled();
   });
 
+  it('does not retry a failed lazy view load until the user asks', async () => {
+    let backlogRequests = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/sync/status') return Response.json({ ...runningSyncStatus(), state: 'idle' });
+      if (url === '/api/backlog') {
+        backlogRequests += 1;
+        return Response.json({ error: '补番加载失败' }, { status: 502 });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByText('补番加载失败')).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(backlogRequests).toBe(1);
+    await userEvent.click(screen.getByRole('tab', { name: '补番计划' }));
+    await userEvent.click(screen.getByRole('button', { name: '重试补番计划' }));
+    await waitFor(() => expect(backlogRequests).toBe(2));
+  });
+
   it('keeps cached controls usable while background sync runs, then refreshes', async () => {
     let dashboardRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -358,6 +384,67 @@ describe('App', () => {
     expect(screen.getByRole('status')).toHaveTextContent('同步完成：4 部番剧，48 集分集');
     expect(screen.getByRole('button', { name: '立即同步' })).toBeEnabled();
     expect(dashboardRequests).toBe(2);
+  });
+
+  it('ignores an older poll response after a newer collection task starts', async () => {
+    let statusRequests = 0;
+    let resolveOldPoll!: (response: Response) => void;
+    const oldPoll = new Promise<Response>((resolve) => { resolveOldPoll = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
+      if (url === '/api/sync' && init?.method === 'POST') return Response.json(runningSyncStatus(), { status: 202 });
+      if (url === '/api/sync/status') {
+        statusRequests += 1;
+        if (statusRequests === 1) return Response.json({ ...runningSyncStatus(), state: 'idle' });
+        if (statusRequests === 2) return oldPoll;
+        return Response.json(runningSyncStatus());
+      }
+      if (url === '/api/upcoming-season') {
+        return Response.json({
+          seasonKey: '2026Q4',
+          available: true,
+          items: [{
+            id: 501,
+            name: 'Upcoming One',
+            nameCn: '新番一',
+            image: null,
+            url: 'https://bgm.tv/subject/501',
+            seasonKey: '2026Q4',
+            sourceType: '原创',
+            normalPremiereDate: '',
+            airTime: '',
+            airWeekday: null,
+            collectionType: null,
+            action: 'add',
+            actionLabel: '加入想看',
+            autoWatch: false
+          }]
+        });
+      }
+      if (url === '/api/upcoming-season/501/wishlist' && init?.method === 'POST') {
+        return Response.json({ ...runningSyncStatus(), startedAt: '2026-07-30T12:00:10.000Z' }, { status: 202 });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    }));
+
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: '立即同步' }));
+    await screen.findByRole('button', { name: '同步中' });
+    await waitFor(() => expect(statusRequests).toBe(2), { timeout: 1_500 });
+
+    fireEvent.click(screen.getByRole('tab', { name: '下季新番' }));
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByRole('button', { name: '加入想看' }));
+    await act(async () => { await Promise.resolve(); });
+    resolveOldPoll(Response.json(completedSyncStatus()));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(screen.getByRole('button', { name: '同步中' })).toBeDisabled();
   });
 
   it('shows a readable local-service error instead of Failed to fetch', async () => {

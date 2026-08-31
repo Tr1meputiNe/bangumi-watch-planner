@@ -21,6 +21,10 @@ describe('UpcomingSeasonView', () => {
     expect(await screen.findByRole('heading', { name: '2026 秋季新番' })).toBeInTheDocument();
     expect(screen.getByText('Yuc 新番站 · Bangumi 已确认')).toBeInTheDocument();
     expect(screen.getByText('2 部')).toHaveClass('wishlist-count');
+    expect(screen.getByRole('heading', { name: '星期一' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '星期二' })).toBeInTheDocument();
+    expect(screen.getByText('首播 10月5日 · 22:00')).toBeInTheDocument();
+    expect(screen.getByText('首播 10月6日 · 00:30')).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: '新番一' })[0]).toHaveAttribute('href', 'https://bgm.tv/subject/501');
     expect(document.querySelector('.wishlist-cover img')).toHaveAttribute('referrerpolicy', 'no-referrer');
 
@@ -49,6 +53,32 @@ describe('UpcomingSeasonView', () => {
     expect(onError).toHaveBeenCalledWith('Bangumi write failed');
   });
 
+  it('does not let an older list request overwrite an optimistic schedule', async () => {
+    let listRequests = 0;
+    let resolveRefresh!: (response: Response) => void;
+    const refreshResponse = new Promise<Response>((resolve) => { resolveRefresh = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input.toString() === '/api/upcoming-season') {
+        listRequests += 1;
+        return listRequests === 1 ? Response.json(upcomingData()) : refreshResponse;
+      }
+      if (input.toString() === '/api/upcoming-season/501/wishlist' && init?.method === 'POST') {
+        return Response.json(runningSyncStatus(), { status: 202 });
+      }
+      throw new Error(`Unexpected request ${input.toString()}`);
+    }));
+    const props = { disabled: false, onSyncStarted: vi.fn(), onError: vi.fn() };
+    const view = render(<UpcomingSeasonView {...props} refreshVersion={0} />);
+    await screen.findByRole('button', { name: '加入想看' });
+    view.rerender(<UpcomingSeasonView {...props} refreshVersion={1} />);
+    await waitFor(() => expect(listRequests).toBe(2));
+
+    await userEvent.click(screen.getByRole('button', { name: '加入想看' }));
+    resolveRefresh(Response.json(upcomingData()));
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '已安排开季在看' })[0]).toBeDisabled());
+  });
+
   it('shows a source warning when Yuc new-anime station is unavailable', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ seasonKey: '2026Q4', available: false, items: [] })));
 
@@ -71,6 +101,9 @@ function upcomingData() {
         url: 'https://bgm.tv/subject/501',
         seasonKey: '2026Q4',
         sourceType: '原创',
+        normalPremiereDate: '2026-10-05',
+        airTime: '22:00',
+        airWeekday: 1,
         collectionType: null,
         action: 'add',
         actionLabel: '加入想看',
@@ -84,6 +117,9 @@ function upcomingData() {
         url: 'https://bgm.tv/subject/502',
         seasonKey: '2026Q4',
         sourceType: '漫改',
+        normalPremiereDate: '2026-10-06',
+        airTime: '00:30',
+        airWeekday: 2,
         collectionType: 1,
         action: null,
         actionLabel: '已安排开季在看',

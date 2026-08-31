@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BangumiApiError } from '../../src/server/bangumi-client.js';
 import type { Repository } from '../../src/server/db.js';
-import { applyBroadcastOverrides, rebuildBacklogPlan, syncAnimeCollections } from '../../src/server/sync.js';
+import { applyBroadcastOverrides, queueAutoWatchSubject, rebuildBacklogPlan, syncAnimeCollections } from '../../src/server/sync.js';
 import type { BangumiClient, BroadcastCatalog, EpisodeRow, SubjectWrite, SyncProgress, SyncRepository } from '../../src/server/types.js';
 
 describe('syncAnimeCollections', () => {
@@ -231,6 +231,42 @@ describe('syncAnimeCollections', () => {
     expect(savedSubjects).toEqual([expect.objectContaining({ id: 501, collectionType: 3, plannerMode: 'seasonal' })]);
     expect(setSetting).toHaveBeenCalledWith('auto_watch_queue', '[]');
     expect(result.subjectsSynced).toBe(1);
+  });
+
+  it('keeps a title queued while another title is being activated', async () => {
+    let queue = JSON.stringify([{ subjectId: 501, seasonKey: '2026Q4' }]);
+    let releaseActivation!: () => void;
+    let activationStarted!: () => void;
+    const activationGate = new Promise<void>((resolve) => { releaseActivation = resolve; });
+    const activationSignal = new Promise<void>((resolve) => { activationStarted = resolve; });
+    const repository = syncRepository({
+      getSetting: vi.fn(async (key) => key === 'auto_watch_queue' ? queue : null),
+      setSetting: vi.fn(async (key, value) => { if (key === 'auto_watch_queue') queue = value; })
+    });
+    const syncing = syncAnimeCollections({
+      username: 'sai',
+      today: '2026-10-01',
+      client: bangumiClient({
+        getAnimeCollections: vi.fn(async (_username, type) => ({
+          total: type === 1 ? 1 : 0,
+          data: type === 1 ? [collection(501, 1, { date: '2026-10-01' })] : []
+        })),
+        getSubjectEpisodes: vi.fn(async () => ({ total: 0, data: [] })),
+        setSubjectCollectionType: vi.fn(async () => {
+          activationStarted();
+          await activationGate;
+        }),
+        getBroadcastCatalog: vi.fn(async () => broadcastCatalog(new Map(), '2026Q4', 501))
+      }),
+      repository
+    });
+    await activationSignal;
+
+    const queueing = queueAutoWatchSubject(repository, { subjectId: 502, seasonKey: '2026Q4' });
+    releaseActivation();
+    await Promise.all([syncing, queueing]);
+
+    expect(JSON.parse(queue)).toEqual([{ subjectId: 502, seasonKey: '2026Q4' }]);
   });
 });
 

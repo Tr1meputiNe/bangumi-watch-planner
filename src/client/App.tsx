@@ -82,6 +82,11 @@ export default function App() {
     setState((current) => ({ ...current, error: message }));
   }, []);
 
+  const acceptSyncStarted = useCallback((status: SyncStatus) => {
+    syncRequestVersion.current += 1;
+    setSyncStatus(status);
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const auth = await getAuthStatus();
@@ -200,16 +205,17 @@ export default function App() {
       && (activeView === 'today' || activeView === 'backlog')
       && !backlogState.data
       && !backlogState.loading
+      && !backlogState.error
     ) void loadBacklog();
-  }, [activeView, backlogState.data, backlogState.loading, loadBacklog, state.auth?.authenticated]);
+  }, [activeView, backlogState.data, backlogState.error, backlogState.loading, loadBacklog, state.auth?.authenticated]);
 
   useEffect(() => {
-    if (activeView === 'calendar' && !calendarState.days && !calendarState.loading) void loadCalendar();
-  }, [activeView, calendarState.days, calendarState.loading, loadCalendar]);
+    if (activeView === 'calendar' && !calendarState.days && !calendarState.loading && !calendarState.error) void loadCalendar();
+  }, [activeView, calendarState.days, calendarState.error, calendarState.loading, loadCalendar]);
 
   useEffect(() => {
-    if (activeView === 'held' && !heldState.data && !heldState.loading) void loadHeld();
-  }, [activeView, heldState.data, heldState.loading, loadHeld]);
+    if (activeView === 'held' && !heldState.data && !heldState.loading && !heldState.error) void loadHeld();
+  }, [activeView, heldState.data, heldState.error, heldState.loading, loadHeld]);
 
   useEffect(() => {
     if (!isSyncing) return;
@@ -217,8 +223,10 @@ export default function App() {
     const interval = window.setInterval(() => {
       if (polling) return;
       polling = true;
+      const requestVersion = syncRequestVersion.current;
       void getSyncStatus()
         .then(async (nextStatus) => {
+          if (syncRequestVersion.current !== requestVersion) return;
           setSyncStatus(nextStatus);
           if (nextStatus.state === 'running') return;
           const syncError = nextStatus.state === 'error'
@@ -237,7 +245,9 @@ export default function App() {
           if (activeView === 'backlog') await refreshAnimeSearch();
           if (syncError) showError(syncError);
         })
-        .catch((error) => showError(error instanceof Error ? error.message : String(error)))
+        .catch((error) => {
+          if (syncRequestVersion.current === requestVersion) showError(error instanceof Error ? error.message : String(error));
+        })
         .finally(() => {
           polling = false;
         });
@@ -326,7 +336,7 @@ export default function App() {
         if (result.watchAction === 'resume') await resumeHeldSubject(result.id);
       }
       if (backgroundStatus) {
-        setSyncStatus(backgroundStatus);
+        acceptSyncStarted(backgroundStatus);
         return;
       }
       await refreshBacklogAndDashboard();
@@ -345,11 +355,12 @@ export default function App() {
   }
 
   async function startManualSync() {
-    syncRequestVersion.current += 1;
+    const requestVersion = ++syncRequestVersion.current;
     setSyncNotice(null);
     setState((current) => ({ ...current, error: null }));
     try {
-      setSyncStatus(await startSync());
+      const status = await startSync();
+      if (syncRequestVersion.current === requestVersion) setSyncStatus(status);
     } catch (error) {
       showError(error instanceof Error ? error.message : String(error));
     }
@@ -488,7 +499,12 @@ export default function App() {
                   onChanged={refreshBacklogAndDashboard}
                   onError={showError}
                 />
-              ) : <div className="empty">{backlogState.error || '正在加载补番计划。'}</div>}
+              ) : (
+                <div className={backlogState.error ? 'empty retryable' : 'empty'}>
+                  <span>{backlogState.error || '正在加载补番计划。'}</span>
+                  {backlogState.error ? <button type="button" className="secondary" onClick={() => void loadBacklog()}>重试补番计划</button> : null}
+                </div>
+              )}
             </>
           ) : null}
 
@@ -496,7 +512,7 @@ export default function App() {
             <WishlistView
               disabled={isPending}
               refreshVersion={collectionRefreshVersion}
-              onSyncStarted={setSyncStatus}
+              onSyncStarted={acceptSyncStarted}
               onError={showError}
             />
           ) : null}
@@ -504,7 +520,7 @@ export default function App() {
             <UpcomingSeasonView
               disabled={isPending}
               refreshVersion={collectionRefreshVersion}
-              onSyncStarted={setSyncStatus}
+              onSyncStarted={acceptSyncStarted}
               onError={showError}
             />
           ) : null}
@@ -516,7 +532,12 @@ export default function App() {
                 onChanged={refreshHeldAndPlanning}
                 onError={showError}
               />
-            ) : <div className="empty">{heldState.error || '正在加载搁置动画。'}</div>
+            ) : (
+              <div className={heldState.error ? 'empty retryable' : 'empty'}>
+                <span>{heldState.error || '正在加载搁置动画。'}</span>
+                {heldState.error ? <button type="button" className="secondary" onClick={() => void loadHeld()}>重试搁置列表</button> : null}
+              </div>
+            )
           ) : null}
           {activeView === 'calendar' ? (
             <CalendarView state={calendarState} onRetry={loadCalendar} onError={showError} />

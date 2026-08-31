@@ -30,8 +30,8 @@ export function startScheduler(deps: SchedulerDeps): { stop(): void } {
 }
 
 export async function runReminderCheck(deps: Omit<SchedulerDeps, 'cronExpression'>): Promise<void> {
-  if (!(await deps.notificationsEnabled())) return;
   await deps.dashboard.syncNow();
+  if (!(await deps.notificationsEnabled())) return;
 
   const dashboard = await deps.dashboard.getDashboard();
   const backlog = await deps.dashboard.getBacklog();

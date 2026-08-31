@@ -192,6 +192,27 @@ describe('dashboard service', () => {
     expect(getUpcomingSeasonCatalog).toHaveBeenCalledWith('2026Q4');
   });
 
+  it('sorts upcoming titles by actual Shanghai weekday and broadcast time with unknown slots last', async () => {
+    const catalog = upcomingCatalog();
+    catalog.entries = new Map([
+      [503, upcomingCandidate(503, { nameCn: '时间待定' })],
+      [502, upcomingCandidate(502, { nameCn: '周二较晚', normalPremiereDate: '2026-10-06', airTime: '23:30', airWeekday: 2 })],
+      [501, upcomingCandidate(501, { nameCn: '周一晚间', normalPremiereDate: '2026-10-05', airTime: '22:00', airWeekday: 1 })],
+      [504, upcomingCandidate(504, { nameCn: '周二较早', normalPremiereDate: '2026-10-06', airTime: '00:30', airWeekday: 2 })]
+    ]);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ getUpcomingSeasonCatalog: vi.fn(async () => catalog) }),
+      repository: repository(),
+      clock: () => new Date('2026-08-31T12:00:00+08:00')
+    });
+
+    const result = await service.getUpcomingSeason();
+
+    expect(result.items.map((item) => item.id)).toEqual([501, 504, 502, 503]);
+    expect(result.items[1]).toMatchObject({ normalPremiereDate: '2026-10-06', airTime: '00:30', airWeekday: 2 });
+  });
+
   it('adds a next-quarter title to the wishlist and queues its automatic start', async () => {
     const addSubjectToWishlist = vi.fn(async () => undefined);
     const setSetting = vi.fn(async () => undefined);
@@ -212,6 +233,59 @@ describe('dashboard service', () => {
     expect(setSetting).toHaveBeenCalledWith('auto_watch_queue', JSON.stringify([
       { subjectId: 501, seasonKey: '2026Q4' }
     ]));
+  });
+
+  it('moves a scheduled wishlist title into the watching dashboard when its season starts', async () => {
+    let now = new Date('2026-08-31T12:00:00+08:00');
+    let remoteCollectionType: 1 | 3 | null = null;
+    let savedSubject: SubjectRow | null = null;
+    const settings = new Map<string, string>();
+    const setSubjectCollectionType = vi.fn(async (_subjectId: number, type: 2 | 3 | 4 | 5) => {
+      remoteCollectionType = type === 3 ? 3 : remoteCollectionType;
+    });
+    const testRepository = repository({
+      getSetting: vi.fn(async (key) => settings.get(key) ?? null),
+      setSetting: vi.fn(async (key, value) => { settings.set(key, value); }),
+      getSubject: vi.fn(async () => savedSubject),
+      upsertSubject: vi.fn(async (input) => { savedSubject = subject(input); }),
+      listSubjectsByMode: vi.fn(async (mode, types) =>
+        savedSubject?.plannerMode === mode && types.includes(savedSubject.collectionType)
+          ? [dashboardSubject(savedSubject)]
+          : [])
+    });
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({
+        getUpcomingSeasonCatalog: vi.fn(async () => upcomingCatalog()),
+        addSubjectToWishlist: vi.fn(async () => { remoteCollectionType = 1; }),
+        setSubjectCollectionType,
+        getAnimeCollections: vi.fn(async (_username, type) => ({
+          total: remoteCollectionType === type ? 1 : 0,
+          data: remoteCollectionType === type ? [{
+            subject_id: 501,
+            type,
+            ep_status: 0,
+            subject: { id: 501, name: 'Title 501', name_cn: '新番一', date: '2026-10-05', eps: 12, images: {} }
+          }] : []
+        })),
+        getSubjectEpisodes: vi.fn(async () => ({ total: 0, data: [] })),
+        getBroadcastCatalog: vi.fn(async () => seasonCatalog(now < new Date('2026-10-01T00:00:00+08:00') ? '2026Q3' : '2026Q4'))
+      }),
+      repository: testRepository,
+      clock: () => now
+    });
+
+    await service.addUpcomingToWishlist(501);
+    await vi.waitFor(() => expect(service.getSyncStatus().state).toBe('idle'));
+    expect(settings.get('auto_watch_queue')).toBe('[{"subjectId":501,"seasonKey":"2026Q4"}]');
+    expect(remoteCollectionType).toBe(1);
+
+    now = new Date('2026-10-01T12:00:00+08:00');
+    await service.syncNow();
+
+    expect(setSubjectCollectionType).toHaveBeenCalledWith(501, 3);
+    expect(settings.get('auto_watch_queue')).toBe('[]');
+    expect((await service.getDashboard()).subjects).toEqual([expect.objectContaining({ id: 501, collectionType: 3, plannerMode: 'seasonal' })]);
   });
 
   it('moves corrected broadcasts to the corrected weekday and identifies the source', async () => {
@@ -1098,9 +1172,47 @@ function upcomingCatalog() {
     seasonKey: '2026Q4',
     available: true,
     entries: new Map([
-      [501, { subjectId: 501, name: 'Title 501', nameCn: '新番一', image: '501.jpg', seasonKey: '2026Q4', sourceType: '原创' }],
-      [502, { subjectId: 502, name: 'Title 502', nameCn: '新番二', image: '502.jpg', seasonKey: '2026Q4', sourceType: '漫改' }]
+      [501, upcomingCandidate(501, { nameCn: '新番一', sourceType: '原创' })],
+      [502, upcomingCandidate(502, { nameCn: '新番二', sourceType: '漫改' })]
     ])
+  };
+}
+
+function upcomingCandidate(id: number, overrides: Record<string, unknown> = {}) {
+  return {
+    subjectId: id,
+    name: `Title ${id}`,
+    nameCn: `新番 ${id}`,
+    image: `${id}.jpg`,
+    seasonKey: '2026Q4',
+    sourceType: '原创',
+    normalPremiereDate: '',
+    airTime: '',
+    airWeekday: null,
+    ...overrides
+  };
+}
+
+function seasonCatalog(seasonKey: '2026Q3' | '2026Q4') {
+  const subjectId = seasonKey === '2026Q4' ? 501 : 999;
+  return {
+    schedules: new Map(),
+    seasonWindow: {
+      currentSeasonKey: seasonKey,
+      previousSeasonKey: seasonKey === '2026Q4' ? '2026Q3' : '2026Q2',
+      anchorDate: seasonKey === '2026Q4' ? '2026-10-01' : '2026-07-01',
+      overlapThrough: seasonKey === '2026Q4' ? '2026-10-14' : '2026-07-14',
+      authoritative: true,
+      activeSubjectIds: new Set([subjectId]),
+      entries: new Map([[subjectId, {
+        subjectId,
+        seasonKey,
+        seasonKind: 'new' as const,
+        normalPremiereDate: seasonKey === '2026Q4' ? '2026-10-05' : '2026-07-01',
+        airTime: '20:00',
+        dayOffset: 0
+      }]])
+    }
   };
 }
 

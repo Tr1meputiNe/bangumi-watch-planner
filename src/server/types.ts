@@ -57,6 +57,9 @@ export type UpcomingSeasonCandidate = {
   image: string | null;
   seasonKey: string;
   sourceType: string;
+  normalPremiereDate: string;
+  airTime: string;
+  airWeekday: number | null;
 };
 
 export type UpcomingSeasonCatalog = {
@@ -170,6 +173,9 @@ export type UpcomingSeasonItem = {
   url: string;
   seasonKey: string;
   sourceType: string;
+  normalPremiereDate: string;
+  airTime: string;
+  airWeekday: number | null;
   collectionType: BangumiCollectionType | null;
   action: 'add' | 'schedule' | null;
   actionLabel: string;

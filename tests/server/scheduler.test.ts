@@ -71,7 +71,7 @@ describe('runReminderCheck', () => {
     expect(repository.setLastNotificationDate).not.toHaveBeenCalled();
   });
 
-  it('does nothing when notifications are disabled', async () => {
+  it('still syncs when notifications are disabled without loading or sending reminders', async () => {
     const dashboard = dashboardService();
 
     await runReminderCheck({
@@ -82,7 +82,7 @@ describe('runReminderCheck', () => {
       clock: () => now
     });
 
-    expect(dashboard.syncNow).not.toHaveBeenCalled();
+    expect(dashboard.syncNow).toHaveBeenCalledOnce();
     expect(dashboard.getDashboard).not.toHaveBeenCalled();
     expect(dashboard.getBacklog).not.toHaveBeenCalled();
   });

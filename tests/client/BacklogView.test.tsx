@@ -146,6 +146,20 @@ describe('BacklogView', () => {
     expect(onChanged).not.toHaveBeenCalled();
     expect(screen.getByText('旧番 第 2 集')).toBeInTheDocument();
   });
+
+  it('disables conflicting plan actions while one write is pending', async () => {
+    let resolveWrite!: (response: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(async () => new Promise<Response>((resolve) => { resolveWrite = resolve; })));
+    render(<BacklogView data={backlogData()} disabled={false} onChanged={vi.fn(async () => undefined)} onError={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: '已看' }));
+
+    for (const name of ['换一部', '今天跳过', '重新规划今天', '搁置', '手动完成']) {
+      expect(screen.getByRole('button', { name })).toBeDisabled();
+    }
+    resolveWrite(new Response(null, { status: 204 }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '换一部' })).toBeEnabled());
+  });
 });
 
 function backlogData(): BacklogData {

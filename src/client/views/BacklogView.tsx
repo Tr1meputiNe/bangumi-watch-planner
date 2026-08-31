@@ -39,7 +39,7 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
     }
   }
 
-  const actionDisabled = (key: string) => disabled || busyAction === key;
+  const actionsDisabled = disabled || busyAction !== null;
   const markThrough = (subjectId: number, episodeId: number) => void runAction(`watched-through-${episodeId}`, () => markWatchedThrough(subjectId, episodeId));
   const markOne = (episodeId: number) => void runAction(`watched-${episodeId}`, () => markWatched(episodeId));
   const markUnwatchedEpisode = (episodeId: number) => void runAction(`unwatched-${episodeId}`, () => markUnwatched(episodeId));
@@ -70,7 +70,7 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
             <button
               type="button"
               className="secondary"
-              disabled={actionDisabled('skip-today')}
+              disabled={actionsDisabled}
               onClick={() => void runAction('skip-today', skipBacklogToday)}
             >
               今天跳过
@@ -78,7 +78,7 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
             <button
               type="button"
               className="secondary"
-              disabled={actionDisabled('replan-today')}
+              disabled={actionsDisabled}
               onClick={() => void runAction('replan-today', replanBacklogToday)}
             >
               重新规划今天
@@ -93,7 +93,7 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
                 task={task}
                 index={index + 1}
                 subject={subjectsById.get(task.subjectId)}
-                disabled={disabled}
+                disabled={actionsDisabled}
                 busyAction={busyAction}
                 onAction={runAction}
               />
@@ -160,7 +160,7 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
               <button
                 type="button"
                 className="secondary"
-                disabled={actionDisabled(`pause-${subject.id}`)}
+                  disabled={actionsDisabled}
                 onClick={() => void runAction(`pause-${subject.id}`, () => pauseBacklog(subject.id))}
               >
                 搁置
@@ -169,7 +169,7 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
                 <button
                   type="button"
                   className="secondary"
-                  disabled={actionDisabled(`complete-${subject.id}`)}
+                  disabled={actionsDisabled}
                   onClick={() => void runAction(`complete-${subject.id}`, () => completeBacklog(subject.id))}
                 >
                   手动完成

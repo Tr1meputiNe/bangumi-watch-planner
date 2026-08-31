@@ -466,6 +466,10 @@ button.ghost:hover {
   padding: 24px;
 }
 
+.empty.retryable {
+  gap: var(--space-sm);
+}
+
 .subject-list {
   display: grid;
 }
@@ -3510,6 +3514,33 @@ select[data-state="success"] {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-lg) var(--space-xs);
+}
+
+.upcoming-day-groups {
+  display: grid;
+  gap: var(--space-xl);
+}
+
+.upcoming-day-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  padding-bottom: var(--space-xs);
+}
+
+.upcoming-day-heading h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+}
+
+.upcoming-day-heading span {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
 }
 
 .wishlist-item {

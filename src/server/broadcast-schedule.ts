@@ -85,29 +85,48 @@ export async function fetchYucUpcomingCatalog(
   seasonKey: string,
   searchAnimeSubjects?: (keyword: string) => Promise<AnimeSearchSubject[]>
 ): Promise<UpcomingSeasonCatalog> {
-  const [data, html] = await Promise.all([
+  const [data, html, seasonHtml] = await Promise.all([
     fetchBangumiData(fetchImpl, userAgent),
-    fetchYucNewAnimeHtml(fetchImpl, userAgent)
+    fetchYucNewAnimeHtml(fetchImpl, userAgent),
+    fetchYucWikiSeasonHtml(fetchImpl, userAgent, seasonKey)
   ]);
   if (html === null) return { seasonKey, entries: new Map(), available: false };
   const catalog = parseYucUpcomingSeason(html, seasonKey, data);
-  if (!searchAnimeSubjects) return catalog;
-  const candidates = parseYucUpcomingCandidates(html, seasonKey)
-    .filter((candidate) => ![...catalog.entries.values()].some((entry) => entry.nameCn === candidate.nameCn));
-  const confirmed = await mapWithConcurrency(candidates, 4, async (candidate) => {
-    const results = await searchAnimeSubjects(candidate.nameCn).catch(() => []);
-    const match = results.find((result) => searchResultMatchesUpcoming(result, candidate.nameCn, seasonKey));
-    return match ? {
-      subjectId: match.id,
-      name: match.name,
-      nameCn: match.nameCn || candidate.nameCn,
-      image: candidate.image,
-      seasonKey,
-      sourceType: candidate.sourceType
-    } satisfies UpcomingSeasonCandidate : null;
-  });
-  for (const entry of confirmed) {
-    if (entry && !catalog.entries.has(entry.subjectId)) catalog.entries.set(entry.subjectId, entry);
+  if (searchAnimeSubjects) {
+    const candidates = parseYucUpcomingCandidates(html, seasonKey)
+      .filter((candidate) => ![...catalog.entries.values()].some((entry) => entry.nameCn === candidate.nameCn));
+    const confirmed = await mapWithConcurrency(candidates, 4, async (candidate) => {
+      const results = await searchAnimeSubjects(candidate.nameCn).catch(() => []);
+      const match = results.find((result) => searchResultMatchesUpcoming(result, candidate.nameCn, seasonKey));
+      return match ? {
+        subjectId: match.id,
+        name: match.name,
+        nameCn: match.nameCn || candidate.nameCn,
+        image: candidate.image,
+        seasonKey,
+        sourceType: candidate.sourceType,
+        normalPremiereDate: '',
+        airTime: '',
+        airWeekday: null
+      } satisfies UpcomingSeasonCandidate : null;
+    });
+    for (const entry of confirmed) {
+      if (entry && !catalog.entries.has(entry.subjectId)) catalog.entries.set(entry.subjectId, entry);
+    }
+  }
+
+  const scheduleEntries = seasonHtml === null
+    ? new Map<number, SeasonEntry>()
+    : parseYucWikiSeason(seasonHtml, seasonKey, data).entries;
+  for (const [subjectId, entry] of catalog.entries) {
+    const schedule = scheduleEntries.get(subjectId);
+    if (!schedule) continue;
+    catalog.entries.set(subjectId, {
+      ...entry,
+      normalPremiereDate: schedule.normalPremiereDate,
+      airTime: schedule.airTime,
+      airWeekday: weekdayForDate(schedule.normalPremiereDate)
+    });
   }
   return catalog;
 }
@@ -302,14 +321,20 @@ export function parseYucUpcomingSeason(html: string, seasonKey: string, data: Ba
     entries.set(subjectId, {
       ...candidate,
       subjectId,
-      name: item.title || candidate.nameCn
+      name: item.title || candidate.nameCn,
+      normalPremiereDate: '',
+      airTime: '',
+      airWeekday: null
     });
   }
   return { seasonKey, entries, available: true };
 }
 
-function parseYucUpcomingCandidates(html: string, seasonKey: string): Array<Omit<UpcomingSeasonCandidate, 'subjectId'>> {
-  const candidates: Array<Omit<UpcomingSeasonCandidate, 'subjectId'>> = [];
+function parseYucUpcomingCandidates(
+  html: string,
+  seasonKey: string
+): Array<Omit<UpcomingSeasonCandidate, 'subjectId' | 'normalPremiereDate' | 'airTime' | 'airWeekday'>> {
+  const candidates: Array<Omit<UpcomingSeasonCandidate, 'subjectId' | 'normalPremiereDate' | 'airTime' | 'airWeekday'>> = [];
   const seasonLabel = yucSeasonLabel(seasonKey);
   const cards = html.replace(/<!--[\s\S]*?-->/g, '').matchAll(
     /<div\b[^>]*style="[^"]*float\s*:\s*left[^"]*"[^>]*>\s*<div\b[^>]*class="[^"]*\bfuture_div\b[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<div\b[^>]*>\s*<table\b[^>]*class="[^"]*\bfuture_table\b[^"]*"[^>]*>([\s\S]*?)<\/table>\s*<\/div>\s*<\/div>/gi
@@ -355,6 +380,11 @@ function isValidDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function weekdayForDate(value: string): number | null {
+  if (!isValidDate(value)) return null;
+  return new Date(`${value}T00:00:00Z`).getUTCDay() || 7;
 }
 
 async function mapWithConcurrency<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {

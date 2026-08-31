@@ -300,12 +300,19 @@ export function createDashboardService({
           url: `https://bgm.tv/subject/${entry.subjectId}`,
           seasonKey,
           sourceType: entry.sourceType,
+          normalPremiereDate: entry.normalPremiereDate,
+          airTime: entry.airTime,
+          airWeekday: entry.airWeekday,
           collectionType: subject?.collectionType ?? null,
           action: action.action,
           actionLabel: action.label,
           autoWatch
         };
       }));
+      items.sort((a, b) =>
+        (a.airWeekday ?? 8) - (b.airWeekday ?? 8)
+        || (a.airTime || '99:99').localeCompare(b.airTime || '99:99')
+      );
       return { seasonKey, available: true, items };
     },
 

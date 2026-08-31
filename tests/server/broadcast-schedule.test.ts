@@ -108,25 +108,51 @@ describe('broadcast schedule', () => {
       nameCn: '新番一',
       image: '501.jpg',
       seasonKey: '2026Q4',
-      sourceType: '原创'
+      sourceType: '原创',
+      normalPremiereDate: '',
+      airTime: '',
+      airWeekday: null
     }]);
   });
 
-  it('loads upcoming candidates from the dedicated Yuc new-anime station', async () => {
+  it('uses the dedicated Yuc station for candidates and the quarterly page for weekly slots', async () => {
     const urls: string[] = [];
     const fetch = vi.fn(async (url: string) => {
       urls.push(url);
       if (url === 'https://unpkg.com/bangumi-data@0.3/dist/data.json') {
-        return { ok: true, json: async () => bangumiData([]) };
+        return {
+          ok: true,
+          json: async () => bangumiData([
+            dataItem(501, 'Upcoming One', ['新番一'], '2026-10-06T00:30:00+08:00')
+          ])
+        };
       }
-      if (url === 'http://yuc.wiki/new/') return { ok: true, text: async () => '' };
+      if (url === 'http://yuc.wiki/new/') {
+        return {
+          ok: true,
+          text: async () => '<div style="float:left"><div class="future_div"><p class="future_type_a">原创</p><p class="future_date">2026秋</p><img data-src="501.jpg"></div><div><table class="future_table"><tr><td class="future_title_">新番一</td></tr></table></div></div>'
+        };
+      }
+      if (url === 'http://yuc.wiki/202610/') {
+        return {
+          ok: true,
+          text: async () => yucPage([
+            { weekday: '周一', time: '25:30', title: '新番一', jp: 'Upcoming One', cover: '501.jpg', premiere: '10/5周一深夜' }
+          ])
+        };
+      }
       return { ok: false };
     });
 
-    await fetchYucUpcomingCatalog(fetch as typeof globalThis.fetch, 'tester/bangumi-watch-planner', '2026Q4');
+    const catalog = await fetchYucUpcomingCatalog(fetch as typeof globalThis.fetch, 'tester/bangumi-watch-planner', '2026Q4');
 
     expect(urls).toContain('http://yuc.wiki/new/');
-    expect(urls).not.toContain('http://yuc.wiki/202610/');
+    expect(urls).toContain('http://yuc.wiki/202610/');
+    expect(catalog.entries.get(501)).toMatchObject({
+      normalPremiereDate: '2026-10-06',
+      airTime: '00:30',
+      airWeekday: 2
+    });
   });
 
   it('uses the normal weekly slot instead of an early first broadcast for the season anchor', () => {

@@ -38,6 +38,8 @@ export default function UpcomingSeasonView({ disabled, refreshVersion, onSyncSta
   async function schedule(item: UpcomingSeasonItem) {
     if (!item.action) return;
     const previous = item;
+    const sequence = ++requestSequence.current;
+    setLoading(false);
     commitWithMotion(() => setData((current) => ({
       ...current,
       items: current.items.map((candidate) => candidate.id === item.id ? {
@@ -52,10 +54,12 @@ export default function UpcomingSeasonView({ disabled, refreshVersion, onSyncSta
     try {
       onSyncStarted(await addUpcomingToWishlist(item.id));
     } catch (error) {
-      commitWithMotion(() => setData((current) => ({
-        ...current,
-        items: current.items.map((candidate) => candidate.id === item.id ? previous : candidate)
-      })));
+      if (sequence === requestSequence.current) {
+        commitWithMotion(() => setData((current) => ({
+          ...current,
+          items: current.items.map((candidate) => candidate.id === item.id ? previous : candidate)
+        })));
+      }
       onError(error instanceof Error ? error.message : String(error));
     }
   }
@@ -76,32 +80,61 @@ export default function UpcomingSeasonView({ disabled, refreshVersion, onSyncSta
       {!loading && !data.available ? <div className="empty">Yuc 新番列表暂时不可用，请稍后重试。</div> : null}
       {!loading && data.available && data.items.length === 0 ? <div className="empty">暂时没有由 Bangumi 确认的下季度新番。</div> : null}
       {data.items.length > 0 ? (
-        <div className="wishlist-list">
-          {data.items.map((item, index) => (
-            <article key={item.id} className="wishlist-item motion-item" style={motionStyle(index, `upcoming-subject-${item.id}`)}>
-              <a className="wishlist-cover" href={item.url} target="_blank" rel="noreferrer" aria-label={displaySubjectName(item.name, item.nameCn)}>
-                {item.image ? <img src={item.image} alt="" referrerPolicy="no-referrer" /> : <span>暂无封面</span>}
-              </a>
-              <div className="wishlist-details">
-                <a className="wishlist-title" href={item.url} target="_blank" rel="noreferrer">{displaySubjectName(item.name, item.nameCn)}</a>
-                <p className="wishlist-meta">
-                  <span className="wishlist-season is-current">{item.sourceType || '类型未定'}</span>
-                  <span>Bangumi 已确认</span>
-                </p>
+        <div className="upcoming-day-groups">
+          {groupByWeekday(data.items).map((group) => (
+            <section key={group.key} className="upcoming-day-group" aria-label={group.label}>
+              <header className="upcoming-day-heading">
+                <h2>{group.label}</h2>
+                <span>{group.items.length} 部</span>
+              </header>
+              <div className="wishlist-list">
+                {group.items.map((item, index) => (
+                  <article key={item.id} className="wishlist-item motion-item" style={motionStyle(index, `upcoming-subject-${item.id}`)}>
+                    <a className="wishlist-cover" href={item.url} target="_blank" rel="noreferrer" aria-label={displaySubjectName(item.name, item.nameCn)}>
+                      {item.image ? <img src={item.image} alt="" referrerPolicy="no-referrer" /> : <span>暂无封面</span>}
+                    </a>
+                    <div className="wishlist-details">
+                      <a className="wishlist-title" href={item.url} target="_blank" rel="noreferrer">{displaySubjectName(item.name, item.nameCn)}</a>
+                      <p className="wishlist-meta">
+                        <span className="wishlist-season is-current">{item.sourceType || '类型未定'}</span>
+                        <span>{formatPremiere(item)}</span>
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={disabled || item.action === null}
+                      onClick={() => void schedule(item)}
+                    >
+                      {item.actionLabel}
+                    </button>
+                  </article>
+                ))}
               </div>
-              <button
-                type="button"
-                disabled={disabled || item.action === null}
-                onClick={() => void schedule(item)}
-              >
-                {item.actionLabel}
-              </button>
-            </article>
+            </section>
           ))}
         </div>
       ) : null}
     </section>
   );
+}
+
+const weekdayLabels = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
+
+function groupByWeekday(items: UpcomingSeasonItem[]) {
+  const groups = new Map<number, UpcomingSeasonItem[]>();
+  for (const item of items) {
+    const key = item.airWeekday && item.airWeekday >= 1 && item.airWeekday <= 7 ? item.airWeekday : 8;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([key, groupItems]) => ({ key, label: weekdayLabels[key - 1] ?? '时间待定', items: groupItems }));
+}
+
+function formatPremiere(item: UpcomingSeasonItem): string {
+  const [, month, day] = item.normalPremiereDate.match(/^\d{4}-(\d{2})-(\d{2})$/) ?? [];
+  if (!month || !day || !item.airTime) return '常规播出时间待定';
+  return `首播 ${Number(month)}月${Number(day)}日 · ${item.airTime}`;
 }
 
 function seasonLabel(seasonKey: string): string {
