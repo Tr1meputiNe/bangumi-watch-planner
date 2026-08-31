@@ -1,12 +1,27 @@
-import { describe, expect, it, vi } from 'vitest';
-import { runReminderCheck } from '../../src/server/scheduler.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { runReminderCheck, startScheduler } from '../../src/server/scheduler.js';
 import type { DashboardService, DashboardData, BacklogData, EpisodeRow } from '../../src/server/types.js';
 import type { Repository } from '../../src/server/db.js';
 import type { Notifier } from '../../src/server/notifier.js';
 
+const cronState = vi.hoisted(() => ({ callback: null as (() => void) | null, stop: vi.fn() }));
+vi.mock('node-cron', () => ({
+  default: {
+    schedule: vi.fn((_expression: string, callback: () => void) => {
+      cronState.callback = callback;
+      return { stop: cronState.stop };
+    })
+  }
+}));
+
 const now = new Date('2026-07-19T12:00:00.000Z');
 
 describe('runReminderCheck', () => {
+  beforeEach(() => {
+    cronState.callback = null;
+    cronState.stop.mockClear();
+  });
+
   it('syncs and replans before loading one combined notification', async () => {
     const events: string[] = [];
     const dashboard = dashboardService({
@@ -85,6 +100,24 @@ describe('runReminderCheck', () => {
     expect(dashboard.syncNow).toHaveBeenCalledOnce();
     expect(dashboard.getDashboard).not.toHaveBeenCalled();
     expect(dashboard.getBacklog).not.toHaveBeenCalled();
+  });
+
+  it('contains a scheduled sync failure and keeps the cron task alive', async () => {
+    const dashboard = dashboardService({ syncNow: vi.fn(async () => { throw new Error('offline'); }) });
+    const scheduler = startScheduler({
+      dashboard,
+      repository: repositoryStub(),
+      notifier: notifierStub(),
+      cronExpression: '0 20 * * *',
+      notificationsEnabled: async () => true
+    });
+
+    cronState.callback?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(dashboard.syncNow).toHaveBeenCalledOnce();
+    scheduler.stop();
+    expect(cronState.stop).toHaveBeenCalledOnce();
   });
 });
 

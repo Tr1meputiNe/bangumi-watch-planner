@@ -17,6 +17,7 @@ export default function UpcomingSeasonView({ disabled, refreshVersion, onSyncSta
   const [data, setData] = useState<UpcomingSeasonData>(emptyData);
   const [loading, setLoading] = useState(true);
   const requestSequence = useRef(0);
+  const pendingMutations = useRef(new Set<number>());
 
   useEffect(() => {
     void loadUpcoming();
@@ -26,7 +27,10 @@ export default function UpcomingSeasonView({ disabled, refreshVersion, onSyncSta
       setLoading(true);
       try {
         const result = await getUpcomingSeason();
-        if (sequence === requestSequence.current) commitWithMotion(() => setData(result));
+        if (sequence === requestSequence.current) {
+          pendingMutations.current.clear();
+          commitWithMotion(() => setData(result));
+        }
       } catch (error) {
         if (sequence === requestSequence.current) onError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -38,7 +42,8 @@ export default function UpcomingSeasonView({ disabled, refreshVersion, onSyncSta
   async function schedule(item: UpcomingSeasonItem) {
     if (!item.action) return;
     const previous = item;
-    const sequence = ++requestSequence.current;
+    requestSequence.current += 1;
+    pendingMutations.current.add(item.id);
     setLoading(false);
     commitWithMotion(() => setData((current) => ({
       ...current,
@@ -54,13 +59,15 @@ export default function UpcomingSeasonView({ disabled, refreshVersion, onSyncSta
     try {
       onSyncStarted(await addUpcomingToWishlist(item.id));
     } catch (error) {
-      if (sequence === requestSequence.current) {
+      if (pendingMutations.current.has(item.id)) {
         commitWithMotion(() => setData((current) => ({
           ...current,
           items: current.items.map((candidate) => candidate.id === item.id ? previous : candidate)
         })));
       }
       onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      pendingMutations.current.delete(item.id);
     }
   }
 

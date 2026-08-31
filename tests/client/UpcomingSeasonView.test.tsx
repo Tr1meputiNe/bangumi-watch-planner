@@ -79,6 +79,38 @@ describe('UpcomingSeasonView', () => {
     await waitFor(() => expect(screen.getAllByRole('button', { name: '已安排开季在看' })[0]).toBeDisabled());
   });
 
+  it('rolls back one failed title without changing another pending title', async () => {
+    const data = upcomingData();
+    data.items[1] = {
+      ...data.items[1],
+      collectionType: null,
+      action: 'add',
+      actionLabel: '加入想看',
+      autoWatch: false
+    };
+    let resolveFirst!: (response: Response) => void;
+    let resolveSecond!: (response: Response) => void;
+    const first = new Promise<Response>((resolve) => { resolveFirst = resolve; });
+    const second = new Promise<Response>((resolve) => { resolveSecond = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input.toString() === '/api/upcoming-season') return Response.json(data);
+      if (init?.method === 'POST' && input.toString().endsWith('/501/wishlist')) return first;
+      if (init?.method === 'POST' && input.toString().endsWith('/502/wishlist')) return second;
+      throw new Error(`Unexpected request ${input.toString()}`);
+    }));
+    render(<UpcomingSeasonView disabled={false} refreshVersion={0} onSyncStarted={vi.fn()} onError={vi.fn()} />);
+    await screen.findAllByRole('button', { name: '加入想看' });
+
+    const buttons = screen.getAllByRole('button', { name: '加入想看' });
+    await userEvent.click(buttons[0]);
+    await userEvent.click(buttons[1]);
+    resolveFirst(Response.json({ error: 'first failed' }, { status: 502 }));
+
+    expect(await screen.findByRole('button', { name: '加入想看' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '已安排开季在看' })).toBeDisabled();
+    resolveSecond(Response.json(runningSyncStatus(), { status: 202 }));
+  });
+
   it('shows a source warning when Yuc new-anime station is unavailable', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ seasonKey: '2026Q4', available: false, items: [] })));
 

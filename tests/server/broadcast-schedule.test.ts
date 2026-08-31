@@ -120,12 +120,7 @@ describe('broadcast schedule', () => {
     const fetch = vi.fn(async (url: string) => {
       urls.push(url);
       if (url === 'https://unpkg.com/bangumi-data@0.3/dist/data.json') {
-        return {
-          ok: true,
-          json: async () => bangumiData([
-            dataItem(501, 'Upcoming One', ['新番一'], '2026-10-06T00:30:00+08:00')
-          ])
-        };
+        return { ok: true, json: async () => bangumiData([]) };
       }
       if (url === 'http://yuc.wiki/new/') {
         return {
@@ -144,7 +139,20 @@ describe('broadcast schedule', () => {
       return { ok: false };
     });
 
-    const catalog = await fetchYucUpcomingCatalog(fetch as typeof globalThis.fetch, 'tester/bangumi-watch-planner', '2026Q4');
+    const catalog = await fetchYucUpcomingCatalog(
+      fetch as typeof globalThis.fetch,
+      'tester/bangumi-watch-planner',
+      '2026Q4',
+      async () => [{
+        id: 501,
+        name: 'Upcoming One',
+        nameCn: '新番一（Bangumi）',
+        airDate: '2026-10-06',
+        eps: 12,
+        image: null,
+        url: 'https://bgm.tv/subject/501'
+      }]
+    );
 
     expect(urls).toContain('http://yuc.wiki/new/');
     expect(urls).toContain('http://yuc.wiki/202610/');

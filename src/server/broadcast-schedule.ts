@@ -92,6 +92,7 @@ export async function fetchYucUpcomingCatalog(
   ]);
   if (html === null) return { seasonKey, entries: new Map(), available: false };
   const catalog = parseYucUpcomingSeason(html, seasonKey, data);
+  const titleAliases = new Map([...catalog.entries].map(([subjectId, entry]) => [subjectId, [entry.name, entry.nameCn]]));
   if (searchAnimeSubjects) {
     const candidates = parseYucUpcomingCandidates(html, seasonKey)
       .filter((candidate) => ![...catalog.entries.values()].some((entry) => entry.nameCn === candidate.nameCn));
@@ -99,28 +100,47 @@ export async function fetchYucUpcomingCatalog(
       const results = await searchAnimeSubjects(candidate.nameCn).catch(() => []);
       const match = results.find((result) => searchResultMatchesUpcoming(result, candidate.nameCn, seasonKey));
       return match ? {
-        subjectId: match.id,
-        name: match.name,
-        nameCn: match.nameCn || candidate.nameCn,
-        image: candidate.image,
-        seasonKey,
-        sourceType: candidate.sourceType,
-        normalPremiereDate: '',
-        airTime: '',
-        airWeekday: null
-      } satisfies UpcomingSeasonCandidate : null;
+        entry: {
+          subjectId: match.id,
+          name: match.name,
+          nameCn: match.nameCn || candidate.nameCn,
+          image: candidate.image,
+          seasonKey,
+          sourceType: candidate.sourceType,
+          normalPremiereDate: '',
+          airTime: '',
+          airWeekday: null
+        } satisfies UpcomingSeasonCandidate,
+        sourceTitle: candidate.nameCn
+      } : null;
     });
-    for (const entry of confirmed) {
-      if (entry && !catalog.entries.has(entry.subjectId)) catalog.entries.set(entry.subjectId, entry);
+    for (const match of confirmed) {
+      if (!match || catalog.entries.has(match.entry.subjectId)) continue;
+      catalog.entries.set(match.entry.subjectId, match.entry);
+      titleAliases.set(match.entry.subjectId, [match.entry.name, match.entry.nameCn, match.sourceTitle]);
     }
   }
 
+  const knownSubjectIds = new Set((data.items ?? []).map((item) => bangumiSubjectId(item)).filter((id) => id !== null));
+  const scheduleData: BangumiData = {
+    items: [
+      ...(data.items ?? []),
+      ...[...catalog.entries.values()]
+        .filter((entry) => !knownSubjectIds.has(entry.subjectId))
+        .map((entry) => ({
+          title: entry.name,
+          titleTranslate: { 'zh-Hans': titleAliases.get(entry.subjectId) ?? [entry.nameCn] },
+          begin: '',
+          sites: [{ site: 'bangumi', id: String(entry.subjectId) }]
+        }))
+    ]
+  };
   const scheduleEntries = seasonHtml === null
     ? new Map<number, SeasonEntry>()
-    : parseYucWikiSeason(seasonHtml, seasonKey, data).entries;
+    : parseYucWikiSeason(seasonHtml, seasonKey, scheduleData).entries;
   for (const [subjectId, entry] of catalog.entries) {
     const schedule = scheduleEntries.get(subjectId);
-    if (!schedule) continue;
+    if (!schedule || schedule.scheduleSource !== 'Yuc Wiki') continue;
     catalog.entries.set(subjectId, {
       ...entry,
       normalPremiereDate: schedule.normalPremiereDate,

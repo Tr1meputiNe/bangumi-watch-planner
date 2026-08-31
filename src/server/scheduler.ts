@@ -17,7 +17,7 @@ export function startScheduler(deps: SchedulerDeps): { stop(): void } {
   const task = cron.schedule(
     deps.cronExpression,
     () => {
-      void runReminderCheck(deps);
+      void runReminderCheck(deps).catch(() => undefined);
     },
     { timezone: 'Asia/Shanghai' }
   );
