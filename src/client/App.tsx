@@ -6,6 +6,7 @@ import {
   LibraryBig,
   ListVideo,
   RadioTower,
+  Telescope,
   TvMinimalPlay,
   type LucideIcon
 } from 'lucide-react';
@@ -31,6 +32,7 @@ import CalendarView, { type CalendarViewState } from './views/CalendarView.js';
 import WatchingView from './views/WatchingView.js';
 import HeldView from './views/HeldView.js';
 import WishlistView from './views/WishlistView.js';
+import UpcomingSeasonView from './views/UpcomingSeasonView.js';
 import { commitWithMotion, MotionValue, motionStyle } from './motion.js';
 
 type LoadState = {
@@ -45,7 +47,7 @@ type BacklogState = {
   error: string | null;
 };
 
-type ActiveView = 'today' | 'watching' | 'backlog' | 'held' | 'wishlist' | 'calendar';
+type ActiveView = 'today' | 'watching' | 'backlog' | 'held' | 'wishlist' | 'upcoming' | 'calendar';
 type PendingAction = 'search' | 'oauth';
 type SearchDestination = 'backlog' | 'wishlist';
 
@@ -225,7 +227,7 @@ export default function App() {
           if (!syncError) {
             const result = nextStatus.result;
             setSyncNotice(result
-              ? `同步完成：${result.subjectsSynced} 部番剧，${result.episodesSynced} 集分集`
+              ? `同步完成：${result.subjectsSynced} 部番剧，${result.episodesSynced} 集分集${result.subjectsFailed ? `；${result.subjectsFailed} 部保留旧缓存` : ''}`
               : '同步完成');
           }
           setCollectionRefreshVersion((version) => version + 1);
@@ -430,6 +432,7 @@ export default function App() {
           <Tab icon={LibraryBig} active={activeView === 'backlog'} onClick={() => setActiveView('backlog')}>补番计划</Tab>
           <Tab icon={CirclePause} active={activeView === 'held'} onClick={() => setActiveView('held')}>搁置</Tab>
           <Tab icon={HeartPlus} active={activeView === 'wishlist'} onClick={() => setActiveView('wishlist')}>想看</Tab>
+          <Tab icon={Telescope} active={activeView === 'upcoming'} onClick={() => setActiveView('upcoming')}>下季新番</Tab>
           <Tab icon={RadioTower} active={activeView === 'calendar'} onClick={() => setActiveView('calendar')}>每日放送</Tab>
         </div>
 
@@ -491,6 +494,14 @@ export default function App() {
 
           {activeView === 'wishlist' ? (
             <WishlistView
+              disabled={isPending}
+              refreshVersion={collectionRefreshVersion}
+              onSyncStarted={setSyncStatus}
+              onError={showError}
+            />
+          ) : null}
+          {activeView === 'upcoming' ? (
+            <UpcomingSeasonView
               disabled={isPending}
               refreshVersion={collectionRefreshVersion}
               onSyncStarted={setSyncStatus}

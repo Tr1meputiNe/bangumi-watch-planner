@@ -19,6 +19,12 @@ export function previousSeasonKey(seasonKey: string): string {
   return previousQuarter ? `${year}Q${previousQuarter}` : `${Number(year) - 1}Q4`;
 }
 
+export function nextSeasonKey(seasonKey: string): string {
+  const [, year, quarter] = seasonKey.match(/^(\d{4})Q([1-4])$/) ?? [];
+  const nextQuarter = Number(quarter) + 1;
+  return nextQuarter <= 4 ? `${year}Q${nextQuarter}` : `${Number(year) + 1}Q1`;
+}
+
 export function yucWikiUrlForSeason(seasonKey: string): string {
   const [, year, quarter] = seasonKey.match(/^(\d{4})Q([1-4])$/) ?? [];
   const month = (Number(quarter) - 1) * 3 + 1;

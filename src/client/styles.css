@@ -3766,6 +3766,10 @@ select[data-state="success"] {
 }
 
 @media (max-width: 39.999rem) {
+  .upcoming-season-panel .wishlist-hero h1 {
+    font-size: 2rem;
+  }
+
   .topbar {
     grid-template-columns: minmax(0, 1fr);
   }

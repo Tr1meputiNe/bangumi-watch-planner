@@ -1,11 +1,15 @@
 import type {
+  AnimeSearchSubject,
   BroadcastCatalog,
   BroadcastSchedule as BroadcastScheduleContract,
   SeasonCatalog,
-  SeasonEntry
+  SeasonEntry,
+  UpcomingSeasonCandidate,
+  UpcomingSeasonCatalog
 } from './types.js';
 import {
   buildSeasonWindow,
+  nextSeasonKey,
   previousSeasonKey,
   seasonKeyForDate,
   yucWikiUrlForSeason
@@ -26,6 +30,7 @@ export type BroadcastSchedule = BroadcastScheduleContract;
 
 const BANGUMI_DATA_URL = 'https://unpkg.com/bangumi-data@0.3/dist/data.json';
 const BANGUMI_INDEX_URL = 'https://bgm.tv/index/99544';
+const YUC_NEW_ANIME_URL = 'http://yuc.wiki/new/';
 
 export async function fetchBroadcastTimes(fetchImpl: typeof fetch, userAgent: string): Promise<Map<number, BroadcastSchedule>> {
   return (await fetchBroadcastCatalog(fetchImpl, userAgent, new Date())).schedules;
@@ -38,11 +43,13 @@ export async function fetchBroadcastCatalog(
 ): Promise<BroadcastCatalog> {
   const currentSeasonKey = seasonKeyForDate(now);
   const priorSeasonKey = previousSeasonKey(currentSeasonKey);
-  const [data, indexTimes, currentHtml, previousHtml] = await Promise.all([
+  const upcomingSeasonKey = nextSeasonKey(currentSeasonKey);
+  const [data, indexTimes, currentHtml, previousHtml, upcomingHtml] = await Promise.all([
     fetchBangumiData(fetchImpl, userAgent),
     fetchBangumiIndexTimes(fetchImpl, userAgent),
     fetchYucWikiSeasonHtml(fetchImpl, userAgent, currentSeasonKey),
-    fetchYucWikiSeasonHtml(fetchImpl, userAgent, priorSeasonKey)
+    fetchYucWikiSeasonHtml(fetchImpl, userAgent, priorSeasonKey),
+    fetchYucWikiSeasonHtml(fetchImpl, userAgent, upcomingSeasonKey)
   ]);
   const dataTimes = mapBroadcastTimes(data);
   const current = currentHtml === null
@@ -51,16 +58,58 @@ export async function fetchBroadcastCatalog(
   const previous = previousHtml === null
     ? unavailableSeason(priorSeasonKey)
     : parseYucWikiSeason(previousHtml, priorSeasonKey, data);
+  const upcoming = upcomingHtml === null
+    ? unavailableSeason(upcomingSeasonKey)
+    : parseYucWikiSeason(upcomingHtml, upcomingSeasonKey, data);
+  const today = shanghaiDate(now);
+  const upcomingWindow = buildSeasonWindow(today, upcoming, current);
+  const seasonWindow = upcoming.available !== false && upcomingWindow.anchorDate <= today
+    ? upcomingWindow
+    : buildSeasonWindow(today, current, previous);
   const schedules = new Map([
     ...dataTimes,
     ...indexTimes,
     ...seasonSchedules(previous),
-    ...seasonSchedules(current)
+    ...seasonSchedules(current),
+    ...seasonSchedules(upcoming)
   ]);
   return {
     schedules,
-    seasonWindow: buildSeasonWindow(shanghaiDate(now), current, previous)
+    seasonWindow
   };
+}
+
+export async function fetchYucUpcomingCatalog(
+  fetchImpl: typeof fetch,
+  userAgent: string,
+  seasonKey: string,
+  searchAnimeSubjects?: (keyword: string) => Promise<AnimeSearchSubject[]>
+): Promise<UpcomingSeasonCatalog> {
+  const [data, html] = await Promise.all([
+    fetchBangumiData(fetchImpl, userAgent),
+    fetchYucNewAnimeHtml(fetchImpl, userAgent)
+  ]);
+  if (html === null) return { seasonKey, entries: new Map(), available: false };
+  const catalog = parseYucUpcomingSeason(html, seasonKey, data);
+  if (!searchAnimeSubjects) return catalog;
+  const candidates = parseYucUpcomingCandidates(html, seasonKey)
+    .filter((candidate) => ![...catalog.entries.values()].some((entry) => entry.nameCn === candidate.nameCn));
+  const confirmed = await mapWithConcurrency(candidates, 4, async (candidate) => {
+    const results = await searchAnimeSubjects(candidate.nameCn).catch(() => []);
+    const match = results.find((result) => searchResultMatchesUpcoming(result, candidate.nameCn, seasonKey));
+    return match ? {
+      subjectId: match.id,
+      name: match.name,
+      nameCn: match.nameCn || candidate.nameCn,
+      image: candidate.image,
+      seasonKey,
+      sourceType: candidate.sourceType
+    } satisfies UpcomingSeasonCandidate : null;
+  });
+  for (const entry of confirmed) {
+    if (entry && !catalog.entries.has(entry.subjectId)) catalog.entries.set(entry.subjectId, entry);
+  }
+  return catalog;
 }
 
 export function shiftAirDate(airDate: string, days: number): string {
@@ -108,6 +157,20 @@ async function fetchBangumiIndexTimes(fetchImpl: typeof fetch, userAgent: string
 async function fetchYucWikiSeasonHtml(fetchImpl: typeof fetch, userAgent: string, seasonKey: string): Promise<string | null> {
   try {
     const response = await fetchImpl(yucWikiUrlForSeason(seasonKey), {
+      headers: {
+        Accept: 'text/html',
+        'User-Agent': userAgent
+      }
+    });
+    return response.ok ? await response.text() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchYucNewAnimeHtml(fetchImpl: typeof fetch, userAgent: string): Promise<string | null> {
+  try {
+    const response = await fetchImpl(YUC_NEW_ANIME_URL, {
       headers: {
         Accept: 'text/html',
         'User-Agent': userAgent
@@ -171,6 +234,8 @@ type BangumiDataItem = NonNullable<BangumiData['items']>[number];
 type YucDetail = {
   broadcastText: string;
   titles: string[];
+  name: string;
+  nameCn: string;
 };
 
 export function parseYucWikiSeason(html: string, seasonKey: string, data: BangumiData): SeasonCatalog {
@@ -212,6 +277,9 @@ export function parseYucWikiSeason(html: string, seasonKey: string, data: Bangum
       );
       entries.set(subjectId, {
         subjectId,
+        name: item.title || detail?.name || gridTitle,
+        nameCn: detail?.nameCn || item.titleTranslate?.['zh-Hans']?.[0] || gridTitle,
+        image: cover,
         seasonKey,
         seasonKind: detail ? 'new' : 'continuing',
         normalPremiereDate,
@@ -224,15 +292,97 @@ export function parseYucWikiSeason(html: string, seasonKey: string, data: Bangum
   return { seasonKey, entries, available: entries.size > 0 };
 }
 
+export function parseYucUpcomingSeason(html: string, seasonKey: string, data: BangumiData): UpcomingSeasonCatalog {
+  const titleIndex = bangumiDataTitleIndex(data);
+  const entries = new Map<number, UpcomingSeasonCandidate>();
+  for (const candidate of parseYucUpcomingCandidates(html, seasonKey)) {
+    const item = findBangumiDataItem([candidate.nameCn], titleIndex, seasonKey);
+    const subjectId = bangumiSubjectId(item);
+    if (!item || subjectId === null || seasonKeyForBegin(item.begin) !== seasonKey) continue;
+    entries.set(subjectId, {
+      ...candidate,
+      subjectId,
+      name: item.title || candidate.nameCn
+    });
+  }
+  return { seasonKey, entries, available: true };
+}
+
+function parseYucUpcomingCandidates(html: string, seasonKey: string): Array<Omit<UpcomingSeasonCandidate, 'subjectId'>> {
+  const candidates: Array<Omit<UpcomingSeasonCandidate, 'subjectId'>> = [];
+  const seasonLabel = yucSeasonLabel(seasonKey);
+  const cards = html.replace(/<!--[\s\S]*?-->/g, '').matchAll(
+    /<div\b[^>]*style="[^"]*float\s*:\s*left[^"]*"[^>]*>\s*<div\b[^>]*class="[^"]*\bfuture_div\b[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<div\b[^>]*>\s*<table\b[^>]*class="[^"]*\bfuture_table\b[^"]*"[^>]*>([\s\S]*?)<\/table>\s*<\/div>\s*<\/div>/gi
+  );
+
+  for (const card of cards) {
+    const date = extractClassText(card[1], 'future_date');
+    if (date !== seasonLabel) continue;
+    const title = extractClassText(card[2], 'future_title');
+    const image = card[1].match(/(?:data-src|src)="([^"]+)"/i)?.[1] ?? null;
+    const sourceType = extractClassText(card[1], 'future_type');
+    if (!title || !image) continue;
+    candidates.push({
+      name: title,
+      nameCn: title,
+      image,
+      seasonKey,
+      sourceType
+    });
+  }
+  return candidates;
+}
+
+function yucSeasonLabel(seasonKey: string): string {
+  const [, year, quarter] = seasonKey.match(/^(\d{4})Q([1-4])$/) ?? [];
+  return `${year}${['冬', '春', '夏', '秋'][Number(quarter) - 1] ?? ''}`;
+}
+
+function searchResultMatchesUpcoming(result: AnimeSearchSubject, title: string, seasonKey: string): boolean {
+  if (isValidDate(result.airDate)) {
+    const start = shiftAirDate(firstDateOfSeason(seasonKey), -14);
+    const end = shiftAirDate(firstDateOfSeason(nextSeasonKey(seasonKey)), -1);
+    return result.airDate >= start && result.airDate <= end;
+  }
+  const expected = normalizeTitle(title);
+  return [result.name, result.nameCn].some((value) => {
+    const actual = normalizeTitle(value);
+    return actual === expected || (Math.min(actual.length, expected.length) >= 5 && (actual.includes(expected) || expected.includes(actual)));
+  });
+}
+
+function isValidDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await task(items[index]);
+    }
+  }));
+  return results;
+}
+
 function yucDetailsByCover(html: string): Map<string, YucDetail> {
   const details = new Map<string, YucDetail>();
   for (const match of html.matchAll(/<div\b[^>]*style="[^"]*float\s*:\s*left[^"]*"[^>]*>\s*<img\b([^>]*)>\s*<\/div>\s*<div\b[^>]*>\s*<table\b[^>]*>([\s\S]*?)<\/table>\s*<\/div>/gi)) {
     const cover = match[1].match(/(?:data-src|src)="([^"]+)"/i)?.[1];
     if (!cover) continue;
-    const titles = [extractClassText(match[2], 'title_jp'), extractClassText(match[2], 'title_cn')].filter(Boolean);
+    const name = extractClassText(match[2], 'title_jp');
+    const nameCn = extractClassText(match[2], 'title_cn');
+    const titles = [name, nameCn].filter(Boolean);
     details.set(cover, {
       broadcastText: extractClassText(match[2], 'broadcast_r'),
-      titles
+      titles,
+      name,
+      nameCn
     });
   }
   return details;

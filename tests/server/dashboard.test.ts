@@ -167,6 +167,53 @@ describe('dashboard service', () => {
     expect(getCalendar).toHaveBeenCalled();
   });
 
+  it('returns only Bangumi-confirmed new titles for the next Yuc quarter', async () => {
+    const getUpcomingSeasonCatalog = vi.fn(async () => upcomingCatalog());
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({ getUpcomingSeasonCatalog }),
+      repository: repository({
+        getSubject: vi.fn(async (subjectId) => subjectId === 502 ? subject({ id: 502, collectionType: 1 }) : null),
+        getSetting: vi.fn(async (key) => key === 'auto_watch_queue'
+          ? JSON.stringify([{ subjectId: 502, seasonKey: '2026Q4' }])
+          : null)
+      }),
+      clock: () => new Date('2026-08-31T12:00:00+08:00')
+    });
+
+    await expect(service.getUpcomingSeason()).resolves.toEqual({
+      seasonKey: '2026Q4',
+      available: true,
+      items: [
+        expect.objectContaining({ id: 501, action: 'add', actionLabel: '加入想看', autoWatch: false }),
+        expect.objectContaining({ id: 502, action: null, actionLabel: '已安排开季在看', autoWatch: true })
+      ]
+    });
+    expect(getUpcomingSeasonCatalog).toHaveBeenCalledWith('2026Q4');
+  });
+
+  it('adds a next-quarter title to the wishlist and queues its automatic start', async () => {
+    const addSubjectToWishlist = vi.fn(async () => undefined);
+    const setSetting = vi.fn(async () => undefined);
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client({
+        getUpcomingSeasonCatalog: vi.fn(async () => upcomingCatalog()),
+        addSubjectToWishlist
+      }),
+      repository: repository({ setSetting }),
+      clock: () => new Date('2026-08-31T12:00:00+08:00')
+    });
+
+    await expect(service.addUpcomingToWishlist(501)).resolves.toMatchObject({ state: 'running' });
+    await vi.waitFor(() => expect(service.getSyncStatus().state).toBe('idle'));
+
+    expect(addSubjectToWishlist).toHaveBeenCalledWith(501);
+    expect(setSetting).toHaveBeenCalledWith('auto_watch_queue', JSON.stringify([
+      { subjectId: 501, seasonKey: '2026Q4' }
+    ]));
+  });
+
   it('moves corrected broadcasts to the corrected weekday and identifies the source', async () => {
     const service = createDashboardService({
       auth: authStatus(),
@@ -1043,6 +1090,17 @@ function client(overrides: Partial<BangumiClient> = {}): BangumiClient {
     addSubjectToWishlist: vi.fn(),
     searchAnimeSubjects: vi.fn(),
     ...overrides
+  };
+}
+
+function upcomingCatalog() {
+  return {
+    seasonKey: '2026Q4',
+    available: true,
+    entries: new Map([
+      [501, { subjectId: 501, name: 'Title 501', nameCn: '新番一', image: '501.jpg', seasonKey: '2026Q4', sourceType: '原创' }],
+      [502, { subjectId: 502, name: 'Title 502', nameCn: '新番二', image: '502.jpg', seasonKey: '2026Q4', sourceType: '漫改' }]
+    ])
   };
 }
 

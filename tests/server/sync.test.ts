@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { BangumiApiError } from '../../src/server/bangumi-client.js';
 import type { Repository } from '../../src/server/db.js';
 import { applyBroadcastOverrides, rebuildBacklogPlan, syncAnimeCollections } from '../../src/server/sync.js';
 import type { BangumiClient, BroadcastCatalog, EpisodeRow, SubjectWrite, SyncProgress, SyncRepository } from '../../src/server/types.js';
@@ -158,6 +159,79 @@ describe('syncAnimeCollections', () => {
       totalSubjects: 7
     })));
   });
+
+  it('keeps cached data for one failed subject and completes the rest of the sync', async () => {
+    const progress: SyncProgress[] = [];
+    const replacedSubjectIds: number[] = [];
+    const result = await syncAnimeCollections({
+      username: 'sai',
+      today: '2026-07-19',
+      client: bangumiClient({
+        getAnimeCollections: vi.fn(async (_username, type) => ({
+          total: type === 3 ? 3 : 0,
+          data: type === 3 ? [collection(1, 3), collection(2, 3), collection(3, 3)] : []
+        })),
+        getSubjectEpisodes: vi.fn(async (subjectId) => {
+          if (subjectId === 2) throw new BangumiApiError('temporary episode failure');
+          return { total: 0, data: [] };
+        })
+      }),
+      repository: syncRepository({
+        replaceSubjectEpisodes: vi.fn(async (subjectId) => { replacedSubjectIds.push(subjectId); })
+      }),
+      onProgress: (update) => progress.push(update)
+    });
+
+    expect(result).toEqual({ subjectsSynced: 2, episodesSynced: 0, subjectsFailed: 1 });
+    expect(replacedSubjectIds.sort()).toEqual([1, 3]);
+    expect(progress.at(-1)).toEqual({ processedSubjects: 3, totalSubjects: 3 });
+  });
+
+  it('still fails when every episode collection request fails', async () => {
+    await expect(syncAnimeCollections({
+      username: 'sai',
+      today: '2026-07-19',
+      client: bangumiClient({
+        getAnimeCollections: vi.fn(async (_username, type) => ({
+          total: type === 3 ? 2 : 0,
+          data: type === 3 ? [collection(1, 3), collection(2, 3)] : []
+        })),
+        getSubjectEpisodes: vi.fn(async () => { throw new BangumiApiError('API unavailable'); })
+      }),
+      repository: syncRepository()
+    })).rejects.toThrow('Every episode collection failed');
+  });
+
+  it('moves a queued next-quarter wishlist subject to watching when the quarter starts', async () => {
+    const setSubjectCollectionType = vi.fn(async () => undefined);
+    const savedSubjects: SubjectWrite[] = [];
+    const setSetting = vi.fn(async () => undefined);
+    const result = await syncAnimeCollections({
+      username: 'sai',
+      today: '2026-10-01',
+      client: bangumiClient({
+        getAnimeCollections: vi.fn(async (_username, type) => ({
+          total: type === 1 ? 1 : 0,
+          data: type === 1 ? [collection(501, 1, { date: '2026-10-01' })] : []
+        })),
+        getSubjectEpisodes: vi.fn(async () => ({ total: 0, data: [] })),
+        setSubjectCollectionType,
+        getBroadcastCatalog: vi.fn(async () => broadcastCatalog(new Map(), '2026Q4', 501))
+      }),
+      repository: syncRepository({
+        getSetting: vi.fn(async (key) => key === 'auto_watch_queue'
+          ? JSON.stringify([{ subjectId: 501, seasonKey: '2026Q4' }])
+          : null),
+        setSetting,
+        upsertSubject: vi.fn(async (subject) => { savedSubjects.push(subject); })
+      })
+    });
+
+    expect(setSubjectCollectionType).toHaveBeenCalledWith(501, 3);
+    expect(savedSubjects).toEqual([expect.objectContaining({ id: 501, collectionType: 3, plannerMode: 'seasonal' })]);
+    expect(setSetting).toHaveBeenCalledWith('auto_watch_queue', '[]');
+    expect(result.subjectsSynced).toBe(1);
+  });
 });
 
 describe('rebuildBacklogPlan', () => {
@@ -228,19 +302,19 @@ function episodeCollection(id: number, subjectId: number, ep: number, airdate: s
   };
 }
 
-function broadcastCatalog(schedules = new Map()): BroadcastCatalog {
+function broadcastCatalog(schedules = new Map(), seasonKey = '2026Q3', subjectId = 999): BroadcastCatalog {
   return {
     schedules,
     seasonWindow: {
-      currentSeasonKey: '2026Q3',
-      previousSeasonKey: '2026Q2',
+      currentSeasonKey: seasonKey,
+      previousSeasonKey: seasonKey === '2026Q4' ? '2026Q3' : '2026Q2',
       anchorDate: '2026-07-01',
       overlapThrough: '2026-07-14',
       authoritative: true,
-      activeSubjectIds: new Set([999]),
-      entries: new Map([[999, {
-        subjectId: 999,
-        seasonKey: '2026Q3',
+      activeSubjectIds: new Set([subjectId]),
+      entries: new Map([[subjectId, {
+        subjectId,
+        seasonKey,
         seasonKind: 'new',
         normalPremiereDate: '2026-07-01',
         airTime: '20:00',

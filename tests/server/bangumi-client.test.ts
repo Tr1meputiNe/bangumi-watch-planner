@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createBangumiClient } from '../../src/server/bangumi-client.js';
+import { BangumiApiError, createBangumiClient } from '../../src/server/bangumi-client.js';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -18,6 +18,17 @@ function yucSeason(title: string, subjectTitle: string, cover: string, premiere:
 }
 
 describe('Bangumi client', () => {
+  it('wraps null episode data as a recoverable Bangumi API error', async () => {
+    const client = createBangumiClient({
+      fetch: vi.fn(async () => Response.json({ total: 0, data: null })),
+      getAccessToken: async () => 'token-1',
+      userAgent: 'tester/bangumi-watch-planner',
+      maxRetries: 0
+    });
+
+    await expect(client.getSubjectEpisodes(501)).rejects.toBeInstanceOf(BangumiApiError);
+  });
+
   it('returns the concrete broadcast catalog from current and previous Yuc pages', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
@@ -37,6 +48,9 @@ describe('Bangumi client', () => {
       }
       if (url === 'https://bgm.tv/index/99544') {
         return { ok: true, status: 200, text: async () => '' };
+      }
+      if (url === 'http://yuc.wiki/202610/') {
+        return { ok: false, status: 404, text: async () => '' };
       }
       const current = url === 'http://yuc.wiki/202607/';
       return {

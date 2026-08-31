@@ -2,7 +2,8 @@ import { buildReminderCandidates, todayInShanghai } from './reminders.js';
 import { episodeProgress } from '../shared/format.js';
 import { capacityForSeasonalLoad, countSeasonalLoad, estimateBacklogCompletionDate } from './backlog-planner.js';
 import { shiftAirDate } from './broadcast-schedule.js';
-import { rebuildBacklogPlan, syncAnimeCollections } from './sync.js';
+import { nextSeasonKey, seasonKeyForDate } from './season-window.js';
+import { queueAutoWatchSubject, rebuildBacklogPlan, syncAnimeCollections } from './sync.js';
 import { BangumiApiError } from './bangumi-client.js';
 import type {
   BacklogData,
@@ -278,6 +279,36 @@ export function createDashboardService({
       return applyCalendarOverrides(days, overrides);
     },
 
+    async getUpcomingSeason() {
+      const seasonKey = nextSeasonKey(seasonKeyForDate(clock()));
+      const catalog = await client.getUpcomingSeasonCatalog?.(seasonKey);
+      if (!catalog?.available) return { seasonKey, available: false, items: [] };
+      const queuedIds = new Set(
+        parseAutoWatchQueue(await repository.getSetting('auto_watch_queue'))
+          .filter((item) => item.seasonKey === seasonKey)
+          .map((item) => item.subjectId)
+      );
+      const items = await Promise.all([...catalog.entries.values()].map(async (entry) => {
+        const subject = await repository.getSubject(entry.subjectId);
+        const autoWatch = queuedIds.has(entry.subjectId);
+        const action = upcomingAction(subject?.collectionType ?? null, autoWatch);
+        return {
+          id: entry.subjectId,
+          name: entry.name,
+          nameCn: entry.nameCn,
+          image: entry.image,
+          url: `https://bgm.tv/subject/${entry.subjectId}`,
+          seasonKey,
+          sourceType: entry.sourceType,
+          collectionType: subject?.collectionType ?? null,
+          action: action.action,
+          actionLabel: action.label,
+          autoWatch
+        };
+      }));
+      return { seasonKey, available: true, items };
+    },
+
     async saveBroadcastOverride(input) {
       await repository.saveBroadcastOverride(input);
     },
@@ -310,8 +341,8 @@ export function createDashboardService({
             state: 'idle',
             completedAt: clock().toISOString(),
             error: null,
-            processedSubjects: result.subjectsSynced,
-            totalSubjects: Math.max(syncStatus.totalSubjects, result.subjectsSynced),
+            processedSubjects: result.subjectsSynced + (result.subjectsFailed ?? 0),
+            totalSubjects: Math.max(syncStatus.totalSubjects, result.subjectsSynced + (result.subjectsFailed ?? 0)),
             result
           };
           return result;
@@ -407,6 +438,22 @@ export function createDashboardService({
 
     async addSubjectToWishlist(subjectId) {
       return startCollectionAction(() => client.addSubjectToWishlist(subjectId));
+    },
+
+    async addUpcomingToWishlist(subjectId) {
+      return startCollectionAction(async () => {
+        const seasonKey = nextSeasonKey(seasonKeyForDate(clock()));
+        const catalog = await client.getUpcomingSeasonCatalog?.(seasonKey);
+        if (!catalog?.entries.has(subjectId)) {
+          throw Object.assign(new Error('该动画不在 Yuc 下季度新番列表或尚未由 Bangumi 确认'), { statusCode: 404 });
+        }
+        const subject = await repository.getSubject(subjectId);
+        if (subject && subject.collectionType !== 1) {
+          throw Object.assign(new Error('该动画已经有其他收藏状态'), { statusCode: 400 });
+        }
+        if (!subject) await client.addSubjectToWishlist(subjectId);
+        await queueAutoWatchSubject(repository, { subjectId, seasonKey });
+      });
     },
 
     async startSubject(subjectId) {
@@ -610,6 +657,30 @@ function getAnimeSearchWishlistAction(subject: SubjectRow | null) {
   if (subject.collectionType === 3) return { wishlistAction: null, wishlistActionLabel: '已在看' };
   if (subject.collectionType === 4) return { wishlistAction: null, wishlistActionLabel: '已搁置' };
   return { wishlistAction: null, wishlistActionLabel: '已抛弃' };
+}
+
+function upcomingAction(collectionType: SubjectRow['collectionType'] | null, autoWatch: boolean) {
+  if (autoWatch) return { action: null, label: '已安排开季在看' };
+  if (collectionType === null) return { action: 'add' as const, label: '加入想看' };
+  if (collectionType === 1) return { action: 'schedule' as const, label: '开季自动在看' };
+  if (collectionType === 2) return { action: null, label: '已看过' };
+  if (collectionType === 3) return { action: null, label: '已在看' };
+  if (collectionType === 4) return { action: null, label: '已搁置' };
+  return { action: null, label: '已抛弃' };
+}
+
+function parseAutoWatchQueue(value: string | null): Array<{ subjectId: number; seasonKey: string }> {
+  try {
+    const parsed = JSON.parse(value ?? '[]') as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is { subjectId: number; seasonKey: string } => Boolean(
+      item && typeof item === 'object'
+      && Number.isInteger((item as { subjectId?: unknown }).subjectId)
+      && /^\d{4}Q[1-4]$/.test(String((item as { seasonKey?: unknown }).seasonKey ?? ''))
+    ));
+  } catch {
+    return [];
+  }
 }
 
 export function applyCalendarOverrides(days: CalendarDay[], overrides: BroadcastOverride[]): CalendarDay[] {

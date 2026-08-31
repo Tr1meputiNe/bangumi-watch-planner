@@ -398,7 +398,7 @@ describe('App', () => {
     expect(await screen.findByText('请求失败（HTTP 502）')).toBeInTheDocument();
   });
 
-  it('shows six tabs in the required order and loads today backlog immediately', async () => {
+  it('shows seven tabs in the required order and loads today backlog immediately', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -430,12 +430,13 @@ describe('App', () => {
       '补番计划',
       '搁置',
       '想看',
+      '下季新番',
       '每日放送'
     ]);
     await screen.findByLabelText('今日补番');
     expect(fetchMock.mock.calls.some(([input]) => input.toString() === '/api/backlog')).toBe(true);
     expect(document.querySelector('.hallmark-workbench')).toBeInTheDocument();
-    expect(document.querySelectorAll('.page-tabs .tab-mark')).toHaveLength(6);
+    expect(document.querySelectorAll('.page-tabs .tab-mark')).toHaveLength(7);
     expect(document.querySelector('.app-footer')).toBeInTheDocument();
     expect(screen.getByLabelText('近期在看').querySelector('img')).toHaveAttribute('src', 'cover.jpg');
     expect(screen.getByLabelText('今日追番').querySelector('.title-cover-reel')).not.toBeInTheDocument();

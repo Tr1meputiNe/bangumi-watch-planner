@@ -8,7 +8,7 @@ import type {
   BangumiUser,
   CalendarDay
 } from './types.js';
-import { fetchBroadcastCatalog, fetchBroadcastTimes, shiftAirDate, type BroadcastSchedule } from './broadcast-schedule.js';
+import { fetchBroadcastCatalog, fetchBroadcastTimes, fetchYucUpcomingCatalog, shiftAirDate, type BroadcastSchedule } from './broadcast-schedule.js';
 
 type BangumiClientDeps = {
   fetch?: typeof fetch;
@@ -39,6 +39,7 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
   const fetchImpl = deps.fetch ?? fetch;
   const maxRetries = deps.maxRetries ?? 2;
   const retryDelayMs = deps.retryDelayMs ?? 350;
+  const upcomingSeasonCache = new Map<string, { expiresAt: number; result: ReturnType<typeof fetchYucUpcomingCatalog> }>();
 
   async function request<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {
     const token = options.auth === false ? null : await deps.getAccessToken();
@@ -94,6 +95,16 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
     return request<BangumiCollectionPage>(`/v0/users/${encodeURIComponent(username)}/collections?${params}`);
   }
 
+  async function searchAnimeSubjects(keyword: string): Promise<AnimeSearchSubject[]> {
+    const params = new URLSearchParams({ limit: '8', offset: '0' });
+    const page = await request<BangumiSubjectSearchPage>(`/v0/search/subjects?${params}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keyword, sort: 'match', filter: { type: [2] } })
+    });
+    return page.data.map(mapSearchResult);
+  }
+
   return {
     getMe() {
       return request<BangumiUser>('/v0/me');
@@ -115,18 +126,31 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
       return fetchBroadcastCatalog(fetchImpl, deps.userAgent, new Date());
     },
 
+    getUpcomingSeasonCatalog(seasonKey) {
+      const cached = upcomingSeasonCache.get(seasonKey);
+      if (cached && cached.expiresAt > Date.now()) return cached.result;
+      const result = fetchYucUpcomingCatalog(fetchImpl, deps.userAgent, seasonKey, searchAnimeSubjects);
+      upcomingSeasonCache.set(seasonKey, { expiresAt: Date.now() + 6 * 60 * 60 * 1000, result });
+      void result.catch(() => upcomingSeasonCache.delete(seasonKey));
+      return result;
+    },
+
     getAnimeCollections,
 
     getWatchingAnime(username, limit, offset) {
       return getAnimeCollections(username, 3, limit, offset);
     },
 
-    getSubjectEpisodes(subjectId, limit = 1000, offset = 0) {
+    async getSubjectEpisodes(subjectId, limit = 1000, offset = 0) {
       const params = new URLSearchParams({
         limit: String(limit),
         offset: String(offset)
       });
-      return request<BangumiEpisodePage>(`/v0/users/-/collections/${subjectId}/episodes?${params}`);
+      const page = await request<BangumiEpisodePage>(`/v0/users/-/collections/${subjectId}/episodes?${params}`);
+      if (!Array.isArray(page.data)) {
+        throw new BangumiApiError(`Bangumi returned invalid episode data for subject ${subjectId}`);
+      }
+      return page;
     },
 
     async markEpisodesWatched(subjectId, episodeIds) {
@@ -179,20 +203,7 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
       });
     },
 
-    async searchAnimeSubjects(keyword) {
-      const params = new URLSearchParams({
-        limit: '8',
-        offset: '0'
-      });
-      const page = await request<BangumiSubjectSearchPage>(`/v0/search/subjects?${params}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ keyword, sort: 'match', filter: { type: [2] } })
-      });
-      return page.data.map(mapSearchResult);
-    }
+    searchAnimeSubjects
   };
 }
 

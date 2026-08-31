@@ -74,6 +74,7 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
     dashboard.getWishlist(request.query.q ?? '', parseWishlistYear(request.query.year))
   );
   app.get('/api/calendar', async () => dashboard.getCalendar());
+  app.get('/api/upcoming-season', async () => dashboard.getUpcomingSeason());
   app.put<{
     Params: { subjectId: string };
     Body: { airDate?: string; airTime?: string; dateShiftDays?: number };
@@ -130,6 +131,10 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
 
   app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/wishlist', async (request, reply) =>
     reply.code(202).send(await dashboard.addSubjectToWishlist(parsePositiveInteger(request.params.subjectId)))
+  );
+
+  app.post<{ Params: { subjectId: string } }>('/api/upcoming-season/:subjectId/wishlist', async (request, reply) =>
+    reply.code(202).send(await dashboard.addUpcomingToWishlist(parsePositiveInteger(request.params.subjectId)))
   );
 
   app.post<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/start', async (request, reply) =>

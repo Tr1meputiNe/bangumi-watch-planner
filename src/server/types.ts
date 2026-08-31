@@ -33,6 +33,9 @@ export type BroadcastOverride = {
 
 export type SeasonEntry = {
   subjectId: number;
+  name?: string;
+  nameCn?: string;
+  image?: string | null;
   seasonKey: string;
   seasonKind: SeasonKind;
   normalPremiereDate: string;
@@ -45,6 +48,21 @@ export type SeasonCatalog = {
   seasonKey: string;
   entries: Map<number, SeasonEntry>;
   available?: boolean;
+};
+
+export type UpcomingSeasonCandidate = {
+  subjectId: number;
+  name: string;
+  nameCn: string;
+  image: string | null;
+  seasonKey: string;
+  sourceType: string;
+};
+
+export type UpcomingSeasonCatalog = {
+  seasonKey: string;
+  available: boolean;
+  entries: Map<number, UpcomingSeasonCandidate>;
 };
 
 export type SeasonWindow = {
@@ -142,6 +160,26 @@ export type BacklogData = {
 export type WishlistData = {
   items: Array<SubjectRow & { isCurrentSeason: boolean; isUpcoming: boolean }>;
   years: number[];
+};
+
+export type UpcomingSeasonItem = {
+  id: number;
+  name: string;
+  nameCn: string;
+  image: string | null;
+  url: string;
+  seasonKey: string;
+  sourceType: string;
+  collectionType: BangumiCollectionType | null;
+  action: 'add' | 'schedule' | null;
+  actionLabel: string;
+  autoWatch: boolean;
+};
+
+export type UpcomingSeasonData = {
+  seasonKey: string;
+  available: boolean;
+  items: UpcomingSeasonItem[];
 };
 
 export type BangumiUser = {
@@ -303,6 +341,7 @@ export type BangumiClient = {
   getWatchingAnime(username: string, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getSubjectEpisodes(subjectId: number, limit?: number, offset?: number): Promise<BangumiEpisodePage>;
   getBroadcastCatalog?(): Promise<BroadcastCatalog>;
+  getUpcomingSeasonCatalog?(seasonKey: string): Promise<UpcomingSeasonCatalog>;
   getBroadcastTimes?(): Promise<Map<number, { airDate: string; airTime: string; dayOffset: number }>>;
   markEpisodesWatched(subjectId: number, episodeIds: number[]): Promise<void>;
   markEpisodesUnwatched(subjectId: number, episodeIds: number[]): Promise<void>;
@@ -335,6 +374,7 @@ export type SyncRepository = {
 export type SyncResult = {
   subjectsSynced: number;
   episodesSynced: number;
+  subjectsFailed?: number;
 };
 
 export type SyncProgress = {
@@ -364,6 +404,7 @@ export type DashboardService = {
   getHeldSubjects(): Promise<DashboardSubject[]>;
   getWishlist(query: string, year: number | null | 'unknown'): Promise<WishlistData>;
   getCalendar(): Promise<CalendarDay[]>;
+  getUpcomingSeason(): Promise<UpcomingSeasonData>;
   saveBroadcastOverride(input: Omit<BroadcastOverride, 'updatedAt'>): Promise<void>;
   deleteBroadcastOverride(subjectId: number): Promise<void>;
   syncNow(): Promise<SyncResult>;
@@ -374,6 +415,7 @@ export type DashboardService = {
   markSubjectEpisodesWatchedThrough(subjectId: number, episodeId: number): Promise<void>;
   addSubjectToWatching(subjectId: number): Promise<SyncStatus>;
   addSubjectToWishlist(subjectId: number): Promise<SyncStatus>;
+  addUpcomingToWishlist(subjectId: number): Promise<SyncStatus>;
   startSubject(subjectId: number): Promise<SyncStatus>;
   holdSubject(subjectId: number): Promise<void>;
   resumeHeldSubject(subjectId: number): Promise<void>;

@@ -14,10 +14,24 @@ import type {
 } from './types.js';
 import type { Repository } from './db.js';
 import { buildBacklogPlan, countSeasonalLoad } from './backlog-planner.js';
+import { BangumiApiError } from './bangumi-client.js';
 import { shiftAirDate } from './broadcast-schedule.js';
 import { isValidDateString, todayInShanghai } from './reminders.js';
 
 type SyncedSubject = Pick<SubjectRow, 'id' | 'name' | 'nameCn' | 'eps' | 'epStatus' | 'image' | 'url'>;
+type AutoWatchQueueItem = { subjectId: number; seasonKey: string };
+const AUTO_WATCH_QUEUE_SETTING = 'auto_watch_queue';
+
+export async function queueAutoWatchSubject(
+  repository: Pick<SyncRepository, 'getSetting' | 'setSetting'>,
+  item: AutoWatchQueueItem
+): Promise<void> {
+  const queue = await readAutoWatchQueue(repository);
+  await repository.setSetting(AUTO_WATCH_QUEUE_SETTING, JSON.stringify([
+    ...queue.filter((entry) => entry.subjectId !== item.subjectId),
+    item
+  ]));
+}
 
 export async function syncAnimeCollections({
   username,
@@ -36,6 +50,7 @@ export async function syncAnimeCollections({
 }): Promise<SyncResult> {
   let subjectsSynced = 0;
   let episodesSynced = 0;
+  let subjectsFailed = 0;
   const [broadcastCatalog, broadcastOverrides] = await Promise.all([
     getBroadcastCatalog(client),
     repository.listBroadcastOverrides()
@@ -59,6 +74,8 @@ export async function syncAnimeCollections({
       offset += pageSize;
     }
   }
+
+  await startQueuedSubjects(collections, broadcastCatalog.seasonWindow.currentSeasonKey, client, repository);
 
   let processedSubjects = 0;
   onProgress?.({ processedSubjects, totalSubjects: collections.length });
@@ -108,16 +125,75 @@ export async function syncAnimeCollections({
   for (const entry of collections.filter(({ collectionType }) => collectionType === 1)) {
     await syncCollection(entry);
   }
+  const episodeCollections = collections.filter(({ collectionType }) => collectionType !== 1);
   await runWithConcurrency(
-    collections.filter(({ collectionType }) => collectionType !== 1),
+    episodeCollections,
     3,
-    syncCollection
+    async (entry) => {
+      try {
+        await syncCollection(entry);
+      } catch (error) {
+        if (!(error instanceof BangumiApiError)) throw error;
+        subjectsFailed += 1;
+        processedSubjects += 1;
+        onProgress?.({ processedSubjects, totalSubjects: collections.length });
+      }
+    }
   );
+  if (episodeCollections.length > 0 && subjectsFailed === episodeCollections.length) {
+    throw new Error('Every episode collection failed');
+  }
 
   await rebuildPlan({ repository, today, includeToday: false });
   await repository.setSetting('last_sync_at', new Date().toISOString());
   await repository.setSetting('last_error', '');
-  return { subjectsSynced, episodesSynced };
+  return { subjectsSynced, episodesSynced, ...(subjectsFailed ? { subjectsFailed } : {}) };
+}
+
+async function startQueuedSubjects(
+  collections: Array<{ collectionType: 1 | 3 | 4; collection: BangumiSubjectCollection }>,
+  currentSeasonKey: string,
+  client: BangumiClient,
+  repository: Pick<SyncRepository, 'getSetting' | 'setSetting'>
+): Promise<void> {
+  const queue = await readAutoWatchQueue(repository);
+  if (queue.length === 0) return;
+  const collectionsById = new Map(collections.map((entry) => [entry.collection.subject.id ?? entry.collection.subject_id, entry]));
+  const remaining: AutoWatchQueueItem[] = [];
+
+  for (const item of queue) {
+    if (item.seasonKey !== currentSeasonKey) {
+      remaining.push(item);
+      continue;
+    }
+    const entry = collectionsById.get(item.subjectId);
+    if (entry?.collectionType !== 1) continue;
+    try {
+      await client.setSubjectCollectionType(item.subjectId, 3);
+      entry.collectionType = 3;
+      entry.collection.type = 3;
+    } catch (error) {
+      if (!(error instanceof BangumiApiError)) throw error;
+      remaining.push(item);
+    }
+  }
+  await repository.setSetting(AUTO_WATCH_QUEUE_SETTING, JSON.stringify(remaining));
+}
+
+async function readAutoWatchQueue(
+  repository: Pick<SyncRepository, 'getSetting'>
+): Promise<AutoWatchQueueItem[]> {
+  try {
+    const value = JSON.parse((await repository.getSetting(AUTO_WATCH_QUEUE_SETTING)) ?? '[]') as unknown;
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is AutoWatchQueueItem => Boolean(
+      item && typeof item === 'object'
+      && Number.isInteger((item as AutoWatchQueueItem).subjectId)
+      && /^\d{4}Q[1-4]$/.test((item as AutoWatchQueueItem).seasonKey)
+    ));
+  } catch {
+    return [];
+  }
 }
 
 export async function syncWatchingAnime({ username, client, repository, pageSize = 50 }: {

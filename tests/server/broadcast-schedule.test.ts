@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchBroadcastCatalog,
   fetchBroadcastTimes,
+  fetchYucUpcomingCatalog,
+  parseYucUpcomingSeason,
   parseYucWikiSeason
 } from '../../src/server/broadcast-schedule.js';
 import { buildSeasonWindow } from '../../src/server/season-window.js';
@@ -61,6 +63,9 @@ describe('broadcast schedule', () => {
 
     expect(catalog.entries.get(101)).toEqual({
       subjectId: 101,
+      name: '花織さんは転生しても喧嘩がしたい',
+      nameCn: '花织同学转生后还是想干架',
+      image: 'new.jpg',
       seasonKey: '2026Q3',
       seasonKind: 'new',
       normalPremiereDate: '2026-07-12',
@@ -70,6 +75,9 @@ describe('broadcast schedule', () => {
     });
     expect(catalog.entries.get(202)).toEqual({
       subjectId: 202,
+      name: '跨季續播',
+      nameCn: '跨季续播',
+      image: 'continuing.jpg',
       seasonKey: '2026Q3',
       seasonKind: 'continuing',
       normalPremiereDate: '2026-04-06',
@@ -78,6 +86,47 @@ describe('broadcast schedule', () => {
       scheduleSource: 'Yuc Wiki'
     });
     expect(catalog.entries.has(303)).toBe(false);
+  });
+
+  it('filters the Yuc new-anime station to the requested quarter and keeps only Bangumi matches', () => {
+    const html = `
+      <div style="float:left"><div class="future_div"><p class="future_type_a">原创</p><p class="future_date">2026秋</p><img data-src="501.jpg"></div><div><table class="future_table"><tr><td class="future_title_">新番一</td></tr></table></div></div>
+      <div style="float:left"><div class="future_div"><p class="future_type_b">漫改</p><p class="future_date_">2026秋</p><img data-src="missing.jpg"></div><div><table class="future_table"><tr><td class="future_title__">尚未收录</td></tr></table></div></div>
+      <div style="float:left"><div class="future_div"><p class="future_type_c">小说改</p><p class="future_date">2027冬</p><img data-src="future.jpg"></div><div><table class="future_table"><tr><td class="future_title_">更远季度</td></tr></table></div></div>
+    `;
+
+    const catalog = parseYucUpcomingSeason(html, '2026Q4', bangumiData([
+      dataItem(501, 'Title 501', ['新番一'], '2026-10-03T12:00:00.000Z'),
+      dataItem(502, 'Old title', ['尚未收录'], '2018-10-03T12:00:00.000Z'),
+      dataItem(503, 'Future', ['更远季度'], '2027-01-03T12:00:00.000Z')
+    ]));
+
+    expect(catalog.available).toBe(true);
+    expect([...catalog.entries.values()]).toEqual([{
+      subjectId: 501,
+      name: 'Title 501',
+      nameCn: '新番一',
+      image: '501.jpg',
+      seasonKey: '2026Q4',
+      sourceType: '原创'
+    }]);
+  });
+
+  it('loads upcoming candidates from the dedicated Yuc new-anime station', async () => {
+    const urls: string[] = [];
+    const fetch = vi.fn(async (url: string) => {
+      urls.push(url);
+      if (url === 'https://unpkg.com/bangumi-data@0.3/dist/data.json') {
+        return { ok: true, json: async () => bangumiData([]) };
+      }
+      if (url === 'http://yuc.wiki/new/') return { ok: true, text: async () => '' };
+      return { ok: false };
+    });
+
+    await fetchYucUpcomingCatalog(fetch as typeof globalThis.fetch, 'tester/bangumi-watch-planner', '2026Q4');
+
+    expect(urls).toContain('http://yuc.wiki/new/');
+    expect(urls).not.toContain('http://yuc.wiki/202610/');
   });
 
   it('uses the normal weekly slot instead of an early first broadcast for the season anchor', () => {
@@ -124,7 +173,7 @@ describe('broadcast schedule', () => {
     });
   });
 
-  it('fetches only current and previous Yuc quarters for the broadcast catalog', async () => {
+  it('fetches previous, current, and next Yuc quarters for the broadcast catalog', async () => {
     const urls: string[] = [];
     const fetch = vi.fn(async (url: string) => {
       urls.push(url);
@@ -170,10 +219,36 @@ describe('broadcast schedule', () => {
 
     expect(urls.filter((url) => url.startsWith('http://yuc.wiki/'))).toEqual([
       'http://yuc.wiki/202607/',
-      'http://yuc.wiki/202604/'
+      'http://yuc.wiki/202604/',
+      'http://yuc.wiki/202610/'
     ]);
     expect(catalog.schedules.get(101)).toEqual({ airDate: '2026-07-05', airTime: '00:00', dayOffset: 1, source: 'Yuc Wiki' });
     expect([...catalog.seasonWindow.activeSubjectIds]).toEqual([101, 303]);
+  });
+
+  it('starts the next quarter from its earliest normal Yuc broadcast before the calendar quarter changes', async () => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url === 'https://unpkg.com/bangumi-data@0.3/dist/data.json') {
+        return { ok: true, json: async () => bangumiData([
+          dataItem(202, '前期作品', ['上季作品'], '2026-04-04T12:00:00.000Z'),
+          dataItem(303, '今期作品', ['本季作品'], '2026-07-04T12:00:00.000Z')
+        ]) };
+      }
+      if (url === 'http://yuc.wiki/202604/') return { ok: true, text: async () => yucPage([{ weekday: '周六', time: '21:00', title: '上季作品', jp: '前期作品', cover: 'old.jpg', premiere: '4/4周六晚间' }]) };
+      if (url === 'http://yuc.wiki/202607/') return { ok: true, text: async () => yucPage([{ weekday: '周六', time: '21:00', title: '本季作品', jp: '今期作品', cover: 'new.jpg', premiere: '6/27周六晚间' }]) };
+      return { ok: false };
+    });
+
+    const catalog = await fetchBroadcastCatalog(
+      fetch as typeof globalThis.fetch,
+      'tester/bangumi-watch-planner',
+      new Date('2026-06-27T20:00:00+08:00')
+    );
+
+    expect(catalog.seasonWindow.currentSeasonKey).toBe('2026Q3');
+    expect(catalog.seasonWindow.previousSeasonKey).toBe('2026Q2');
+    expect(catalog.seasonWindow.anchorDate).toBe('2026-06-27');
+    expect([...catalog.seasonWindow.activeSubjectIds]).toEqual([303, 202]);
   });
 
   it('marks a partial Yuc fetch as non-authoritative even when the other quarter has entries', async () => {

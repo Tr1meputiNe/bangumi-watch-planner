@@ -1,4 +1,4 @@
-import type { AnimeSearchResult, AuthStatus, BacklogData, CalendarDay, DashboardData, DashboardSubject, EpisodeRow, SyncStatus, WishlistData } from '../server/types.js';
+import type { AnimeSearchResult, AuthStatus, BacklogData, CalendarDay, DashboardData, DashboardSubject, EpisodeRow, SyncStatus, UpcomingSeasonData, WishlistData } from '../server/types.js';
 
 async function api<T>(input: RequestInfo | URL, init?: RequestInit, retryOnInvalidToken = true): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -76,6 +76,10 @@ export function getCalendar(): Promise<CalendarDay[]> {
   return api<CalendarDay[]>('/api/calendar');
 }
 
+export function getUpcomingSeason(): Promise<UpcomingSeasonData> {
+  return api<UpcomingSeasonData>('/api/upcoming-season');
+}
+
 export function saveBroadcastOverride(
   subjectId: number,
   input: { airDate: string; airTime: string; dateShiftDays: number }
@@ -140,6 +144,10 @@ export function addSubjectToWatching(subjectId: number): Promise<SyncStatus> {
 
 export function addSubjectToWishlist(subjectId: number): Promise<SyncStatus> {
   return api<SyncStatus>(`/api/subjects/${subjectId}/wishlist`, { method: 'POST' });
+}
+
+export function addUpcomingToWishlist(subjectId: number): Promise<SyncStatus> {
+  return api<SyncStatus>(`/api/upcoming-season/${subjectId}/wishlist`, { method: 'POST' });
 }
 
 export function startSubject(subjectId: number): Promise<SyncStatus> {

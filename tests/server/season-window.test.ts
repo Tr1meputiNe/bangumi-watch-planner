@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSeasonWindow,
+  nextSeasonKey,
   previousSeasonKey,
   seasonKeyForDate,
   yucWikiUrlForSeason
@@ -29,6 +30,7 @@ describe('season window', () => {
   it('derives Shanghai quarter keys, previous quarters, and Yuc URLs', () => {
     expect(seasonKeyForDate(new Date('2026-06-30T16:30:00Z'))).toBe('2026Q3');
     expect(previousSeasonKey('2026Q1')).toBe('2025Q4');
+    expect(nextSeasonKey('2026Q4')).toBe('2027Q1');
     expect(yucWikiUrlForSeason('2026Q3')).toBe('http://yuc.wiki/202607/');
   });
 

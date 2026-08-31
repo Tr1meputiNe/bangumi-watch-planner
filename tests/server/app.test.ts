@@ -787,6 +787,33 @@ describe('HTTP API', () => {
     await app.close();
   });
 
+  it('serves the upcoming Yuc season and queues a confirmed subject with the write token', async () => {
+    const getUpcomingSeason = vi.fn(async () => ({ seasonKey: '2026Q4', available: true, items: [] }));
+    const addUpcomingToWishlist = vi.fn(async () => ({
+      state: 'running' as const,
+      startedAt: '2026-08-31T12:00:00.000Z',
+      completedAt: null,
+      error: null,
+      processedSubjects: 0,
+      totalSubjects: 0,
+      result: null
+    }));
+    const app = testApp({ getUpcomingSeason, addUpcomingToWishlist });
+
+    const read = await app.inject({ method: 'GET', url: '/api/upcoming-season' });
+    const write = await app.inject({
+      method: 'POST',
+      url: '/api/upcoming-season/501/wishlist',
+      headers: { 'x-bwp-token': 'test-token' }
+    });
+
+    expect(read.statusCode).toBe(200);
+    expect(read.json()).toEqual({ seasonKey: '2026Q4', available: true, items: [] });
+    expect(write.statusCode).toBe(202);
+    expect(addUpcomingToWishlist).toHaveBeenCalledWith(501);
+    await app.close();
+  });
+
   it.each(['202', '20240', '20x4'])('returns 400 for invalid wishlist year %j', async (year) => {
     const app = testApp();
 
@@ -919,6 +946,7 @@ function testApp(dashboardOverrides: Record<string, unknown> = {}) {
       getHeldSubjects: vi.fn(),
       getWishlist: vi.fn(),
       getCalendar: vi.fn(),
+      getUpcomingSeason: vi.fn(),
       saveBroadcastOverride: vi.fn(),
       deleteBroadcastOverride: vi.fn(),
       syncNow: vi.fn(),
@@ -927,6 +955,7 @@ function testApp(dashboardOverrides: Record<string, unknown> = {}) {
       markSubjectEpisodesWatchedThrough: vi.fn(),
       addSubjectToWatching: vi.fn(),
       addSubjectToWishlist: vi.fn(),
+      addUpcomingToWishlist: vi.fn(),
       startSubject: vi.fn(),
       holdSubject: vi.fn(),
       resumeHeldSubject: vi.fn(),
