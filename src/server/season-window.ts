@@ -1,7 +1,7 @@
 import type { SeasonCatalog, SeasonWindow } from './types.js';
 import { shiftAirDate } from './broadcast-schedule.js';
 
-const ACGSECRETS_BASE_URL = 'https://acgsecrets.hk/bangumi';
+const YUC_WIKI_BASE_URL = 'http://yuc.wiki';
 
 export function seasonKeyForDate(date: Date): string {
   const parts = new Intl.DateTimeFormat('en', {
@@ -19,10 +19,10 @@ export function previousSeasonKey(seasonKey: string): string {
   return previousQuarter ? `${year}Q${previousQuarter}` : `${Number(year) - 1}Q4`;
 }
 
-export function acgSecretsUrlForSeason(seasonKey: string): string {
+export function yucWikiUrlForSeason(seasonKey: string): string {
   const [, year, quarter] = seasonKey.match(/^(\d{4})Q([1-4])$/) ?? [];
   const month = (Number(quarter) - 1) * 3 + 1;
-  return `${ACGSECRETS_BASE_URL}/${year}${String(month).padStart(2, '0')}/`;
+  return `${YUC_WIKI_BASE_URL}/${year}${String(month).padStart(2, '0')}/`;
 }
 
 export function buildSeasonWindow(today: string, current: SeasonCatalog, previous: SeasonCatalog): SeasonWindow {

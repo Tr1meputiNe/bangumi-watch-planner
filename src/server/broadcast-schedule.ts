@@ -2,18 +2,20 @@ import type {
   BroadcastCatalog,
   BroadcastSchedule as BroadcastScheduleContract,
   SeasonCatalog,
-  SeasonEntry,
-  SeasonKind
+  SeasonEntry
 } from './types.js';
 import {
-  acgSecretsUrlForSeason,
   buildSeasonWindow,
   previousSeasonKey,
-  seasonKeyForDate
+  seasonKeyForDate,
+  yucWikiUrlForSeason
 } from './season-window.js';
 
 type BangumiData = {
   items?: Array<{
+    title?: string;
+    titleTranslate?: Record<string, string[]>;
+    type?: string;
     begin?: string;
     broadcast?: string;
     sites?: Array<{ site?: string; id?: string }>;
@@ -36,12 +38,19 @@ export async function fetchBroadcastCatalog(
 ): Promise<BroadcastCatalog> {
   const currentSeasonKey = seasonKeyForDate(now);
   const priorSeasonKey = previousSeasonKey(currentSeasonKey);
-  const [dataTimes, indexTimes, current, previous] = await Promise.all([
-    fetchBangumiDataTimes(fetchImpl, userAgent),
+  const [data, indexTimes, currentHtml, previousHtml] = await Promise.all([
+    fetchBangumiData(fetchImpl, userAgent),
     fetchBangumiIndexTimes(fetchImpl, userAgent),
-    fetchAcgSecretsSeason(fetchImpl, userAgent, currentSeasonKey),
-    fetchAcgSecretsSeason(fetchImpl, userAgent, priorSeasonKey)
+    fetchYucWikiSeasonHtml(fetchImpl, userAgent, currentSeasonKey),
+    fetchYucWikiSeasonHtml(fetchImpl, userAgent, priorSeasonKey)
   ]);
+  const dataTimes = mapBroadcastTimes(data);
+  const current = currentHtml === null
+    ? unavailableSeason(currentSeasonKey)
+    : parseYucWikiSeason(currentHtml, currentSeasonKey, data);
+  const previous = previousHtml === null
+    ? unavailableSeason(priorSeasonKey)
+    : parseYucWikiSeason(previousHtml, priorSeasonKey, data);
   const schedules = new Map([
     ...dataTimes,
     ...indexTimes,
@@ -62,7 +71,7 @@ export function shiftAirDate(airDate: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-async function fetchBangumiDataTimes(fetchImpl: typeof fetch, userAgent: string): Promise<Map<number, BroadcastSchedule>> {
+async function fetchBangumiData(fetchImpl: typeof fetch, userAgent: string): Promise<BangumiData> {
   try {
     const response = await fetchImpl(BANGUMI_DATA_URL, {
       headers: {
@@ -71,11 +80,11 @@ async function fetchBangumiDataTimes(fetchImpl: typeof fetch, userAgent: string)
       }
     });
     if (!response.ok) {
-      return new Map();
+      return {};
     }
-    return mapBroadcastTimes((await response.json()) as BangumiData);
+    return (await response.json()) as BangumiData;
   } catch {
-    return new Map();
+    return {};
   }
 }
 
@@ -96,19 +105,22 @@ async function fetchBangumiIndexTimes(fetchImpl: typeof fetch, userAgent: string
   }
 }
 
-async function fetchAcgSecretsSeason(fetchImpl: typeof fetch, userAgent: string, seasonKey: string): Promise<SeasonCatalog> {
+async function fetchYucWikiSeasonHtml(fetchImpl: typeof fetch, userAgent: string, seasonKey: string): Promise<string | null> {
   try {
-    const response = await fetchImpl(acgSecretsUrlForSeason(seasonKey), {
+    const response = await fetchImpl(yucWikiUrlForSeason(seasonKey), {
       headers: {
         Accept: 'text/html',
         'User-Agent': userAgent
       }
     });
-    if (!response.ok) return { seasonKey, entries: new Map(), available: false };
-    return parseAcgSecretsSeason(await response.text(), seasonKey);
+    return response.ok ? await response.text() : null;
   } catch {
-    return { seasonKey, entries: new Map(), available: false };
+    return null;
   }
+}
+
+function unavailableSeason(seasonKey: string): SeasonCatalog {
+  return { seasonKey, entries: new Map(), available: false };
 }
 
 function mapBroadcastTimes(data: BangumiData): Map<number, BroadcastSchedule> {
@@ -154,50 +166,192 @@ function mapIndexBroadcastTimes(html: string): Map<number, BroadcastSchedule> {
   return times;
 }
 
-export function parseAcgSecretsSeason(html: string, seasonKey: string): SeasonCatalog {
-  const cards = new Map<string, { timestamp: number; weekday: string; seasonKind: SeasonKind }>();
-  for (const match of html.matchAll(/<div\b[^>]*class="([^"]*\bacgs-card\b[^"]*)"[^>]*>/g)) {
-    const tag = match[0];
-    const classes = match[1];
-    const animeId = tag.match(/acgs-bangumi-data-id="([^"]+)"/)?.[1];
-    const timestamp = Number(tag.match(/onairtime="(\d+)"/)?.[1]);
-    const weekday = tag.match(/weektoday="([^"]+)"/)?.[1];
-    const seasonKind = classes.includes('anime-type-continue')
-      || classes.includes('acgs-anime-continue')
-      || tag.includes('datetoday="跨季續播"')
-      ? 'continuing'
-      : classes.includes('anime-type-new') ? 'new' : null;
-    if (animeId && Number.isFinite(timestamp) && weekday && seasonKind) {
-      cards.set(animeId, { timestamp, weekday, seasonKind });
+type BangumiDataItem = NonNullable<BangumiData['items']>[number];
+
+type YucDetail = {
+  broadcastText: string;
+  titles: string[];
+};
+
+export function parseYucWikiSeason(html: string, seasonKey: string, data: BangumiData): SeasonCatalog {
+  const cleanHtml = html.replace(/<!--[\s\S]*?-->/g, '');
+  const details = yucDetailsByCover(cleanHtml);
+  const titleIndex = bangumiDataTitleIndex(data);
+  const entries = new Map<number, SeasonEntry>();
+  const dayMarkers = [...cleanHtml.matchAll(/<td\b[^>]*class="[^"]*\bdate2\b[^"]*"[^>]*>([\s\S]*?)<\/td>/gi)];
+
+  for (let markerIndex = 0; markerIndex < dayMarkers.length; markerIndex += 1) {
+    const weekdayText = htmlToText(dayMarkers[markerIndex][1]);
+    const sourceWeekday = '一二三四五六日'.indexOf(weekdayText.match(/周([一二三四五六日])/)?.[1] ?? '') + 1;
+    if (sourceWeekday <= 0) continue;
+    const start = (dayMarkers[markerIndex].index ?? 0) + dayMarkers[markerIndex][0].length;
+    const end = dayMarkers[markerIndex + 1]?.index ?? cleanHtml.length;
+    const section = cleanHtml.slice(start, end);
+
+    for (const block of section.matchAll(/<div\b[^>]*style="[^"]*float\s*:\s*left[^"]*"[^>]*>\s*<div\b[^>]*class="[^"]*\bdiv_date\b[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<div\b[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi)) {
+      const time = extractClassText(block[1], 'imgtext').match(/(\d{1,2}):(\d{2})/);
+      const cover = block[1].match(/(?:data-src|src)="([^"]+)"/i)?.[1] ?? '';
+      const gridTitle = extractClassText(block[2], 'date_title');
+      if (!cover || !gridTitle) continue;
+
+      const detail = details.get(cover);
+      const item = findBangumiDataItem([...(detail?.titles ?? []), gridTitle], titleIndex, seasonKey);
+      const subjectId = bangumiSubjectId(item);
+      if (!item || subjectId === null) continue;
+
+      const converted = time
+        ? convertYucTime(Number(time[1]), Number(time[2]))
+        : bangumiDataSchedule(item, sourceWeekday);
+      if (!converted) continue;
+      const normalPremiereDate = yucPremiereDate(
+        detail?.broadcastText ?? '',
+        item.begin ?? '',
+        seasonKey,
+        sourceWeekday,
+        converted.dayOffset
+      );
+      entries.set(subjectId, {
+        subjectId,
+        seasonKey,
+        seasonKind: detail ? 'new' : 'continuing',
+        normalPremiereDate,
+        airTime: converted.airTime,
+        dayOffset: converted.dayOffset,
+        scheduleSource: time ? 'Yuc Wiki' : 'Bangumi Data'
+      });
     }
   }
+  return { seasonKey, entries, available: entries.size > 0 };
+}
 
-  const entries = new Map<number, SeasonEntry>();
-  const details = [...html.matchAll(/<div\b[^>]*acgs-bangumi-anime-id="([^"]+)"[^>]*>/g)];
-  for (let index = 0; index < details.length; index += 1) {
-    const card = cards.get(details[index][1]);
-    if (!card) continue;
-    const block = html.slice(details[index].index, details[index + 1]?.index ?? html.length);
-    const subjectId = Number(block.match(/https:\/\/bangumi\.tv\/subject\/(\d+)/)?.[1]);
-    if (!Number.isInteger(subjectId) || subjectId <= 0) continue;
-
-    const date = new Date(card.timestamp);
-    if (Number.isNaN(date.getTime())) continue;
-    const normalPremiereDate = shanghaiDate(date);
-    const airTime = extractShanghaiTime(date.toISOString());
-    const sourceWeekday = '一二三四五六日'.indexOf(card.weekday) + 1;
-    const actualWeekday = new Date(`${normalPremiereDate}T00:00:00Z`).getUTCDay() || 7;
-    const dayOffset = (actualWeekday - sourceWeekday + 7) % 7 === 1 ? 1 : 0;
-    entries.set(subjectId, {
-      subjectId,
-      seasonKey,
-      seasonKind: card.seasonKind,
-      normalPremiereDate,
-      airTime,
-      dayOffset
+function yucDetailsByCover(html: string): Map<string, YucDetail> {
+  const details = new Map<string, YucDetail>();
+  for (const match of html.matchAll(/<div\b[^>]*style="[^"]*float\s*:\s*left[^"]*"[^>]*>\s*<img\b([^>]*)>\s*<\/div>\s*<div\b[^>]*>\s*<table\b[^>]*>([\s\S]*?)<\/table>\s*<\/div>/gi)) {
+    const cover = match[1].match(/(?:data-src|src)="([^"]+)"/i)?.[1];
+    if (!cover) continue;
+    const titles = [extractClassText(match[2], 'title_jp'), extractClassText(match[2], 'title_cn')].filter(Boolean);
+    details.set(cover, {
+      broadcastText: extractClassText(match[2], 'broadcast_r'),
+      titles
     });
   }
-  return { seasonKey, entries, available: true };
+  return details;
+}
+
+function extractClassText(html: string, classPrefix: string): string {
+  const match = html.match(new RegExp(`<(?:p|td)\\b[^>]*class="[^"]*\\b${classPrefix}[^"]*"[^>]*>([\\s\\S]*?)<\\/(?:p|td)>`, 'i'));
+  return match ? htmlToText(match[1]).replace(/\s+/g, ' ').trim() : '';
+}
+
+function bangumiDataTitleIndex(data: BangumiData): Map<string, BangumiDataItem[]> {
+  const index = new Map<string, BangumiDataItem[]>();
+  for (const item of data.items ?? []) {
+    if (bangumiSubjectId(item) === null) continue;
+    const titles = [item.title ?? '', ...Object.values(item.titleTranslate ?? {}).flat()];
+    for (const title of titles) {
+      const normalized = normalizeTitle(title);
+      if (!normalized) continue;
+      const matches = index.get(normalized) ?? [];
+      matches.push(item);
+      index.set(normalized, matches);
+    }
+  }
+  return index;
+}
+
+function findBangumiDataItem(
+  titles: string[],
+  titleIndex: Map<string, BangumiDataItem[]>,
+  seasonKey: string
+): BangumiDataItem | undefined {
+  for (const title of titles) {
+    const matches = titleIndex.get(normalizeTitle(title));
+    if (!matches?.length) continue;
+    return matches.find((item) => seasonKeyForBegin(item.begin) === seasonKey) ?? matches[0];
+  }
+  return undefined;
+}
+
+function seasonKeyForBegin(begin?: string): string {
+  const date = new Date(begin ?? '');
+  return Number.isNaN(date.getTime()) ? '' : seasonKeyForDate(date);
+}
+
+function bangumiSubjectId(item?: BangumiDataItem): number | null {
+  const subjectId = Number(item?.sites?.find((site) => site.site === 'bangumi')?.id);
+  return Number.isInteger(subjectId) && subjectId > 0 ? subjectId : null;
+}
+
+function normalizeTitle(value: string): string {
+  return value.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+function convertYucTime(hour: number, minute: number): { airTime: string; dayOffset: number } {
+  const shanghaiMinutes = hour * 60 + minute - 60;
+  const dayOffset = Math.floor(shanghaiMinutes / (24 * 60));
+  const normalized = ((shanghaiMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  return {
+    airTime: `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`,
+    dayOffset
+  };
+}
+
+function bangumiDataSchedule(item: BangumiDataItem, sourceWeekday: number): { airTime: string; dayOffset: number } | null {
+  const iso = (item.broadcast?.startsWith('R/') ? item.broadcast.slice(2).split('/')[0] : item.broadcast) || item.begin || '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const actualDate = shanghaiDate(date);
+  const actualWeekday = new Date(`${actualDate}T00:00:00Z`).getUTCDay() || 7;
+  const offset = (actualWeekday - sourceWeekday + 7) % 7;
+  return {
+    airTime: extractShanghaiTime(date.toISOString()),
+    dayOffset: offset === 6 ? -1 : offset
+  };
+}
+
+function yucPremiereDate(
+  broadcastText: string,
+  begin: string,
+  seasonKey: string,
+  sourceWeekday: number,
+  dayOffset: number
+): string {
+  const explicitDate = extractYucDate(broadcastText, seasonKey);
+  const beginDate = new Date(begin);
+  const fallback = Number.isNaN(beginDate.getTime())
+    ? firstDateOfSeason(seasonKey)
+    : shiftAirDate(shanghaiDate(beginDate), -dayOffset);
+  const sourceDate = alignDateToWeekday(explicitDate || fallback, sourceWeekday);
+  return shiftAirDate(sourceDate, dayOffset);
+}
+
+function extractYucDate(value: string, seasonKey: string): string {
+  const matches = [...value.matchAll(/(\d{1,2})\/(\d{1,2})/g)];
+  const match = matches.find((candidate, index) => {
+    const end = matches[index + 1]?.index ?? value.length;
+    return !value.slice(candidate.index, end).includes('先行');
+  }) ?? matches.at(-1);
+  if (!match) return '';
+  const [, seasonYear, quarter] = seasonKey.match(/^(\d{4})Q([1-4])$/) ?? [];
+  const month = Number(match[1]);
+  let year = Number(seasonYear);
+  if (quarter === '1' && month >= 10) year -= 1;
+  if (quarter === '4' && month <= 2) year += 1;
+  const date = `${year}-${String(month).padStart(2, '0')}-${String(Number(match[2])).padStart(2, '0')}`;
+  const parsed = new Date(`${date}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? date : '';
+}
+
+function alignDateToWeekday(date: string, weekday: number): string {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  const currentWeekday = parsed.getUTCDay() || 7;
+  return shiftAirDate(date, (weekday - currentWeekday + 7) % 7);
+}
+
+function firstDateOfSeason(seasonKey: string): string {
+  const [, year, quarter] = seasonKey.match(/^(\d{4})Q([1-4])$/) ?? [];
+  return `${year}-${String((Number(quarter) - 1) * 3 + 1).padStart(2, '0')}-01`;
 }
 
 function seasonSchedules(catalog: SeasonCatalog): Map<number, BroadcastSchedule> {
@@ -205,7 +359,7 @@ function seasonSchedules(catalog: SeasonCatalog): Map<number, BroadcastSchedule>
     airDate: entry.normalPremiereDate,
     airTime: entry.airTime,
     dayOffset: entry.dayOffset,
-    source: 'ACG Secrets' as const
+    source: entry.scheduleSource ?? 'Yuc Wiki'
   }]));
 }
 

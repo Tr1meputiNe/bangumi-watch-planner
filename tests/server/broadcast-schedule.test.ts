@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchBroadcastCatalog,
   fetchBroadcastTimes,
-  parseAcgSecretsSeason
+  parseYucWikiSeason
 } from '../../src/server/broadcast-schedule.js';
 import { buildSeasonWindow } from '../../src/server/season-window.js';
 
@@ -10,85 +10,147 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('broadcast schedule', () => {
-  it('parses normalized new, continuing, and next-day season entries', () => {
-    const html = `
-      <div class="CV-search acgs-card anime-type-new" acgs-bangumi-data-id="anime-1"
-        onairtime="1783180800000" weektoday="六" weektomorrow="日" datetoday="7月4日" weekairtime="52330"></div>
-      <div class="CV-search acgs-card anime-type-continue" acgs-bangumi-data-id="anime-2"
-        onairtime="1784298600000" weektoday="五" weektomorrow="五" datetoday="7月17日" weekairtime="52330"></div>
-      <div class="CV-search acgs-card anime-type-new" acgs-bangumi-data-id="anime-without-bangumi"
-        onairtime="1783180800000" weektoday="六"></div>
-      <div acgs-bangumi-anime-id="anime-1"><a href="https://bangumi.tv/subject/101">Bangumi</a></div>
-      <div acgs-bangumi-anime-id="anime-2"><a href="https://bangumi.tv/subject/202">Bangumi</a></div>
-      <div acgs-bangumi-anime-id="anime-without-bangumi"><a href="https://example.com/303">Other</a></div>
-    `;
+type YucEntryFixture = {
+  weekday: string;
+  time?: string;
+  title: string;
+  cover: string;
+  jp?: string;
+  premiere?: string;
+};
 
-    const catalog = parseAcgSecretsSeason(html, '2026Q3');
+function yucPage(entries: YucEntryFixture[]): string {
+  const schedule = entries.map((entry) => `
+    <table class="date_"><tr><td class="date2">${entry.weekday}</td></tr></table>
+    <div style="float:left"><div class="div_date"><p class="${entry.time ? 'imgtext4' : 'imgtext2'}">${entry.time ? `${entry.time}~` : '完结'}</p>
+      <img data-src="${entry.cover}"></div><div><table><tr><td class="date_title_">${entry.title}</td></tr></table></div></div>
+  `).join('');
+  const details = entries.filter((entry) => entry.jp).map((entry) => `
+    <div style="float:left"><img width="180px" data-src="${entry.cover}"></div><div><table>
+      <tr><td><p class="title_cn_r">${entry.title}</p><p class="title_jp_r">${entry.jp}</p></td></tr>
+      <tr><td><p class="broadcast_r">${entry.premiere ?? ''}</p></td></tr>
+    </table></div>
+  `).join('');
+  return `${schedule}${details}`;
+}
+
+function dataItem(id: number, title: string, translatedTitles: string[], begin: string) {
+  return {
+    title,
+    titleTranslate: { 'zh-Hans': translatedTitles },
+    begin,
+    broadcast: `R/${begin}/P7D`,
+    sites: [{ site: 'bangumi', id: String(id) }]
+  };
+}
+
+function bangumiData(items: ReturnType<typeof dataItem>[]) {
+  return { items };
+}
+
+describe('broadcast schedule', () => {
+  it('maps Yuc titles to Bangumi IDs and converts Japanese 30-hour times to Shanghai', () => {
+    const catalog = parseYucWikiSeason(yucPage([
+      { weekday: '周六', time: '25:30', title: '花织同学转生后还是想干架', jp: '花織さんは転生しても喧嘩がしたい', cover: 'new.jpg', premiere: '7/11周六深夜' },
+      { weekday: '周一', time: '24:00', title: '跨季续播', cover: 'continuing.jpg' },
+      { weekday: '周二', time: '22:00', title: '没有 Bangumi ID', cover: 'missing.jpg' }
+    ]), '2026Q3', bangumiData([
+      dataItem(101, '花織さんは転生しても喧嘩がしたい', ['花织同学转生后还是想干架'], '2026-07-11T17:00:00.000Z'),
+      dataItem(202, '跨季續播', ['跨季续播'], '2026-04-06T15:00:00.000Z')
+    ]));
 
     expect(catalog.entries.get(101)).toEqual({
       subjectId: 101,
       seasonKey: '2026Q3',
       seasonKind: 'new',
-      normalPremiereDate: '2026-07-05',
-      airTime: '00:00',
-      dayOffset: 1
+      normalPremiereDate: '2026-07-12',
+      airTime: '00:30',
+      dayOffset: 1,
+      scheduleSource: 'Yuc Wiki'
     });
     expect(catalog.entries.get(202)).toEqual({
       subjectId: 202,
       seasonKey: '2026Q3',
       seasonKind: 'continuing',
-      normalPremiereDate: '2026-07-17',
-      airTime: '22:30',
-      dayOffset: 0
+      normalPremiereDate: '2026-04-06',
+      airTime: '23:00',
+      dayOffset: 0,
+      scheduleSource: 'Yuc Wiki'
     });
     expect(catalog.entries.has(303)).toBe(false);
   });
 
-  it('keeps cross-quarter continuations out of the current-quarter anchor', () => {
-    const current = parseAcgSecretsSeason(`
-      <div class="CV-search acgs-card anime-type-new acgs-anime-continue" acgs-bangumi-data-id="historical"
-        onairtime="1751644800000" weektoday="六" datetoday="跨季續播"></div>
-      <div class="CV-search acgs-card anime-type-new" acgs-bangumi-data-id="new"
-        onairtime="1783180800000" weektoday="六" datetoday="7月4日"></div>
-      <div class="CV-search acgs-card anime-type-continue" acgs-bangumi-data-id="continuing"
-        onairtime="1784298600000" weektoday="五" datetoday="7月17日"></div>
-      <div acgs-bangumi-anime-id="historical"><a href="https://bangumi.tv/subject/101">Bangumi</a></div>
-      <div acgs-bangumi-anime-id="new"><a href="https://bangumi.tv/subject/202">Bangumi</a></div>
-      <div acgs-bangumi-anime-id="continuing"><a href="https://bangumi.tv/subject/303">Bangumi</a></div>
-    `, '2026Q3');
+  it('uses the normal weekly slot instead of an early first broadcast for the season anchor', () => {
+    const current = parseYucWikiSeason(yucPage([
+      { weekday: '周一', time: '21:00', title: '提前放送', jp: '先行放送', cover: 'early.jpg', premiere: '#1=7/4晚间 #2~周一晚间' },
+      { weekday: '周六', time: '21:00', title: '正常放送', jp: '通常放送', cover: 'normal.jpg', premiere: '7/4周六晚间' },
+      { weekday: '周五', time: '21:00', title: '跨季续播', cover: 'continuing.jpg' }
+    ]), '2026Q3', bangumiData([
+      dataItem(101, '先行放送', ['提前放送'], '2026-07-04T12:00:00.000Z'),
+      dataItem(202, '通常放送', ['正常放送'], '2026-07-04T12:00:00.000Z'),
+      dataItem(303, '跨季續播', ['跨季续播'], '2026-04-03T12:00:00.000Z')
+    ]));
 
-    expect(current.entries.get(101)?.seasonKind).toBe('continuing');
+    expect(current.entries.get(101)?.normalPremiereDate).toBe('2026-07-06');
     expect(current.entries.get(303)?.seasonKind).toBe('continuing');
     expect([...current.entries.keys()]).toEqual([101, 202, 303]);
     expect(buildSeasonWindow('2026-07-01', current, {
       seasonKey: '2026Q2',
       entries: new Map()
-    }).anchorDate).toBe('2026-07-05');
+    }).anchorDate).toBe('2026-07-04');
   });
 
-  it('fetches only current and previous ACG quarters for the broadcast catalog', async () => {
+  it('ignores a dated advance release when Yuc also provides the normal premiere date', () => {
+    const catalog = parseYucWikiSeason(yucPage([
+      { weekday: '周四', time: '22:56', title: '在超市后门吸烟的二人', jp: 'スーパーの裏でヤニ吸うふたり', cover: 'smoking.jpg', premiere: '6/3先行6话 7/9周四深夜' }
+    ]), '2026Q3', bangumiData([
+      dataItem(571784, 'スーパーの裏でヤニ吸うふたり', ['在超市后门吸烟的二人'], '2026-07-09T14:56:00.000Z')
+    ]));
+
+    expect(catalog.entries.get(571784)?.normalPremiereDate).toBe('2026-07-09');
+  });
+
+  it('keeps completed Yuc entries and labels their missing time as a Bangumi Data fallback', () => {
+    const catalog = parseYucWikiSeason(yucPage([
+      { weekday: '周三', title: '历史完结作品', jp: '完結作品', cover: 'completed.jpg', premiere: '4/1周三晚间' }
+    ]), '2026Q2', bangumiData([
+      dataItem(404, '完結作品', ['历史完结作品'], '2026-04-01T12:30:00.000Z')
+    ]));
+
+    expect(catalog.entries.get(404)).toMatchObject({
+      airTime: '20:30',
+      dayOffset: 0,
+      scheduleSource: 'Bangumi Data'
+    });
+  });
+
+  it('fetches only current and previous Yuc quarters for the broadcast catalog', async () => {
     const urls: string[] = [];
     const fetch = vi.fn(async (url: string) => {
       urls.push(url);
-      if (url === 'https://acgsecrets.hk/bangumi/202607/') {
+      if (url === 'https://unpkg.com/bangumi-data@0.3/dist/data.json') {
         return {
           ok: true,
-          text: async () => `
-            <div class="CV-search acgs-card anime-type-new" acgs-bangumi-data-id="current"
-              onairtime="1783180800000" weektoday="六"></div>
-            <div acgs-bangumi-anime-id="current"><a href="https://bangumi.tv/subject/101">Bangumi</a></div>
-          `
+          json: async () => bangumiData([
+            dataItem(101, '今期作品', ['本季作品'], '2026-07-04T16:00:00.000Z'),
+            dataItem(303, '前期作品', ['上季作品'], '2026-04-04T12:00:00.000Z')
+          ])
         };
       }
-      if (url === 'https://acgsecrets.hk/bangumi/202604/') {
+      if (url === 'http://yuc.wiki/202607/') {
         return {
           ok: true,
-          text: async () => `
-            <div class="CV-search acgs-card anime-type-new" acgs-bangumi-data-id="previous"
-              onairtime="1775404800000" weektoday="日"></div>
-            <div acgs-bangumi-anime-id="previous"><a href="https://bangumi.tv/subject/303">Bangumi</a></div>
-          `
+          text: async () => yucPage([
+            { weekday: '周六', time: '25:00', title: '本季作品', jp: '今期作品', cover: 'current.jpg', premiere: '7/4周六深夜' }
+          ])
+        };
+      }
+      if (url === 'http://yuc.wiki/202604/') {
+        return {
+          ok: true,
+          text: async () => yucPage([
+            { weekday: '周六', time: '21:00', title: '上季作品', jp: '前期作品', cover: 'previous.jpg', premiere: '4/4周六晚间' }
+          ])
         };
       }
       if (url === 'https://bgm.tv/index/99544') {
@@ -97,10 +159,7 @@ describe('broadcast schedule', () => {
           text: async () => '<li id="item_101"><div class="text">2026年7月4日星期六25:30</div></li>'
         };
       }
-      return {
-        ok: true,
-        json: async () => ({ items: [] })
-      };
+      return { ok: false };
     });
 
     const catalog = await fetchBroadcastCatalog(
@@ -109,29 +168,30 @@ describe('broadcast schedule', () => {
       new Date('2026-07-01T00:30:00+08:00')
     );
 
-    expect(urls.filter((url) => url.startsWith('https://acgsecrets.hk/'))).toEqual([
-      'https://acgsecrets.hk/bangumi/202607/',
-      'https://acgsecrets.hk/bangumi/202604/'
+    expect(urls.filter((url) => url.startsWith('http://yuc.wiki/'))).toEqual([
+      'http://yuc.wiki/202607/',
+      'http://yuc.wiki/202604/'
     ]);
-    expect(catalog.schedules.get(101)).toEqual({ airDate: '2026-07-05', airTime: '00:00', dayOffset: 1, source: 'ACG Secrets' });
+    expect(catalog.schedules.get(101)).toEqual({ airDate: '2026-07-05', airTime: '00:00', dayOffset: 1, source: 'Yuc Wiki' });
     expect([...catalog.seasonWindow.activeSubjectIds]).toEqual([101, 303]);
   });
 
-  it('marks a partial ACG fetch as non-authoritative even when the other quarter has entries', async () => {
+  it('marks a partial Yuc fetch as non-authoritative even when the other quarter has entries', async () => {
     const fetch = vi.fn(async (url: string) => {
-      if (url === 'https://acgsecrets.hk/bangumi/202607/') return { ok: false };
-      if (url === 'https://acgsecrets.hk/bangumi/202604/') {
+      if (url === 'https://unpkg.com/bangumi-data@0.3/dist/data.json') {
+        return { ok: true, json: async () => bangumiData([dataItem(303, '前期作品', ['上季作品'], '2026-04-04T12:00:00.000Z')]) };
+      }
+      if (url === 'http://yuc.wiki/202607/') return { ok: false };
+      if (url === 'http://yuc.wiki/202604/') {
         return {
           ok: true,
-          text: async () => `
-            <div class="CV-search acgs-card anime-type-new" acgs-bangumi-data-id="previous"
-              onairtime="1775404800000" weektoday="日"></div>
-            <div acgs-bangumi-anime-id="previous"><a href="https://bangumi.tv/subject/303">Bangumi</a></div>
-          `
+          text: async () => yucPage([
+            { weekday: '周六', time: '21:00', title: '上季作品', jp: '前期作品', cover: 'previous.jpg', premiere: '4/4周六晚间' }
+          ])
         };
       }
       if (url === 'https://bgm.tv/index/99544') return { ok: false };
-      return { ok: true, json: async () => ({ items: [] }) };
+      return { ok: false };
     });
 
     const catalog = await fetchBroadcastCatalog(
@@ -144,23 +204,26 @@ describe('broadcast schedule', () => {
     expect(catalog.seasonWindow.authoritative).toBe(false);
   });
 
-  it('prefers ACG Secrets Shanghai schedules and falls back to Bangumi sources', async () => {
+  it('prefers Yuc Wiki Shanghai schedules and falls back to Bangumi sources', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-18T12:00:00+08:00'));
     const fetch = vi.fn(async (url: string) => {
-      if (url === 'https://acgsecrets.hk/bangumi/202607/') {
+      if (url === 'http://yuc.wiki/202607/') {
         return {
           ok: true,
-          text: async () => `
-            <div class="CV-search acgs-card anime-type-new" acgs-bangumi-data-id="anime-2253" onairtime="1783789200000" weektoday="六"></div>
-            <div class="CV-search acgs-card anime-type-new" acgs-bangumi-data-id="anime-2274" onairtime="1783173600000" weektoday="六"></div>
-            <div class="anime-data" acgs-bangumi-anime-id="anime-2253"><a href="https://bangumi.tv/subject/587109">Bangumi</a></div>
-            <div class="anime-data" acgs-bangumi-anime-id="anime-2274"><a href="https://bangumi.tv/subject/552533">Bangumi</a></div>
-          `
+          text: async () => yucPage([
+            { weekday: '周六', time: '25:30', title: '花织同学转生后还是想干架', jp: '花織さんは転生しても喧嘩がしたい', cover: 'hanaori.jpg', premiere: '7/11周六深夜' },
+            { weekday: '周六', time: '24:00', title: '穹庐下的魔女', jp: '天幕のジャードゥーガル', cover: 'witch.jpg', premiere: '7/4周六深夜' }
+          ])
         };
       }
-      if (url === 'https://acgsecrets.hk/bangumi/202604/') {
-        return { ok: true, text: async () => '' };
+      if (url === 'http://yuc.wiki/202604/') {
+        return {
+          ok: true,
+          text: async () => yucPage([
+            { weekday: '周六', time: '21:00', title: '上季作品', jp: '前期作品', cover: 'previous.jpg', premiere: '4/4周六晚间' }
+          ])
+        };
       }
       if (url === 'https://bgm.tv/index/99544') {
         return {
@@ -178,18 +241,13 @@ describe('broadcast schedule', () => {
       }
       return {
         ok: true,
-        json: async () => ({
-          items: [
-            {
-              begin: '2026-07-01T01:00:00.000Z',
-              sites: [{ site: 'bangumi', id: '123' }]
-            },
-            {
-              begin: '2026-07-05T01:00:00.000Z',
-              sites: [{ site: 'bangumi', id: '255209' }]
-            }
-          ]
-        })
+        json: async () => bangumiData([
+          dataItem(123, '数据来源作品', ['数据来源作品'], '2026-07-01T01:00:00.000Z'),
+          dataItem(255209, '二十世紀電氣目録', ['二十世纪电气目录'], '2026-07-05T01:00:00.000Z'),
+          dataItem(587109, '花織さんは転生しても喧嘩がしたい', ['花织同学转生后还是想干架'], '2026-07-11T17:00:00.000Z'),
+          dataItem(552533, '天幕のジャードゥーガル', ['穹庐下的魔女'], '2026-07-04T15:00:00.000Z'),
+          dataItem(999, '前期作品', ['上季作品'], '2026-04-04T12:00:00.000Z')
+        ])
       };
     });
 
@@ -200,8 +258,8 @@ describe('broadcast schedule', () => {
     expect(times.get(495291)).toEqual({ airDate: '2026-07-06', airTime: '23:30', dayOffset: 1, source: 'Bangumi Index' });
     expect(times.get(501963)).toEqual({ airDate: '2026-07-13', airTime: '23:00', dayOffset: 1, source: 'Bangumi Index' });
     expect(times.get(538760)).toEqual({ airDate: '2026-07-04', airTime: '20:00', dayOffset: 0, source: 'Bangumi Index' });
-    expect(times.get(587109)).toEqual({ airDate: '2026-07-12', airTime: '01:00', dayOffset: 1, source: 'ACG Secrets' });
+    expect(times.get(587109)).toEqual({ airDate: '2026-07-12', airTime: '00:30', dayOffset: 1, source: 'Yuc Wiki' });
     expect(times.get(602733)).toEqual({ airDate: '2026-07-05', airTime: '01:38', dayOffset: 1, source: 'Bangumi Index' });
-    expect(times.get(552533)).toEqual({ airDate: '2026-07-04', airTime: '22:00', dayOffset: 0, source: 'ACG Secrets' });
+    expect(times.get(552533)).toEqual({ airDate: '2026-07-04', airTime: '23:00', dayOffset: 0, source: 'Yuc Wiki' });
   });
 });

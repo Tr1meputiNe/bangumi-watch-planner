@@ -186,7 +186,7 @@ describe('dashboard service', () => {
               ratingScore: null,
               rank: null,
               collectionDoing: null,
-              scheduleSource: 'ACG Secrets' as const
+              scheduleSource: 'Yuc Wiki' as const
             }]
           },
           { weekday: { en: 'Sun', cn: '星期日', ja: '日耀日', id: 7 }, items: [] }
@@ -212,7 +212,7 @@ describe('dashboard service', () => {
         airDate: '2026-07-19',
         airTime: '01:30',
         scheduleSource: '本地修正',
-        baseScheduleSource: 'ACG Secrets',
+        baseScheduleSource: 'Yuc Wiki',
         isLocalOverride: true,
         localDateShiftDays: 1
       })

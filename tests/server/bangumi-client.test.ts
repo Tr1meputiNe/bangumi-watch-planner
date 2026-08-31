@@ -5,28 +5,46 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+function yucSeason(title: string, subjectTitle: string, cover: string, premiere: string): string {
+  return `
+    <table class="date_"><tr><td class="date2">周六</td></tr></table>
+    <div style="float:left"><div class="div_date"><p class="imgtext4">21:00~</p><img data-src="${cover}"></div>
+      <div><table><tr><td class="date_title_">${title}</td></tr></table></div></div>
+    <div style="float:left"><img width="180px" data-src="${cover}"></div><div><table>
+      <tr><td><p class="title_cn_r">${title}</p><p class="title_jp_r">${subjectTitle}</p></td></tr>
+      <tr><td><p class="broadcast_r">${premiere}</p></td></tr>
+    </table></div>
+  `;
+}
+
 describe('Bangumi client', () => {
-  it('returns the concrete broadcast catalog from current and previous ACG pages', async () => {
+  it('returns the concrete broadcast catalog from current and previous Yuc pages', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-17T12:00:00+08:00'));
     const getAccessToken = vi.fn(async () => 'token-1');
     const fetch = vi.fn(async (url: string) => {
       if (url === 'https://unpkg.com/bangumi-data@0.3/dist/data.json') {
-        return { ok: true, status: 200, json: async () => ({ items: [] }) };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            items: [
+              { title: '今期作品', titleTranslate: { 'zh-Hans': ['本季作品'] }, begin: '2026-07-04T12:00:00.000Z', sites: [{ site: 'bangumi', id: '101' }] },
+              { title: '前期作品', titleTranslate: { 'zh-Hans': ['上季作品'] }, begin: '2026-04-04T12:00:00.000Z', sites: [{ site: 'bangumi', id: '202' }] }
+            ]
+          })
+        };
       }
       if (url === 'https://bgm.tv/index/99544') {
         return { ok: true, status: 200, text: async () => '' };
       }
-      const current = url === 'https://acgsecrets.hk/bangumi/202607/';
+      const current = url === 'http://yuc.wiki/202607/';
       return {
         ok: true,
         status: 200,
-        text: async () => `
-          <div class="CV-search acgs-card anime-type-new" acgs-bangumi-data-id="anime"
-            onairtime="${Date.parse(current ? '2026-07-04T20:00:00+08:00' : '2026-04-04T20:00:00+08:00')}"
-            weektoday="六"></div>
-          <div acgs-bangumi-anime-id="anime"><a href="https://bangumi.tv/subject/${current ? 101 : 202}">Bangumi</a></div>
-        `
+        text: async () => current
+          ? yucSeason('本季作品', '今期作品', 'current.jpg', '7/4周六晚间')
+          : yucSeason('上季作品', '前期作品', 'previous.jpg', '4/4周六晚间')
       };
     });
     const client = createBangumiClient({
@@ -48,8 +66,8 @@ describe('Bangumi client', () => {
     expect(catalog.schedules.get(101)).toMatchObject({ airDate: '2026-07-04', airTime: '20:00' });
     expect(catalog.schedules.get(202)).toMatchObject({ airDate: '2026-04-04', airTime: '20:00' });
     expect(fetch.mock.calls.map(([url]) => url)).toEqual(expect.arrayContaining([
-      'https://acgsecrets.hk/bangumi/202607/',
-      'https://acgsecrets.hk/bangumi/202604/'
+      'http://yuc.wiki/202607/',
+      'http://yuc.wiki/202604/'
     ]));
     for (const [, init] of fetch.mock.calls) {
       expect(init).toEqual(expect.objectContaining({

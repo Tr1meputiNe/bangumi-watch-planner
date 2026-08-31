@@ -14,7 +14,7 @@ export type AuthStatus = {
 export type BangumiCollectionType = 1 | 2 | 3 | 4 | 5;
 export type PlannerMode = 'seasonal' | 'backlog' | null;
 export type SeasonKind = 'new' | 'continuing';
-export type BroadcastSource = 'ACG Secrets' | 'Bangumi Data' | 'Bangumi Index' | 'Bangumi' | '本地修正';
+export type BroadcastSource = 'Yuc Wiki' | 'Bangumi Data' | 'Bangumi Index' | 'Bangumi' | '本地修正';
 
 export type BroadcastSchedule = {
   airDate: string;
@@ -38,6 +38,7 @@ export type SeasonEntry = {
   normalPremiereDate: string;
   airTime: string;
   dayOffset: number;
+  scheduleSource?: BroadcastSource;
 };
 
 export type SeasonCatalog = {

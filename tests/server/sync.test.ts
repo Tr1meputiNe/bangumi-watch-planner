@@ -6,7 +6,7 @@ import type { BangumiClient, BroadcastCatalog, EpisodeRow, SubjectWrite, SyncPro
 describe('syncAnimeCollections', () => {
   it('applies a local whole-series date and time correction', () => {
     const corrected = applyBroadcastOverrides(
-      new Map([[501, { airDate: '2026-07-25', airTime: '00:30', dayOffset: 0, source: 'ACG Secrets' }]]),
+      new Map([[501, { airDate: '2026-07-25', airTime: '00:30', dayOffset: 0, source: 'Yuc Wiki' }]]),
       [{ subjectId: 501, airDate: '2026-07-11', airTime: '01:00', dateShiftDays: -7, updatedAt: '2026-07-30' }]
     );
 

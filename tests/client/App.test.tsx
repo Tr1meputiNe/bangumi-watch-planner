@@ -914,8 +914,8 @@ describe('App', () => {
                 ratingScore: 7.2,
                 rank: 1234,
                 collectionDoing: 321,
-                scheduleSource: corrected ? '本地修正' : 'ACG Secrets',
-                baseScheduleSource: corrected ? 'ACG Secrets' : null,
+                scheduleSource: corrected ? '本地修正' : 'Yuc Wiki',
+                baseScheduleSource: corrected ? 'Yuc Wiki' : null,
                 isLocalOverride: corrected,
                 localDateShiftDays: corrected ? 0 : undefined
               }
@@ -988,7 +988,7 @@ describe('App', () => {
     expect(screen.getByLabelText('2026-07-09 22:30')).toBeInTheDocument();
     expect(screen.getByText(/评分 7.2/)).toBeInTheDocument();
     expect(screen.getByText(/321 人在看/)).toBeInTheDocument();
-    expect(screen.getByText('ACG Secrets')).toBeInTheDocument();
+    expect(screen.getByText('Yuc Wiki')).toBeInTheDocument();
 
     const correctedCard = screen.getAllByRole('link', { name: '测试放送' })[0].closest('article')!;
     await user.click(within(correctedCard).getByRole('button', { name: '校正时间' }));
@@ -1000,13 +1000,13 @@ describe('App', () => {
         body: JSON.stringify({ airDate: '2026-07-09', airTime: '22:30', dateShiftDays: 0 })
       });
     });
-    expect(await screen.findByText('本地修正 · 原 ACG Secrets')).toBeInTheDocument();
+    expect(await screen.findByText('本地修正 · 原 Yuc Wiki')).toBeInTheDocument();
 
     const localCard = screen.getAllByRole('link', { name: '测试放送' })[0].closest('article')!;
     await user.click(within(localCard).getByRole('button', { name: '校正时间' }));
     await user.click(within(localCard).getByRole('button', { name: '恢复来源' }));
     await waitFor(() => expect(corrected).toBe(false));
-    expect(await screen.findByText('ACG Secrets')).toBeInTheDocument();
+    expect(await screen.findByText('Yuc Wiki')).toBeInTheDocument();
   });
 
   it('optimistically marks a search result as backlog while the request runs in the background', async () => {
