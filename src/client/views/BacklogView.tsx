@@ -178,15 +178,6 @@ export default function BacklogView({ data, disabled, onChanged, onError }: Back
             </>
           )}
         />
-        <SubjectSection
-          title="已完成"
-          subjects={data.completed}
-          empty="还没有完成的补番。"
-          disabled={disabled || busyAction !== null}
-          onWatchedThrough={markThrough}
-          onWatched={markOne}
-          onUnwatched={markUnwatchedEpisode}
-        />
       </div>
     </div>
   );

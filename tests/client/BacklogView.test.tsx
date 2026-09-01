@@ -19,7 +19,8 @@ describe('BacklogView', () => {
     expect(screen.getByText('预计完成 2026-08-01')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '进行中' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '搁置' })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '已完成' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '已完成' })).not.toBeInTheDocument();
+    expect(screen.queryByText('完成的旧番')).not.toBeInTheDocument();
     expect(screen.getByText('1 / ?')).toBeInTheDocument();
   });
 
@@ -38,9 +39,7 @@ describe('BacklogView', () => {
     });
     render(<BacklogView data={data} disabled={false} onChanged={onChanged} onError={vi.fn()} />);
 
-    for (const title of ['进行中的旧番', '完成的旧番']) {
-      expect(screen.getByLabelText(`${title}集数进度`)).toBeInTheDocument();
-    }
+    expect(screen.getByLabelText('进行中的旧番集数进度')).toBeInTheDocument();
     const activeSection = screen.getByLabelText('进行中');
     expect(within(activeSection).getAllByRole('link', { name: '进行中的旧番' })[0]).toHaveClass('subject-cover');
     expect(screen.getByLabelText('旧番 第 2 集')).toHaveClass('backlog-task-cover');
