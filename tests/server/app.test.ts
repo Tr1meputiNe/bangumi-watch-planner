@@ -645,6 +645,42 @@ describe('HTTP API', () => {
     await app.close();
   });
 
+  it('starts a full calibration and retries a failed durable operation', async () => {
+    const idleStatus = {
+      state: 'idle' as const,
+      startedAt: null,
+      completedAt: null,
+      error: null,
+      processedSubjects: 0,
+      totalSubjects: 0,
+      result: null
+    };
+    const startSync = vi.fn(() => idleStatus);
+    const retryOperation = vi.fn(async () => undefined);
+    const app = testApp({ startSync, retryOperation });
+    const headers = { cookie: 'bwp_token=test-token' };
+
+    const calibration = await app.inject({ method: 'POST', url: '/api/sync/full', headers });
+    const retry = await app.inject({ method: 'POST', url: '/api/operations/7/retry', headers });
+
+    expect(calibration.statusCode).toBe(202);
+    expect(retry.statusCode).toBe(202);
+    expect(startSync).toHaveBeenCalledWith('full');
+    expect(retryOperation).toHaveBeenCalledWith(7);
+    await app.close();
+  });
+
+  it('requires the local session cookie before opening the event stream', async () => {
+    const subscribe = vi.fn();
+    const app = testApp({ subscribe });
+
+    const response = await app.inject({ method: 'GET', url: '/api/events' });
+
+    expect(response.statusCode).toBe(403);
+    expect(subscribe).not.toHaveBeenCalled();
+    await app.close();
+  });
+
   it('exposes a failed background sync through the status endpoint', async () => {
     const app = buildApp({
       auth: {

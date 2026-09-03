@@ -7,6 +7,7 @@ import type { AnimeSearchResult, BangumiCollectionType } from '../../src/server/
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 const dashboard = {
@@ -181,6 +182,64 @@ function completedSyncStatus(subjectsSynced = 1, episodesSynced = 12) {
 }
 
 describe('App', () => {
+  it('refreshes the active projection from SSE without resetting tab, search, or scroll', async () => {
+    class FakeEventSource {
+      static instance: FakeEventSource | null = null;
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      constructor(readonly url: string) {
+        FakeEventSource.instance = this;
+      }
+      close() {}
+      emit(data: unknown) {
+        this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent<string>);
+      }
+    }
+    vi.stubGlobal('EventSource', FakeEventSource);
+    let dashboardRequests = 0;
+    let backlogRequests = 0;
+    let searchRequests = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') {
+        return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
+      }
+      if (url === '/api/dashboard') {
+        dashboardRequests += 1;
+        return Response.json(dashboard);
+      }
+      if (url === '/api/backlog') {
+        backlogRequests += 1;
+        return Response.json(emptyBacklog);
+      }
+      if (url === '/api/sync/status') return Response.json({ ...runningSyncStatus(), state: 'idle' });
+      if (url === '/api/search/anime?q=test') {
+        searchRequests += 1;
+        return Response.json({ results: [searchResult(501, null, 'add', '加入补番')] });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    }));
+
+    render(<App />);
+    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
+    const input = await screen.findByPlaceholderText('番名、中文名或原名');
+    await userEvent.type(input, 'test');
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+    expect(await screen.findAllByText('测试动画 501')).not.toHaveLength(0);
+    document.documentElement.scrollTop = 240;
+    const before = { dashboardRequests, backlogRequests, searchRequests };
+
+    await act(async () => {
+      FakeEventSource.instance?.emit({ type: 'data', subjectIds: [501], scopes: ['backlog', 'search'] });
+    });
+
+    await waitFor(() => expect(searchRequests).toBe(before.searchRequests + 1));
+    expect(dashboardRequests).toBe(before.dashboardRequests + 1);
+    expect(backlogRequests).toBe(before.backlogRequests + 1);
+    expect(screen.getByRole('tab', { name: '补番计划' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByPlaceholderText('番名、中文名或原名')).toHaveValue('test');
+    expect(document.documentElement.scrollTop).toBe(240);
+  });
+
   it('opens a unified today view with seasonal and backlog tasks in separate sections', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
@@ -640,7 +699,7 @@ describe('App', () => {
     await waitFor(() => {
       expect(dismissCalls).toBe(2);
     });
-    expect(authCalls).toBe(3);
+    expect(authCalls).toBe(2);
     const dismissRequests = fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/reminders/11/dismiss');
     expect(dismissRequests[0][1]).toMatchObject({
       method: 'POST'

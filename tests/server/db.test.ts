@@ -405,6 +405,101 @@ describe('repository', () => {
     await repository.deleteBroadcastOverride(501);
     await expect(repository.listBroadcastOverrides()).resolves.toEqual([]);
   });
+
+  it('persists collection fingerprints used by incremental synchronization', async () => {
+    await repository.upsertCollectionSnapshot({
+      subjectId: 501,
+      collectionType: 3,
+      remoteUpdatedAt: '1720000000',
+      fingerprint: 'first'
+    });
+    await repository.upsertCollectionSnapshot({
+      subjectId: 501,
+      collectionType: 4,
+      remoteUpdatedAt: '1720000001',
+      fingerprint: 'second'
+    });
+
+    await expect(repository.listCollectionSnapshots()).resolves.toEqual([
+      expect.objectContaining({
+        subjectId: 501,
+        collectionType: 4,
+        remoteUpdatedAt: '1720000001',
+        fingerprint: 'second',
+        syncedAt: expect.any(String)
+      })
+    ]);
+
+    await repository.deleteCollectionSnapshot(501);
+    await expect(repository.listCollectionSnapshots()).resolves.toEqual([]);
+  });
+
+  it('deletes cached episodes when a removed collection subject is deleted', async () => {
+    await repository.upsertSubject({ ...baseSubject(), id: 501 });
+    await repository.replaceSubjectEpisodes(501, [episode({ id: 5011, subjectId: 501 })]);
+
+    await repository.deleteSubject(501);
+
+    await expect(repository.getSubject(501)).resolves.toBeNull();
+    await expect(repository.getEpisode(5011)).resolves.toBeNull();
+  });
+
+  it('recovers an interrupted durable operation after reopening SQLite', async () => {
+    const dbPath = join(tempDir, 'operations.sqlite');
+    repository.close();
+    repository = createRepository(dbPath);
+    const id = await repository.enqueueOperation({
+      resourceKey: 'subject:501',
+      kind: 'set_collection',
+      payload: JSON.stringify({ subjectId: 501, type: 4 }),
+      rollback: '{}',
+      retryUntil: '2026-07-19T04:01:00.000Z'
+    });
+    await repository.markOperationAttempt(id, '2026-07-19T04:00:00.000Z');
+    repository.close();
+
+    repository = createRepository(dbPath);
+
+    await expect(repository.getNextOperation()).resolves.toMatchObject({
+      id,
+      state: 'queued',
+      attempts: 1,
+      resourceKey: 'subject:501'
+    });
+    await expect(repository.countPendingOperations()).resolves.toBe(1);
+    await repository.completeOperation(id);
+    await expect(repository.countPendingOperations()).resolves.toBe(0);
+  });
+
+  it('renders a typical cached library within 300 ms', async () => {
+    for (let subjectId = 1; subjectId <= 100; subjectId += 1) {
+      await repository.upsertSubject({
+        ...baseSubject(),
+        id: subjectId,
+        name: `Anime ${subjectId}`,
+        nameCn: `动画 ${subjectId}`
+      });
+      await repository.replaceSubjectEpisodes(subjectId, Array.from({ length: 24 }, (_, index) => episode({
+        id: subjectId * 100 + index,
+        subjectId,
+        subjectName: `Anime ${subjectId}`,
+        subjectNameCn: `动画 ${subjectId}`,
+        sort: index + 1,
+        ep: index + 1
+      })));
+    }
+
+    const startedAt = performance.now();
+    const [episodes, subjects] = await Promise.all([
+      repository.listEpisodes(),
+      repository.listSubjectsByMode('seasonal', [3])
+    ]);
+    const durationMs = performance.now() - startedAt;
+
+    expect(episodes).toHaveLength(2_400);
+    expect(subjects).toHaveLength(100);
+    expect(durationMs).toBeLessThan(300);
+  });
 });
 
 function episode(overrides: Partial<ReturnType<typeof baseEpisode>>) {

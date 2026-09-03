@@ -20,6 +20,12 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
   app.addHook('preHandler', async (request, reply) => {
     if (!apiToken) return;
     if (!request.url.startsWith('/api/')) return;
+    if (request.url.startsWith('/api/events')) {
+      if (parseCookieValue(request.headers.cookie, API_TOKEN_COOKIE) !== apiToken) {
+        return reply.code(403).send({ error: 'Invalid local API token' });
+      }
+      return;
+    }
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return;
 
     const headerToken = request.headers['x-bwp-token'];
@@ -58,13 +64,36 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
       throw error;
     }
     await afterOAuthUserLoaded?.();
-    dashboard.startSync();
+    dashboard.startSync('full');
     return reply.redirect('/');
   });
 
   app.post('/api/sync', async (_request, reply) => reply.code(202).send(dashboard.startSync()));
+  app.post('/api/sync/full', async (_request, reply) => reply.code(202).send(dashboard.startSync('full')));
   app.get('/api/sync/status', async () => dashboard.getSyncStatus());
+  app.get('/api/sync/diagnostics', async () => dashboard.getSyncDiagnostics());
+  app.get('/api/events', async (request, reply) => {
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive'
+    });
+    reply.raw.write('event: ready\ndata: {}\n\n');
+    const unsubscribe = dashboard.subscribe((event) => {
+      reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+    });
+    const heartbeat = setInterval(() => reply.raw.write(': keepalive\n\n'), 25_000);
+    request.raw.once('close', () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+  });
   app.get('/api/dashboard', async () => dashboard.getDashboard());
+  app.post<{ Params: { operationId: string } }>('/api/operations/:operationId/retry', async (request, reply) => {
+    await dashboard.retryOperation(parsePositiveInteger(request.params.operationId));
+    return reply.code(202).send();
+  });
   app.get<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/episodes', async (request) => ({
     episodes: await dashboard.getSubjectEpisodes(parsePositiveInteger(request.params.subjectId))
   }));

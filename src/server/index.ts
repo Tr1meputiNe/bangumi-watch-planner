@@ -78,6 +78,13 @@ startScheduler({
   notificationsEnabled: async () => config.notificationsEnabled
 });
 
+const calibrationKey = 'sync_calibration_incremental_v1';
+void auth.getAuthStatus().then(async (status) => {
+  if (!status.authenticated || await repository.getSetting(calibrationKey)) return;
+  await dashboard.syncNow('full');
+  await repository.setSetting(calibrationKey, new Date().toISOString());
+}).catch(() => undefined);
+
 app.listen({ host: config.host, port: config.port }).catch((error) => {
   app.log.error(error);
   process.exitCode = 1;

@@ -14,6 +14,7 @@ export type AuthStatus = {
 export type BangumiCollectionType = 1 | 2 | 3 | 4 | 5;
 export type PlannerMode = 'seasonal' | 'backlog' | null;
 export type SeasonKind = 'new' | 'continuing';
+export type SyncMode = 'incremental' | 'full';
 export type BroadcastSource = 'Yuc Wiki' | 'Bangumi Data' | 'Bangumi Index' | 'Bangumi' | '本地修正';
 
 export type BroadcastSchedule = {
@@ -138,6 +139,57 @@ export type DashboardData = {
   subjects: DashboardSubjectSummary[];
   lastSyncAt: string | null;
   lastError: string | null;
+  syncDiagnostics?: SyncDiagnostics;
+};
+
+export type CollectionSnapshot = {
+  subjectId: number;
+  collectionType: BangumiCollectionType;
+  remoteUpdatedAt: string | null;
+  fingerprint: string;
+  syncedAt: string;
+};
+
+export type SyncRunDiagnostic = {
+  completedAt: string;
+  durationMs: number;
+  changedSubjects: number;
+  failedSubjects: number;
+};
+
+export type SyncDiagnostics = {
+  incremental: SyncRunDiagnostic | null;
+  full: SyncRunDiagnostic | null;
+  pendingOperations: number;
+  failedOperations: Array<{ id: number; kind: PendingOperationKind; error: string }>;
+};
+
+export type DashboardEvent = {
+  type: 'data' | 'error';
+  subjectIds: number[];
+  scopes?: Array<'dashboard' | 'backlog' | 'held' | 'wishlist' | 'calendar' | 'search'>;
+  error?: string;
+};
+
+export type PendingOperationKind =
+  | 'add_watching'
+  | 'add_wishlist'
+  | 'set_collection'
+  | 'episodes_watched'
+  | 'episodes_unwatched';
+
+export type PendingOperation = {
+  id: number;
+  resourceKey: string;
+  kind: PendingOperationKind;
+  payload: string;
+  rollback: string;
+  attempts: number;
+  state: 'queued' | 'running' | 'failed';
+  retryUntil: string;
+  createdAt: string;
+  updatedAt: string;
+  lastError: string | null;
 };
 
 export type BacklogTaskRow = {
@@ -198,6 +250,7 @@ export type BangumiSubjectCollection = {
   subject_id: number;
   type: number;
   ep_status: number;
+  updated_at?: number | string;
   subject: {
     id: number;
     name: string;
@@ -344,6 +397,7 @@ export type BangumiClient = {
   getMe(): Promise<BangumiUser>;
   getCalendar(): Promise<CalendarDay[]>;
   getAnimeCollections(username: string, type: 1 | 3 | 4, limit: number, offset: number): Promise<BangumiCollectionPage>;
+  getSubjectCollection?(subjectId: number): Promise<BangumiSubjectCollection | null>;
   getWatchingAnime(username: string, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getSubjectEpisodes(subjectId: number, limit?: number, offset?: number): Promise<BangumiEpisodePage>;
   getBroadcastCatalog?(): Promise<BroadcastCatalog>;
@@ -375,12 +429,21 @@ export type SyncRepository = {
   listBacklogExclusions(fromDate: string, throughDate: string): Promise<Array<{ plannedDate: string; episodeId: number }>>;
   prunePlannerState(beforeDate: string): Promise<void>;
   listBroadcastOverrides(): Promise<BroadcastOverride[]>;
+  listCollectionSnapshots?(): Promise<CollectionSnapshot[]>;
+  upsertCollectionSnapshot?(snapshot: Omit<CollectionSnapshot, 'syncedAt'>): Promise<void>;
+  deleteCollectionSnapshot?(subjectId: number): Promise<void>;
+  listSubjectsByCollection?(types: BangumiCollectionType[]): Promise<DashboardSubject[]>;
+  getSubject?(subjectId: number): Promise<SubjectRow | null>;
+  deleteSubject?(subjectId: number): Promise<void>;
 };
 
 export type SyncResult = {
   subjectsSynced: number;
   episodesSynced: number;
   subjectsFailed?: number;
+  changedSubjectIds?: number[];
+  mode?: SyncMode;
+  durationMs?: number;
 };
 
 export type SyncProgress = {
@@ -413,9 +476,12 @@ export type DashboardService = {
   getUpcomingSeason(): Promise<UpcomingSeasonData>;
   saveBroadcastOverride(input: Omit<BroadcastOverride, 'updatedAt'>): Promise<void>;
   deleteBroadcastOverride(subjectId: number): Promise<void>;
-  syncNow(): Promise<SyncResult>;
-  startSync(): SyncStatus;
+  syncNow(mode?: SyncMode): Promise<SyncResult>;
+  startSync(mode?: SyncMode): SyncStatus;
   getSyncStatus(): SyncStatus;
+  getSyncDiagnostics(): Promise<SyncDiagnostics>;
+  retryOperation(id: number): Promise<void>;
+  subscribe(listener: (event: DashboardEvent) => void): () => void;
   markEpisodeWatched(episodeId: number): Promise<void>;
   markEpisodeUnwatched(episodeId: number): Promise<void>;
   markSubjectEpisodesWatchedThrough(subjectId: number, episodeId: number): Promise<void>;

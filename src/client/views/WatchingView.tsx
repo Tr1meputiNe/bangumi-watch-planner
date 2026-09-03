@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   dismissReminder,
   dropSubject,
@@ -21,11 +21,22 @@ type WatchingViewProps = {
   dashboard: DashboardData;
   backlog?: BacklogData | null;
   disabled: boolean;
+  changedSubjectIds?: number[];
+  refreshVersion?: number;
   onChanged(): Promise<void>;
   onError(message: string): void;
 };
 
-export default function WatchingView({ mode, dashboard, backlog, disabled, onChanged, onError }: WatchingViewProps) {
+export default function WatchingView({
+  mode,
+  dashboard,
+  backlog,
+  disabled,
+  changedSubjectIds = [],
+  refreshVersion = 0,
+  onChanged,
+  onError
+}: WatchingViewProps) {
   const [busyEpisodeId, setBusyEpisodeId] = useState<number | null>(null);
   const [hiddenSubjectIds, setHiddenSubjectIds] = useState<Set<number>>(new Set());
   const pendingEpisodes = dashboard.pendingEpisodes;
@@ -147,6 +158,7 @@ export default function WatchingView({ mode, dashboard, backlog, disabled, onCha
               subject={subject}
               pendingCount={pendingBySubject.get(subject.id) ?? 0}
               disabled={disabled || busyEpisodeId !== null}
+              refreshVersion={changedSubjectIds.includes(subject.id) ? refreshVersion : 0}
               onWatchedThrough={(episodeId) => runEpisodeAction(episodeId, () => markWatchedThrough(subject.id, episodeId))}
               onWatched={(episodeId) => runEpisodeAction(episodeId, () => markWatched(episodeId))}
               onUnwatched={(episodeId) => runEpisodeAction(episodeId, () => markUnwatched(episodeId))}
@@ -208,6 +220,7 @@ function SubjectItem({
   subject,
   pendingCount,
   disabled,
+  refreshVersion,
   onWatchedThrough,
   onWatched,
   onUnwatched,
@@ -219,6 +232,7 @@ function SubjectItem({
   subject: DashboardSubjectSummary;
   pendingCount: number;
   disabled: boolean;
+  refreshVersion: number;
   onWatchedThrough: (episodeId: number) => Promise<void>;
   onWatched: (episodeId: number) => Promise<void>;
   onUnwatched: (episodeId: number) => Promise<void>;
@@ -236,7 +250,7 @@ function SubjectItem({
     ?? subject.unwatchedMainEpisodeCount
     ?? pendingCount;
 
-  async function loadEpisodes() {
+  const loadEpisodes = useCallback(async () => {
     setLoadingEpisodes(true);
     try {
       setEpisodes(await getSubjectEpisodes(subject.id));
@@ -245,7 +259,11 @@ function SubjectItem({
     } finally {
       setLoadingEpisodes(false);
     }
-  }
+  }, [onError, subject.id]);
+
+  useEffect(() => {
+    if (expanded && refreshVersion > 0) void loadEpisodes();
+  }, [expanded, loadEpisodes, refreshVersion]);
 
   async function runGridAction(action: () => Promise<void>) {
     await action();

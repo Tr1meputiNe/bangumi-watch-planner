@@ -19,13 +19,15 @@ import {
   getDashboard,
   getHeldSubjects,
   getSyncStatus,
+  retryOperation,
   resumeHeldSubject,
   saveOAuthConfig,
   searchAnime,
   startSync,
+  startFullSync,
   startSubject
 } from './api.js';
-import type { AnimeSearchResult, AuthStatus, BacklogData, DashboardData, DashboardSubject, SyncStatus } from '../server/types.js';
+import type { AnimeSearchResult, AuthStatus, BacklogData, DashboardData, DashboardEvent, DashboardSubject, SyncDiagnostics, SyncStatus } from '../server/types.js';
 import { displaySubjectName, formatDateTime } from '../shared/format.js';
 import BacklogView from './views/BacklogView.js';
 import CalendarView, { type CalendarViewState } from './views/CalendarView.js';
@@ -67,7 +69,9 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [collectionRefreshVersion, setCollectionRefreshVersion] = useState(0);
+  const [subjectRefresh, setSubjectRefresh] = useState({ version: 0, ids: [] as number[] });
   const syncHandoffStarted = useRef(false);
+  const activeViewRef = useRef<ActiveView>('today');
   const syncRequestVersion = useRef(0);
   const submittedSearchKeyword = useRef('');
   const [animeSearch, setAnimeSearch] = useState<{ error: string | null; keyword: string; results: AnimeSearchResult[] }>({
@@ -77,6 +81,10 @@ export default function App() {
   });
   const isPending = pendingAction !== null;
   const isSyncing = syncStatus?.state === 'running';
+
+  useEffect(() => {
+    activeViewRef.current = activeView;
+  }, [activeView]);
 
   const showError = useCallback((message: string) => {
     setState((current) => ({ ...current, error: message }));
@@ -101,6 +109,15 @@ export default function App() {
     }
   }, [showError]);
 
+  const loadDashboardOnly = useCallback(async () => {
+    try {
+      const dashboard = await getDashboard();
+      commitWithMotion(() => setState((current) => ({ ...current, dashboard, error: null })));
+    } catch (error) {
+      showError(error instanceof Error ? error.message : String(error));
+    }
+  }, [showError]);
+
   const loadBacklog = useCallback(async () => {
     setBacklogState((current) => ({ ...current, loading: true, error: null }));
     try {
@@ -115,8 +132,8 @@ export default function App() {
 
   const refreshBacklogAndDashboard = useCallback(async () => {
     try {
-      const [auth, dashboard] = await Promise.all([getAuthStatus(), getDashboard()]);
-      commitWithMotion(() => setState({ auth, dashboard, error: null }));
+      const dashboard = await getDashboard();
+      commitWithMotion(() => setState((current) => ({ ...current, dashboard, error: null })));
     } catch (error) {
       showError(error instanceof Error ? error.message : String(error));
       return;
@@ -177,6 +194,44 @@ export default function App() {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
+    if (!state.auth?.authenticated || typeof window.EventSource !== 'function') return;
+    const events = new EventSource('/api/events');
+    events.onmessage = (message) => {
+      let event: DashboardEvent;
+      try {
+        event = JSON.parse(message.data) as DashboardEvent;
+      } catch {
+        return;
+      }
+      if (event.type === 'error') {
+        showError(event.error ?? '后台同步失败，请稍后重试。');
+        return;
+      }
+      const view = activeViewRef.current;
+      if (event.scopes?.length && !eventMatchesView(event, view)) return;
+      setSubjectRefresh((current) => ({ version: current.version + 1, ids: event.subjectIds }));
+      if (view === 'calendar') {
+        void loadCalendar();
+        return;
+      }
+      if (view === 'wishlist' || view === 'upcoming') {
+        setCollectionRefreshVersion((version) => version + 1);
+        void loadDashboardOnly();
+        return;
+      }
+      if (view === 'today' || view === 'backlog') {
+        void refreshBacklogAndDashboard();
+        if (view === 'backlog') void refreshAnimeSearch();
+      } else if (view === 'held') {
+        void refreshHeldAndPlanning();
+      } else {
+        void loadDashboardOnly();
+      }
+    };
+    return () => events.close();
+  }, [loadCalendar, loadDashboardOnly, refreshAnimeSearch, refreshBacklogAndDashboard, refreshHeldAndPlanning, showError, state.auth?.authenticated]);
+
+  useEffect(() => {
     if (!state.auth?.authenticated || syncHandoffStarted.current) return;
     syncHandoffStarted.current = true;
     const requestVersion = syncRequestVersion.current;
@@ -234,7 +289,8 @@ export default function App() {
             : null;
           if (!syncError) {
             const result = nextStatus.result;
-            setSyncNotice(result
+            const noChanges = result?.changedSubjectIds?.length === 0 && !result.subjectsFailed;
+            setSyncNotice(noChanges ? null : result
               ? `同步完成：${result.subjectsSynced} 部番剧，${result.episodesSynced} 集分集${result.subjectsFailed ? `；${result.subjectsFailed} 部保留旧缓存` : ''}`
               : '同步完成');
           }
@@ -366,6 +422,27 @@ export default function App() {
     }
   }
 
+  async function startFullCalibration() {
+    const requestVersion = ++syncRequestVersion.current;
+    setSyncNotice(null);
+    setState((current) => ({ ...current, error: null }));
+    try {
+      const status = await startFullSync();
+      if (syncRequestVersion.current === requestVersion) setSyncStatus(status);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function retryFailedOperation(operationId: number) {
+    try {
+      await retryOperation(operationId);
+      await load();
+    } catch (error) {
+      showError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   if (!state.auth) {
     return <BangumiLoading error={state.error} onRetry={load} />;
   }
@@ -466,6 +543,8 @@ export default function App() {
                 dashboard={state.dashboard}
                 backlog={backlogState.data}
                 disabled={isPending || backlogState.loading}
+                changedSubjectIds={subjectRefresh.ids}
+                refreshVersion={subjectRefresh.version}
                 onChanged={refreshBacklogAndDashboard}
                 onError={showError}
               />
@@ -475,9 +554,23 @@ export default function App() {
           {activeView === 'watching' ? (
             <>
               {state.dashboard ? (
-                <WatchingView mode="watching" dashboard={state.dashboard} disabled={isPending} onChanged={refreshBacklogAndDashboard} onError={showError} />
+                <WatchingView
+                  mode="watching"
+                  dashboard={state.dashboard}
+                  disabled={isPending}
+                  changedSubjectIds={subjectRefresh.ids}
+                  refreshVersion={subjectRefresh.version}
+                  onChanged={refreshBacklogAndDashboard}
+                  onError={showError}
+                />
               ) : <div className="empty">正在加载追番。</div>}
-              <SettingsPanel auth={state.auth} />
+              <SettingsPanel
+                auth={state.auth}
+                diagnostics={state.dashboard?.syncDiagnostics}
+                disabled={isSyncing}
+                onFullSync={startFullCalibration}
+                onRetryOperation={retryFailedOperation}
+              />
             </>
           ) : null}
 
@@ -743,7 +836,13 @@ function AnimeSearchPanel({
   );
 }
 
-function SettingsPanel({ auth }: { auth: AuthStatus }) {
+function SettingsPanel({ auth, diagnostics, disabled, onFullSync, onRetryOperation }: {
+  auth: AuthStatus;
+  diagnostics?: SyncDiagnostics;
+  disabled: boolean;
+  onFullSync(): Promise<void>;
+  onRetryOperation(operationId: number): Promise<void>;
+}) {
   const platform = auth.runtimePlatform ?? 'macOS';
   const backgroundDescription = platform === 'Windows'
     ? '每日 20:00；安装 Windows 启动项后，关闭浏览器也会继续提醒。'
@@ -768,6 +867,38 @@ function SettingsPanel({ auth }: { auth: AuthStatus }) {
 
       <div className="settings-row"><div><strong>后台提醒</strong><p>{backgroundDescription}</p></div><span className="status-pill">{auth?.launchAgentInstalled ? '已启用' : '未启用'}</span></div>
       <div className="settings-row"><div><strong>通知</strong><p>同一天一次汇总；已忽略集数不再提醒。</p></div><span className="status-pill">{auth?.notificationsEnabled === false ? '已关闭' : '已开启'}</span></div>
+      <div className="settings-row">
+        <div><strong>增量同步</strong><p>{formatSyncDiagnostic(diagnostics?.incremental)}</p></div>
+        <span className="status-pill">{diagnostics?.pendingOperations ?? 0} 项待处理</span>
+      </div>
+      <div className="settings-row">
+        <div><strong>完整校准</strong><p>{formatSyncDiagnostic(diagnostics?.full)}</p></div>
+        <button type="button" className="secondary" disabled={disabled} onClick={() => void onFullSync()}>立即校准</button>
+      </div>
+      {diagnostics?.failedOperations.map((operation) => (
+        <div className="settings-row" key={operation.id}>
+          <div><strong>操作 #{operation.id} 失败</strong><p>{operation.error}</p></div>
+          <button type="button" className="secondary" onClick={() => void onRetryOperation(operation.id)}>重试</button>
+        </div>
+      ))}
     </section>
   );
+}
+
+function formatSyncDiagnostic(diagnostic: SyncDiagnostics['incremental'] | undefined): string {
+  if (!diagnostic) return '尚未运行';
+  const duration = diagnostic.durationMs < 1_000
+    ? `${diagnostic.durationMs} ms`
+    : `${(diagnostic.durationMs / 1_000).toFixed(1)} 秒`;
+  return `${formatDateTime(diagnostic.completedAt)} · ${duration} · ${diagnostic.changedSubjects} 部变化${diagnostic.failedSubjects ? ` · ${diagnostic.failedSubjects} 部失败` : ''}`;
+}
+
+function eventMatchesView(event: DashboardEvent, view: ActiveView): boolean {
+  const scopes = new Set(event.scopes);
+  if (view === 'calendar') return scopes.has('calendar');
+  if (view === 'today') return scopes.has('dashboard') || scopes.has('backlog');
+  if (view === 'watching') return scopes.has('dashboard');
+  if (view === 'backlog') return scopes.has('backlog') || scopes.has('search');
+  if (view === 'held') return scopes.has('held') || scopes.has('backlog');
+  return scopes.has('wishlist');
 }

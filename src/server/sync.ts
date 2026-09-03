@@ -1,5 +1,6 @@
 import type {
   BangumiClient,
+  BangumiCollectionType,
   BangumiEpisodeCollection,
   BangumiSubjectCollection,
   BroadcastCatalog,
@@ -10,6 +11,7 @@ import type {
   SubjectRow,
   SyncRepository,
   SyncProgress,
+  SyncMode,
   SyncResult
 } from './types.js';
 import type { Repository } from './db.js';
@@ -43,7 +45,8 @@ export async function syncAnimeCollections({
   repository,
   today = todayInShanghai(),
   pageSize = 50,
-  onProgress
+  onProgress,
+  mode
 }: {
   username: string;
   client: BangumiClient;
@@ -51,45 +54,109 @@ export async function syncAnimeCollections({
   today?: string;
   pageSize?: number;
   onProgress?: (progress: SyncProgress) => void;
+  mode?: SyncMode;
 }): Promise<SyncResult> {
+  const startedAt = Date.now();
+  const syncMode = mode ?? 'full';
+  const supportsSnapshots = Boolean(repository.listCollectionSnapshots && repository.upsertCollectionSnapshot);
+  const incremental = syncMode === 'incremental' && supportsSnapshots;
   let subjectsSynced = 0;
   let episodesSynced = 0;
   let subjectsFailed = 0;
-  const [broadcastCatalog, broadcastOverrides] = await Promise.all([
-    getBroadcastCatalog(client),
-    repository.listBroadcastOverrides()
-  ]);
-  const broadcastSchedules = applyBroadcastOverrides(broadcastCatalog.schedules, broadcastOverrides);
+  let broadcastCatalog: BroadcastCatalog | null = null;
+  let broadcastOverrides: BroadcastOverride[] = [];
+  if (!incremental) {
+    [broadcastCatalog, broadcastOverrides] = await Promise.all([
+      getBroadcastCatalog(client),
+      repository.listBroadcastOverrides()
+    ]);
+  }
   const collections: Array<{
-    collectionType: 1 | 3 | 4;
+    collectionType: BangumiCollectionType;
     collection: BangumiSubjectCollection;
   }> = [];
 
-  for (const collectionType of [1, 3, 4] as const) {
-    let offset = 0;
-    let total = Number.POSITIVE_INFINITY;
+  const collectionGroups = await Promise.all(([1, 3, 4] as const).map(async (collectionType) => {
+    const firstPage = await client.getAnimeCollections(username, collectionType, pageSize, 0);
+    const offsets = Array.from(
+      { length: Math.max(0, Math.ceil(firstPage.total / pageSize) - 1) },
+      (_, index) => (index + 1) * pageSize
+    );
+    const pages = await Promise.all(offsets.map((offset) => (
+      client.getAnimeCollections(username, collectionType, pageSize, offset)
+    )));
+    return [firstPage, ...pages].flatMap((page) => (
+      page.data.map((collection) => ({ collectionType, collection }))
+    ));
+  }));
+  collections.push(...collectionGroups.flat());
 
-    while (offset < total) {
-      const page = await client.getAnimeCollections(username, collectionType, pageSize, offset);
-      total = page.total;
-      collections.push(...page.data.map((collection) => ({ collectionType, collection })));
-
-      if (page.data.length === 0) break;
-      offset += pageSize;
+  const snapshots = new Map(
+    supportsSnapshots
+      ? (await repository.listCollectionSnapshots!()).map((snapshot) => [snapshot.subjectId, snapshot])
+      : []
+  );
+  const remoteIds = new Set(collections.map(({ collection }) => collection.subject.id ?? collection.subject_id));
+  const removedSubjectIds: number[] = [];
+  const reconciled: typeof collections = [];
+  if (supportsSnapshots && client.getSubjectCollection) {
+    const knownActiveIds = new Set(
+      [...snapshots.values()]
+        .filter((snapshot) => [1, 3, 4].includes(snapshot.collectionType))
+        .map((snapshot) => snapshot.subjectId)
+    );
+    if (syncMode === 'full' && repository.listSubjectsByCollection) {
+      for (const subject of await repository.listSubjectsByCollection([1, 3, 4])) knownActiveIds.add(subject.id);
+    }
+    for (const subjectId of knownActiveIds) {
+      if (remoteIds.has(subjectId)) continue;
+      const detail = await client.getSubjectCollection(subjectId);
+      if (detail) {
+        reconciled.push({ collectionType: detail.type as BangumiCollectionType, collection: detail });
+      } else {
+        await repository.deleteSubject?.(subjectId);
+        await repository.deleteCollectionSnapshot?.(subjectId);
+        removedSubjectIds.push(subjectId);
+      }
     }
   }
+  collections.push(...reconciled);
 
-  await startQueuedSubjects(collections, broadcastCatalog.seasonWindow.currentSeasonKey, client, repository);
+  const preliminaryChanges = incremental
+    ? collections.filter((entry) => snapshotChanged(snapshots.get(subjectIdOf(entry.collection)), entry))
+    : collections;
+  const queued = (await readAutoWatchQueue(repository)).length > 0;
+  if (!broadcastCatalog && (preliminaryChanges.length > 0 || queued)) {
+    [broadcastCatalog, broadcastOverrides] = await Promise.all([
+      getBroadcastCatalog(client),
+      repository.listBroadcastOverrides()
+    ]);
+  }
+  if (broadcastCatalog) {
+    await startQueuedSubjects(collections, broadcastCatalog.seasonWindow.currentSeasonKey, client, repository);
+  }
+
+  const changedCollections = incremental
+    ? collections.filter((entry) => snapshotChanged(snapshots.get(subjectIdOf(entry.collection)), entry))
+    : collections;
+  const changedSubjectIds = new Set(removedSubjectIds);
+  const broadcastSchedules = broadcastCatalog
+    ? applyBroadcastOverrides(broadcastCatalog.schedules, broadcastOverrides)
+    : new Map<number, BroadcastSchedule>();
 
   let processedSubjects = 0;
-  onProgress?.({ processedSubjects, totalSubjects: collections.length });
+  const totalSubjects = changedCollections.length + removedSubjectIds.length;
+  onProgress?.({ processedSubjects, totalSubjects });
+  processedSubjects += removedSubjectIds.length;
+  if (removedSubjectIds.length > 0) onProgress?.({ processedSubjects, totalSubjects });
 
   async function syncCollection({
     collectionType,
     collection
-  }: (typeof collections)[number]): Promise<void> {
+  }: (typeof changedCollections)[number]): Promise<void> {
     const subject = mapSubject(collection);
-    const classification = classifySubject(collectionType, subject.id, broadcastCatalog.seasonWindow);
+    const existing = await repository.getSubject?.(subject.id);
+    const classification = classifySubject(collectionType, subject.id, broadcastCatalog?.seasonWindow, existing);
 
     if (collectionType === 1) {
       await repository.upsertSubject({
@@ -99,6 +166,15 @@ export async function syncAnimeCollections({
         airYear: getAirYear(collection.subject.date),
         totalEpisodesKnown: subject.eps > 0,
         completedAt: null
+      });
+    } else if (collectionType === 2 || collectionType === 5) {
+      await repository.upsertSubject({
+        ...subject,
+        ...classification,
+        airDate: getAirDate(collection.subject.date),
+        airYear: getAirYear(collection.subject.date),
+        totalEpisodesKnown: subject.eps > 0,
+        completedAt: collectionType === 2 ? existing?.completedAt ?? new Date().toISOString() : null
       });
     } else {
       const episodes = await getAllSubjectEpisodes(client, subject, broadcastSchedules);
@@ -121,15 +197,23 @@ export async function syncAnimeCollections({
       episodesSynced += episodes.length;
     }
 
+    await repository.upsertCollectionSnapshot?.({
+      subjectId: subject.id,
+      collectionType,
+      remoteUpdatedAt: remoteUpdatedAt(collection),
+      fingerprint: collectionFingerprint(collectionType, collection)
+    });
+    changedSubjectIds.add(subject.id);
+
     subjectsSynced += 1;
     processedSubjects += 1;
-    onProgress?.({ processedSubjects, totalSubjects: collections.length });
+    onProgress?.({ processedSubjects, totalSubjects });
   }
 
-  for (const entry of collections.filter(({ collectionType }) => collectionType === 1)) {
+  for (const entry of changedCollections.filter(({ collectionType }) => collectionType === 1 || collectionType === 2 || collectionType === 5)) {
     await syncCollection(entry);
   }
-  const episodeCollections = collections.filter(({ collectionType }) => collectionType !== 1);
+  const episodeCollections = changedCollections.filter(({ collectionType }) => collectionType === 3 || collectionType === 4);
   await runWithConcurrency(
     episodeCollections,
     3,
@@ -140,7 +224,7 @@ export async function syncAnimeCollections({
         if (!(error instanceof BangumiApiError)) throw error;
         subjectsFailed += 1;
         processedSubjects += 1;
-        onProgress?.({ processedSubjects, totalSubjects: collections.length });
+        onProgress?.({ processedSubjects, totalSubjects });
       }
     }
   );
@@ -148,14 +232,27 @@ export async function syncAnimeCollections({
     throw new Error('Every episode collection failed');
   }
 
-  await rebuildPlan({ repository, today, includeToday: false });
+  if (!incremental || changedCollections.some(({ collectionType }) => collectionType !== 1) || removedSubjectIds.length > 0) {
+    await rebuildPlan({ repository, today, includeToday: false });
+  }
   await repository.setSetting('last_sync_at', new Date().toISOString());
   await repository.setSetting('last_error', '');
-  return { subjectsSynced, episodesSynced, ...(subjectsFailed ? { subjectsFailed } : {}) };
+  const result: SyncResult = {
+    subjectsSynced,
+    episodesSynced,
+    ...(subjectsFailed ? { subjectsFailed } : {})
+  };
+  if (mode && supportsSnapshots) {
+    result.mode = syncMode;
+    result.changedSubjectIds = [...changedSubjectIds].sort((a, b) => a - b);
+    result.durationMs = Date.now() - startedAt;
+    await saveSyncDiagnostic(repository, syncMode, result);
+  }
+  return result;
 }
 
 async function startQueuedSubjects(
-  collections: Array<{ collectionType: 1 | 3 | 4; collection: BangumiSubjectCollection }>,
+  collections: Array<{ collectionType: BangumiCollectionType; collection: BangumiSubjectCollection }>,
   currentSeasonKey: string,
   client: BangumiClient,
   repository: Pick<SyncRepository, 'getSetting' | 'setSetting'>
@@ -358,13 +455,25 @@ async function getAllSubjectEpisodes(
 }
 
 function classifySubject(
-  collectionType: 1 | 3 | 4,
+  collectionType: BangumiCollectionType,
   subjectId: number,
-  seasonWindow: SeasonWindow
+  seasonWindow: SeasonWindow | undefined,
+  existing?: SubjectRow | null
 ): Pick<SubjectRow, 'collectionType' | 'plannerMode' | 'seasonKey' | 'seasonKind'> {
-  const season = seasonWindow.entries.get(subjectId);
+  const season = seasonWindow?.entries.get(subjectId);
   if (collectionType === 1) {
     return { collectionType, plannerMode: null, seasonKey: season?.seasonKey ?? null, seasonKind: season?.seasonKind ?? null };
+  }
+  if (collectionType === 2 || collectionType === 5) {
+    return {
+      collectionType,
+      plannerMode: existing?.plannerMode ?? null,
+      seasonKey: existing?.seasonKey ?? season?.seasonKey ?? null,
+      seasonKind: existing?.seasonKind ?? season?.seasonKind ?? null
+    };
+  }
+  if (!seasonWindow) {
+    throw new Error('Changed active collections require an authoritative season window');
   }
   return {
     collectionType,
@@ -372,6 +481,50 @@ function classifySubject(
     seasonKey: season?.seasonKey ?? null,
     seasonKind: season?.seasonKind ?? null
   };
+}
+
+export function collectionFingerprint(
+  collectionType: BangumiCollectionType,
+  collection: BangumiSubjectCollection
+): string {
+  const subject = collection.subject;
+  return JSON.stringify([
+    collectionType,
+    collection.type,
+    collection.ep_status,
+    collection.updated_at ?? null,
+    subject.id ?? collection.subject_id,
+    subject.name,
+    subject.name_cn ?? '',
+    subject.date ?? '',
+    subject.eps ?? 0,
+    subject.images?.common ?? subject.images?.medium ?? subject.images?.small ?? ''
+  ]);
+}
+
+function snapshotChanged(
+  snapshot: { fingerprint: string } | undefined,
+  entry: { collectionType: BangumiCollectionType; collection: BangumiSubjectCollection }
+): boolean {
+  return !snapshot || snapshot.fingerprint !== collectionFingerprint(entry.collectionType, entry.collection);
+}
+
+function subjectIdOf(collection: BangumiSubjectCollection): number {
+  return collection.subject.id ?? collection.subject_id;
+}
+
+function remoteUpdatedAt(collection: BangumiSubjectCollection): string | null {
+  return collection.updated_at === undefined ? null : String(collection.updated_at);
+}
+
+async function saveSyncDiagnostic(repository: SyncRepository, mode: SyncMode, result: SyncResult): Promise<void> {
+  const key = `sync_diagnostic_${mode}`;
+  await repository.setSetting(key, JSON.stringify({
+    completedAt: new Date().toISOString(),
+    durationMs: result.durationMs ?? 0,
+    changedSubjects: result.changedSubjectIds?.length ?? result.subjectsSynced,
+    failedSubjects: result.subjectsFailed ?? 0
+  }));
 }
 
 function isStillUpdating(episodes: EpisodeRow[], today: string): boolean {

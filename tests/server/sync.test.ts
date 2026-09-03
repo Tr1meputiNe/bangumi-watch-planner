@@ -1,10 +1,100 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BangumiApiError } from '../../src/server/bangumi-client.js';
 import type { Repository } from '../../src/server/db.js';
-import { applyBroadcastOverrides, queueAutoWatchSubject, rebuildBacklogPlan, syncAnimeCollections } from '../../src/server/sync.js';
+import { applyBroadcastOverrides, collectionFingerprint, queueAutoWatchSubject, rebuildBacklogPlan, syncAnimeCollections } from '../../src/server/sync.js';
 import type { BangumiClient, BroadcastCatalog, EpisodeRow, SubjectWrite, SyncProgress, SyncRepository } from '../../src/server/types.js';
 
 describe('syncAnimeCollections', () => {
+  it('does not fetch public schedules or episodes when collection summaries are unchanged', async () => {
+    const remote = { ...collection(1, 3), updated_at: 1720000000 };
+    const getBroadcastCatalog = vi.fn(async () => broadcastCatalog());
+    const getSubjectEpisodes = vi.fn(async () => ({ total: 0, data: [] }));
+    const upsertCollectionSnapshot = vi.fn(async () => undefined);
+
+    const result = await syncAnimeCollections({
+      username: 'sai',
+      today: '2026-07-19',
+      mode: 'incremental',
+      client: bangumiClient({
+        getAnimeCollections: vi.fn(async (_username, type) => ({
+          total: type === 3 ? 1 : 0,
+          data: type === 3 ? [remote] : []
+        })),
+        getBroadcastCatalog,
+        getSubjectEpisodes
+      }),
+      repository: syncRepository({
+        listCollectionSnapshots: vi.fn(async () => [{
+          subjectId: 1,
+          collectionType: 3,
+          remoteUpdatedAt: '1720000000',
+          fingerprint: collectionFingerprint(3, remote),
+          syncedAt: '2026-07-19T00:00:00.000Z'
+        }]),
+        upsertCollectionSnapshot
+      })
+    });
+
+    expect(getBroadcastCatalog).not.toHaveBeenCalled();
+    expect(getSubjectEpisodes).not.toHaveBeenCalled();
+    expect(upsertCollectionSnapshot).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      mode: 'incremental',
+      subjectsSynced: 0,
+      episodesSynced: 0,
+      changedSubjectIds: []
+    });
+  });
+
+  it('fetches episodes only for the collection summary that changed', async () => {
+    const stable = { ...collection(1, 3), updated_at: 1720000000 };
+    const changed = { ...collection(2, 3), updated_at: 1720000001, ep_status: 2 };
+    const getSubjectEpisodes = vi.fn(async (subjectId) => ({
+      total: 1,
+      data: [episodeCollection(subjectId * 10, subjectId, 1, '2026-07-01')]
+    }));
+
+    const result = await syncAnimeCollections({
+      username: 'sai',
+      today: '2026-07-19',
+      mode: 'incremental',
+      client: bangumiClient({
+        getAnimeCollections: vi.fn(async (_username, type) => ({
+          total: type === 3 ? 2 : 0,
+          data: type === 3 ? [stable, changed] : []
+        })),
+        getSubjectEpisodes
+      }),
+      repository: syncRepository({
+        listCollectionSnapshots: vi.fn(async () => [
+          {
+            subjectId: 1,
+            collectionType: 3,
+            remoteUpdatedAt: '1720000000',
+            fingerprint: collectionFingerprint(3, stable),
+            syncedAt: '2026-07-19T00:00:00.000Z'
+          },
+          {
+            subjectId: 2,
+            collectionType: 3,
+            remoteUpdatedAt: '1720000000',
+            fingerprint: 'old',
+            syncedAt: '2026-07-19T00:00:00.000Z'
+          }
+        ]),
+        upsertCollectionSnapshot: vi.fn(async () => undefined)
+      })
+    });
+
+    expect(getSubjectEpisodes.mock.calls.map(([subjectId]) => subjectId)).toEqual([2]);
+    expect(result).toMatchObject({
+      mode: 'incremental',
+      subjectsSynced: 1,
+      episodesSynced: 1,
+      changedSubjectIds: [2]
+    });
+  });
+
   it('applies a local whole-series date and time correction', () => {
     const corrected = applyBroadcastOverrides(
       new Map([[501, { airDate: '2026-07-25', airTime: '00:30', dayOffset: 0, source: 'Yuc Wiki' }]]),
@@ -51,8 +141,8 @@ describe('syncAnimeCollections', () => {
     expect(getAnimeCollections.mock.calls).toEqual([
       ['sai', 1, 50, 0],
       ['sai', 3, 50, 0],
-      ['sai', 3, 50, 50],
-      ['sai', 4, 50, 0]
+      ['sai', 4, 50, 0],
+      ['sai', 3, 50, 50]
     ]);
     expect(getSubjectEpisodes).not.toHaveBeenCalledWith(1, expect.anything(), expect.anything());
     expect(getSubjectEpisodes.mock.calls.map(([subjectId]) => subjectId)).toEqual([3, 4, 5]);
@@ -185,6 +275,28 @@ describe('syncAnimeCollections', () => {
     expect(result).toEqual({ subjectsSynced: 2, episodesSynced: 0, subjectsFailed: 1 });
     expect(replacedSubjectIds.sort()).toEqual([1, 3]);
     expect(progress.at(-1)).toEqual({ processedSubjects: 3, totalSubjects: 3 });
+  });
+
+  it('does not publish a changed id when that subject failed to refresh', async () => {
+    const remote = [collection(1, 3), collection(2, 3)];
+    const result = await syncAnimeCollections({
+      username: 'sai',
+      today: '2026-07-19',
+      mode: 'incremental',
+      client: bangumiClient({
+        getAnimeCollections: vi.fn(async (_username, type) => ({ total: type === 3 ? 2 : 0, data: type === 3 ? remote : [] })),
+        getSubjectEpisodes: vi.fn(async (subjectId) => {
+          if (subjectId === 2) throw new BangumiApiError('temporary');
+          return { total: 0, data: [] };
+        })
+      }),
+      repository: syncRepository({
+        listCollectionSnapshots: vi.fn(async () => []),
+        upsertCollectionSnapshot: vi.fn(async () => undefined)
+      })
+    });
+
+    expect(result.changedSubjectIds).toEqual([1]);
   });
 
   it('still fails when every episode collection request fails', async () => {

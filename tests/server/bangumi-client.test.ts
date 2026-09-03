@@ -18,9 +18,20 @@ function yucSeason(title: string, subjectTitle: string, cover: string, premiere:
 }
 
 describe('Bangumi client', () => {
-  it('wraps null episode data as a recoverable Bangumi API error', async () => {
+  it('normalizes Bangumi null data for an empty episode collection', async () => {
     const client = createBangumiClient({
       fetch: vi.fn(async () => Response.json({ total: 0, data: null })),
+      getAccessToken: async () => 'token-1',
+      userAgent: 'tester/bangumi-watch-planner',
+      maxRetries: 0
+    });
+
+    await expect(client.getSubjectEpisodes(501)).resolves.toEqual({ total: 0, data: [] });
+  });
+
+  it('rejects null episode data when Bangumi reports existing episodes', async () => {
+    const client = createBangumiClient({
+      fetch: vi.fn(async () => Response.json({ total: 1, data: null })),
       getAccessToken: async () => 'token-1',
       userAgent: 'tester/bangumi-watch-planner',
       maxRetries: 0
@@ -89,6 +100,30 @@ describe('Bangumi client', () => {
       }));
     }
     expect(getAccessToken).not.toHaveBeenCalled();
+
+    await client.getBroadcastCatalog!();
+    expect(fetch).toHaveBeenCalledTimes(5);
+  });
+
+  it('loads one collection detail and treats a missing collection as removed', async () => {
+    const fetch = vi.fn(async (url: string) => url.endsWith('/456')
+      ? Response.json({
+          subject_id: 456,
+          type: 5,
+          ep_status: 3,
+          updated_at: 1720000000,
+          subject: { id: 456, name: 'Test Anime', eps: 12 }
+        })
+      : new Response('not found', { status: 404 }));
+    const client = createBangumiClient({
+      fetch,
+      getAccessToken: async () => 'token-1',
+      userAgent: 'tester/bangumi-watch-planner',
+      maxRetries: 0
+    });
+
+    await expect(client.getSubjectCollection!(456)).resolves.toMatchObject({ subject_id: 456, type: 5 });
+    await expect(client.getSubjectCollection!(999)).resolves.toBeNull();
   });
 
   it('fetches public calendar data without an access token', async () => {

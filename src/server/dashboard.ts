@@ -5,18 +5,24 @@ import { shiftAirDate } from './broadcast-schedule.js';
 import { nextSeasonKey, seasonKeyForDate } from './season-window.js';
 import { queueAutoWatchSubject, rebuildBacklogPlan, syncAnimeCollections } from './sync.js';
 import { BangumiApiError } from './bangumi-client.js';
+import { createOperationQueue } from './operation-queue.js';
 import type {
   BacklogData,
   BangumiClient,
   BroadcastOverride,
   CalendarDay,
   DashboardData,
+  DashboardEvent,
   DashboardSubject,
   DashboardSubjectSummary,
   DashboardService,
   EpisodeRow,
   OAuthManager,
+  PendingOperation,
+  PendingOperationKind,
   SubjectRow,
+  SyncDiagnostics,
+  SyncMode,
   SyncProgress,
   SyncResult,
   SyncStatus
@@ -41,6 +47,10 @@ export function createDashboardService({
   rebuildPlan = rebuildBacklogPlan
 }: DashboardDeps): DashboardService {
   let syncInFlight: Promise<SyncResult> | null = null;
+  let syncInFlightMode: SyncMode | null = null;
+  let queuedFullSync: Promise<SyncResult> | null = null;
+  const subscribers = new Set<(event: DashboardEvent) => void>();
+  let onlineSyncTimer: ReturnType<typeof setInterval> | null = null;
   let collectionActionQueue: Promise<void> = Promise.resolve();
   let pendingCollectionActions = 0;
   let collectionActionError: string | null = null;
@@ -53,8 +63,9 @@ export function createDashboardService({
     totalSubjects: 0,
     result: null
   };
+  let operationQueue: ReturnType<typeof createOperationQueue> | null = null;
 
-  async function executeSync(onProgress?: (progress: SyncProgress) => void): Promise<SyncResult> {
+  async function executeSync(mode: SyncMode, onProgress?: (progress: SyncProgress) => void): Promise<SyncResult> {
     const status = await auth.getAuthStatus();
     if (!status.username) {
       throw Object.assign(new Error('Bangumi is not connected'), { statusCode: 400, expose: true });
@@ -66,7 +77,8 @@ export function createDashboardService({
         client,
         repository,
         today: todayInShanghai(clock()),
-        onProgress
+        onProgress,
+        mode
       });
     } catch (error) {
       const message = getSafeSyncErrorMessage(error);
@@ -77,6 +89,14 @@ export function createDashboardService({
 
   function replan(includeToday: boolean, now = clock()): Promise<void> {
     return rebuildPlan({ repository, today: todayInShanghai(now), includeToday });
+  }
+
+  function publish(event: DashboardEvent): void {
+    for (const subscriber of subscribers) subscriber(event);
+  }
+
+  function runOnlineSync(): void {
+    void service.syncNow('incremental').catch(() => undefined);
   }
 
   function startCollectionAction(action: () => Promise<void>): SyncStatus {
@@ -166,6 +186,39 @@ export function createDashboardService({
     const todayTaskIds = (await repository.listBacklogTasks(today, today))
       .map((task) => task.episodeId)
       .filter((episodeId) => watchedIds.has(episodeId));
+    if (operationQueue) {
+      const [subject, episodes] = await Promise.all([
+        repository.getSubject(subjectId),
+        repository.listEpisodes()
+      ]);
+      const changedEpisodes = episodes.filter((episode) => watchedIds.has(episode.id));
+      const completesSubject = Boolean(subject && canAutoComplete(
+        subject,
+        episodes.map((episode) => watchedIds.has(episode.id) ? { ...episode, collectionType: 2 } : episode)
+      ));
+      await operationQueue.enqueue({
+        resourceKey: `subject:${subjectId}`,
+        kind: 'episodes_watched',
+        payload: JSON.stringify({ subjectId, episodeIds, completesSubject }),
+        rollback: JSON.stringify({
+          subject: subject ? subjectState(subject) : null,
+          episodes: changedEpisodes.map((episode) => ({ id: episode.id, collectionType: episode.collectionType }))
+        })
+      }, async () => {
+        for (const episodeId of episodeIds) await repository.markEpisodeWatched(episodeId);
+        for (const episodeId of todayTaskIds) await repository.deleteBacklogTask(episodeId);
+        if (completesSubject && subject) {
+          await repository.setSubjectState(subjectId, {
+            collectionType: 2,
+            plannerMode: subject.plannerMode,
+            completedAt: now.toISOString()
+          });
+        }
+        await replan(false, now);
+      });
+      publish({ type: 'data', subjectIds: [subjectId], scopes: ['dashboard', 'backlog'] });
+      return;
+    }
     await client.markEpisodesWatched(subjectId, episodeIds);
     for (const episodeId of episodeIds) {
       await repository.markEpisodeWatched(episodeId);
@@ -195,13 +248,137 @@ export function createDashboardService({
     return tasks.length > 0;
   }
 
+  async function enqueueCollectionOperation(
+    subject: SubjectRow | null,
+    kind: PendingOperationKind,
+    payload: Record<string, unknown>,
+    applyLocal?: () => Promise<void>
+  ): Promise<SyncStatus> {
+    if (!operationQueue) throw new Error('Durable operation queue is unavailable');
+    const subjectId = Number(payload.subjectId);
+    syncStatus = {
+      state: 'running',
+      startedAt: clock().toISOString(),
+      completedAt: null,
+      error: null,
+      processedSubjects: 0,
+      totalSubjects: 1,
+      result: null
+    };
+    await operationQueue.enqueue({
+      resourceKey: `subject:${subjectId}`,
+      kind,
+      payload: JSON.stringify(payload),
+      rollback: JSON.stringify({ subject: subject ? subjectState(subject) : null })
+    }, applyLocal);
+    if (applyLocal) publish({ type: 'data', subjectIds: [subjectId], scopes: ['dashboard', 'backlog', 'held', 'wishlist', 'search'] });
+    return service.getSyncStatus();
+  }
+
+  async function executeOperation(operation: PendingOperation): Promise<void> {
+    const payload = JSON.parse(operation.payload) as {
+      subjectId: number;
+      type?: 2 | 3 | 4 | 5;
+      episodeIds?: number[];
+      completesSubject?: boolean;
+      reopensSubject?: boolean;
+    };
+    if (!Number.isSafeInteger(payload.subjectId) || payload.subjectId <= 0) throw new Error('Invalid queued subject id');
+    if (operation.kind === 'add_watching') return client.addSubjectToWatching(payload.subjectId);
+    if (operation.kind === 'add_wishlist') return client.addSubjectToWishlist(payload.subjectId);
+    if (operation.kind === 'set_collection' && payload.type) return client.setSubjectCollectionType(payload.subjectId, payload.type);
+    if (!Array.isArray(payload.episodeIds) || payload.episodeIds.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
+      throw new Error('Invalid queued episode ids');
+    }
+    if (operation.kind === 'episodes_watched') {
+      await client.markEpisodesWatched(payload.subjectId, payload.episodeIds);
+      if (payload.completesSubject) await client.setSubjectCollectionType(payload.subjectId, 2);
+      return;
+    }
+    if (operation.kind === 'episodes_unwatched') {
+      await client.markEpisodesUnwatched(payload.subjectId, payload.episodeIds);
+      if (payload.reopensSubject) await client.setSubjectCollectionType(payload.subjectId, 3);
+      return;
+    }
+    throw new Error(`Unsupported queued operation ${operation.kind}`);
+  }
+
+  async function applySuccessfulOperation(operation: PendingOperation): Promise<void> {
+    const payload = JSON.parse(operation.payload) as {
+      subjectId: number;
+      type?: 2 | 3 | 4 | 5;
+      episodeIds?: number[];
+      completesSubject?: boolean;
+      reopensSubject?: boolean;
+    };
+    const subject = await repository.getSubject(payload.subjectId);
+    if (operation.kind === 'set_collection' && payload.type && subject) {
+      await repository.setSubjectState(payload.subjectId, {
+        collectionType: payload.type,
+        plannerMode: payload.type === 3 && !subject.plannerMode
+          ? subject.seasonKey ? 'seasonal' : 'backlog'
+          : subject.plannerMode,
+        completedAt: payload.type === 2 ? subject.completedAt ?? clock().toISOString() : null
+      });
+      await replan(false);
+    }
+    if (operation.kind === 'episodes_watched' && payload.episodeIds) {
+      for (const episodeId of payload.episodeIds) await repository.markEpisodeWatched(episodeId);
+      if (payload.completesSubject && subject) {
+        await repository.setSubjectState(subject.id, {
+          collectionType: 2,
+          plannerMode: subject.plannerMode,
+          completedAt: subject.completedAt ?? clock().toISOString()
+        });
+      }
+      await replan(false);
+    }
+    if (operation.kind === 'episodes_unwatched' && payload.episodeIds) {
+      for (const episodeId of payload.episodeIds) await repository.markEpisodeUnwatched(episodeId);
+      if (payload.reopensSubject && subject) {
+        await repository.setSubjectState(subject.id, {
+          collectionType: 3,
+          plannerMode: subject.plannerMode,
+          completedAt: null
+        });
+      }
+      await replan(false);
+    }
+  }
+
+  async function rollbackOperation(operation: PendingOperation, error: string): Promise<void> {
+    const rollback = JSON.parse(operation.rollback) as {
+      subject?: ReturnType<typeof subjectState> | null;
+      episodes?: Array<{ id: number; collectionType: number }>;
+    };
+    for (const episode of rollback.episodes ?? []) {
+      if (episode.collectionType === 2) await repository.markEpisodeWatched(episode.id);
+      else await repository.markEpisodeUnwatched(episode.id);
+    }
+    if (rollback.subject) {
+      await repository.setSubjectState(rollback.subject.id, rollback.subject);
+    }
+    await replan(false).catch(() => undefined);
+    await repository.setSetting('last_error', `${getSafeCollectionActionError(new Error(error))} 可在设置中重新校准。`);
+    syncStatus = {
+      ...syncStatus,
+      state: 'error',
+      completedAt: clock().toISOString(),
+      error: getSafeCollectionActionError(new Error(error)),
+      result: null
+    };
+    publish({ type: 'error', subjectIds: operationSubjectIds(operation), error });
+    publish({ type: 'data', subjectIds: operationSubjectIds(operation), scopes: ['dashboard', 'backlog', 'held', 'wishlist', 'search'] });
+  }
+
   const service: DashboardService = {
     async getDashboard(): Promise<DashboardData> {
-      const [episodes, subjects, lastSyncAt, lastError] = await Promise.all([
+      const [episodes, subjects, lastSyncAt, lastError, syncDiagnostics] = await Promise.all([
         repository.listEpisodes(),
         repository.listSubjectsByMode('seasonal', [3]),
         repository.getSetting('last_sync_at'),
-        repository.getSetting('last_error')
+        repository.getSetting('last_error'),
+        service.getSyncDiagnostics()
       ]);
       const seasonalSubjectIds = new Set(subjects.map((subject) => subject.id));
       return {
@@ -211,7 +388,8 @@ export function createDashboardService({
         ),
         subjects: subjects.map(compactSubject),
         lastSyncAt,
-        lastError: lastError || null
+        lastError: lastError || null,
+        syncDiagnostics
       };
     },
 
@@ -318,17 +496,29 @@ export function createDashboardService({
 
     async saveBroadcastOverride(input) {
       await repository.saveBroadcastOverride(input);
+      publish({ type: 'data', subjectIds: [input.subjectId], scopes: ['calendar'] });
     },
 
     async deleteBroadcastOverride(subjectId) {
       await repository.deleteBroadcastOverride(subjectId);
+      publish({ type: 'data', subjectIds: [subjectId], scopes: ['calendar'] });
     },
 
-    async syncNow(): Promise<SyncResult> {
+    async syncNow(mode: SyncMode = 'incremental'): Promise<SyncResult> {
       if (syncInFlight) {
+        if (mode === 'full' && syncInFlightMode === 'incremental') {
+          if (!queuedFullSync) {
+            queuedFullSync = syncInFlight
+              .catch(() => undefined)
+              .then(() => service.syncNow('full'))
+              .finally(() => { queuedFullSync = null; });
+          }
+          return queuedFullSync;
+        }
         return syncInFlight;
       }
 
+      syncInFlightMode = mode;
       const startedAt = clock().toISOString();
       syncStatus = {
         state: 'running',
@@ -339,7 +529,7 @@ export function createDashboardService({
         totalSubjects: 0,
         result: null
       };
-      syncInFlight = executeSync((progress) => {
+      syncInFlight = executeSync(mode, (progress) => {
         syncStatus = { ...syncStatus, ...progress };
       })
         .then((result) => {
@@ -352,6 +542,9 @@ export function createDashboardService({
             totalSubjects: Math.max(syncStatus.totalSubjects, result.subjectsSynced + (result.subjectsFailed ?? 0)),
             result
           };
+          if (result.changedSubjectIds?.length) {
+            publish({ type: 'data', subjectIds: result.changedSubjectIds, scopes: ['dashboard', 'backlog', 'held', 'wishlist', 'search'] });
+          }
           return result;
         })
         .catch((error) => {
@@ -362,16 +555,18 @@ export function createDashboardService({
             error: error instanceof Error ? error.message : String(error),
             result: null
           };
+          publish({ type: 'error', subjectIds: [], error: syncStatus.error ?? '同步失败' });
           throw error;
         })
         .finally(() => {
           syncInFlight = null;
+          syncInFlightMode = null;
         });
       return syncInFlight;
     },
 
-    startSync(): SyncStatus {
-      void service.syncNow().catch(() => undefined);
+    startSync(mode: SyncMode = 'incremental'): SyncStatus {
+      void service.syncNow(mode).catch(() => undefined);
       return service.getSyncStatus();
     },
 
@@ -379,6 +574,49 @@ export function createDashboardService({
       return pendingCollectionActions > 0
         ? { ...syncStatus, state: 'running', completedAt: null, error: null, result: null }
         : { ...syncStatus };
+    },
+
+    async getSyncDiagnostics(): Promise<SyncDiagnostics> {
+      const [incremental, full, pendingOperations, failedOperations] = await Promise.all([
+        readSyncDiagnostic(repository, 'incremental'),
+        readSyncDiagnostic(repository, 'full'),
+        repository.countPendingOperations?.() ?? 0,
+        repository.listFailedOperations?.() ?? []
+      ]);
+      return {
+        incremental,
+        full,
+        pendingOperations,
+        failedOperations: failedOperations.map((operation) => ({
+          id: operation.id,
+          kind: operation.kind,
+          error: operation.lastError ?? '操作失败'
+        }))
+      };
+    },
+
+    async retryOperation(id): Promise<void> {
+      if (!operationQueue) throw Object.assign(new Error('Durable operation queue is unavailable'), { statusCode: 503 });
+      const operation = await repository.getOperation(id);
+      if (!operation || operation.state !== 'failed') {
+        throw Object.assign(new Error(`Failed operation ${id} was not found`), { statusCode: 404 });
+      }
+      await operationQueue.retry(id);
+    },
+
+    subscribe(listener): () => void {
+      subscribers.add(listener);
+      if (subscribers.size === 1) {
+        runOnlineSync();
+        onlineSyncTimer = setInterval(runOnlineSync, 60_000);
+      }
+      return () => {
+        subscribers.delete(listener);
+        if (subscribers.size === 0 && onlineSyncTimer) {
+          clearInterval(onlineSyncTimer);
+          onlineSyncTimer = null;
+        }
+      };
     },
 
     async markEpisodeWatched(episodeId) {
@@ -396,6 +634,30 @@ export function createDashboardService({
       }
       const subject = await repository.getSubject(episode.subjectId);
       const now = clock();
+      if (operationQueue) {
+        const reopensSubject = subject?.collectionType === 2;
+        await operationQueue.enqueue({
+          resourceKey: `subject:${episode.subjectId}`,
+          kind: 'episodes_unwatched',
+          payload: JSON.stringify({ subjectId: episode.subjectId, episodeIds: [episodeId], reopensSubject }),
+          rollback: JSON.stringify({
+            subject: subject ? subjectState(subject) : null,
+            episodes: [{ id: episode.id, collectionType: episode.collectionType }]
+          })
+        }, async () => {
+          await repository.markEpisodeUnwatched(episodeId);
+          if (reopensSubject && subject) {
+            await repository.setSubjectState(subject.id, {
+              collectionType: 3,
+              plannerMode: subject.plannerMode,
+              completedAt: null
+            });
+          }
+          await replan(false, now);
+        });
+        publish({ type: 'data', subjectIds: [episode.subjectId], scopes: ['dashboard', 'backlog'] });
+        return;
+      }
       await client.markEpisodesUnwatched(episode.subjectId, [episodeId]);
       await repository.markEpisodeUnwatched(episodeId);
       await replanAfterEpisodeMutation(async () => {
@@ -440,14 +702,31 @@ export function createDashboardService({
     },
 
     async addSubjectToWatching(subjectId) {
+      if (operationQueue) return enqueueCollectionOperation(null, 'add_watching', { subjectId });
       return startCollectionAction(() => client.addSubjectToWatching(subjectId));
     },
 
     async addSubjectToWishlist(subjectId) {
+      if (operationQueue) return enqueueCollectionOperation(null, 'add_wishlist', { subjectId });
       return startCollectionAction(() => client.addSubjectToWishlist(subjectId));
     },
 
     async addUpcomingToWishlist(subjectId) {
+      if (operationQueue) {
+        const seasonKey = nextSeasonKey(seasonKeyForDate(clock()));
+        const catalog = await client.getUpcomingSeasonCatalog?.(seasonKey);
+        if (!catalog?.entries.has(subjectId)) {
+          throw Object.assign(new Error('该动画不在 Yuc 下季度新番列表或尚未由 Bangumi 确认'), { statusCode: 404 });
+        }
+        const subject = await repository.getSubject(subjectId);
+        if (subject && subject.collectionType !== 1) {
+          throw Object.assign(new Error('该动画已经有其他收藏状态'), { statusCode: 400 });
+        }
+        await queueAutoWatchSubject(repository, { subjectId, seasonKey });
+        return subject
+          ? service.getSyncStatus()
+          : enqueueCollectionOperation(null, 'add_wishlist', { subjectId });
+      }
       return startCollectionAction(async () => {
         const seasonKey = nextSeasonKey(seasonKeyForDate(clock()));
         const catalog = await client.getUpcomingSeasonCatalog?.(seasonKey);
@@ -471,6 +750,16 @@ export function createDashboardService({
       if (subject.airDate && subject.airDate > todayInShanghai(clock())) {
         throw Object.assign(new Error('尚未播出，已保留在想看'), { statusCode: 400 });
       }
+      if (operationQueue) {
+        return enqueueCollectionOperation(subject, 'set_collection', { subjectId, type: 3 }, async () => {
+          await repository.setSubjectState(subjectId, {
+            collectionType: 3,
+            plannerMode: subject.seasonKey ? 'seasonal' : 'backlog',
+            completedAt: null
+          });
+          await replan(false);
+        });
+      }
       return startCollectionAction(() => client.setSubjectCollectionType(subjectId, 3));
     },
 
@@ -478,6 +767,18 @@ export function createDashboardService({
       const subject = await requireSubject(subjectId);
       if (!subject.plannerMode || subject.collectionType !== 3) {
         throw Object.assign(new Error('Only active planning subjects can be held'), { statusCode: 400 });
+      }
+      if (operationQueue) {
+        const now = clock();
+        await enqueueCollectionOperation(subject, 'set_collection', { subjectId, type: 4 }, async () => {
+          await repository.setSubjectState(subjectId, {
+            collectionType: 4,
+            plannerMode: subject.plannerMode,
+            completedAt: null
+          });
+          await replan(await removeTodayTasksForSubject(subjectId, now), now);
+        });
+        return;
       }
       await client.setSubjectCollectionType(subjectId, 4);
       await repository.setSubjectState(subjectId, {
@@ -494,6 +795,17 @@ export function createDashboardService({
       if (!subject.plannerMode || subject.collectionType !== 4) {
         throw Object.assign(new Error('Only held planning subjects can be resumed'), { statusCode: 400 });
       }
+      if (operationQueue) {
+        await enqueueCollectionOperation(subject, 'set_collection', { subjectId, type: 3 }, async () => {
+          await repository.setSubjectState(subjectId, {
+            collectionType: 3,
+            plannerMode: subject.plannerMode,
+            completedAt: null
+          });
+          await replan(false);
+        });
+        return;
+      }
       await client.setSubjectCollectionType(subjectId, 3);
       await repository.setSubjectState(subjectId, {
         collectionType: 3,
@@ -507,6 +819,18 @@ export function createDashboardService({
       const subject = await requireSubject(subjectId);
       if (!subject.plannerMode || ![3, 4].includes(subject.collectionType)) {
         throw Object.assign(new Error('Only active or held planning subjects can be dropped'), { statusCode: 400 });
+      }
+      if (operationQueue) {
+        const now = clock();
+        await enqueueCollectionOperation(subject, 'set_collection', { subjectId, type: 5 }, async () => {
+          await repository.setSubjectState(subjectId, {
+            collectionType: 5,
+            plannerMode: subject.plannerMode,
+            completedAt: null
+          });
+          await replan(await removeTodayTasksForSubject(subjectId, now), now);
+        });
+        return;
       }
       await client.setSubjectCollectionType(subjectId, 5);
       await repository.setSubjectState(subjectId, {
@@ -543,6 +867,17 @@ export function createDashboardService({
         throw Object.assign(new Error('Manual completion is only available when the episode total is unknown'), { statusCode: 400 });
       }
       const now = clock();
+      if (operationQueue) {
+        await enqueueCollectionOperation(subject, 'set_collection', { subjectId, type: 2 }, async () => {
+          await repository.setSubjectState(subjectId, {
+            collectionType: 2,
+            plannerMode: subject.plannerMode,
+            completedAt: now.toISOString()
+          });
+          await replan(await removeTodayTasksForSubject(subjectId, now), now);
+        });
+        return;
+      }
       await client.setSubjectCollectionType(subjectId, 2);
       await repository.setSubjectState(subjectId, {
         collectionType: 2,
@@ -562,14 +897,17 @@ export function createDashboardService({
       await repository.deleteBacklogTask(episodeId);
       await repository.excludeEpisodeOnDate(today, episodeId);
       await replan(true, now);
+      publish({ type: 'data', subjectIds: [...new Set(todayTasks.map((task) => task.subjectId))], scopes: ['backlog'] });
     },
 
     async skipBacklogToday() {
       const now = clock();
       const today = todayInShanghai(now);
+      const subjectIds = [...new Set((await repository.listBacklogTasks(today, today)).map((task) => task.subjectId))];
       await repository.skipBacklogDate(today);
       await clearTodayTasks(today);
       await replan(true, now);
+      publish({ type: 'data', subjectIds, scopes: ['backlog'] });
     },
 
     async replanBacklogToday() {
@@ -578,6 +916,8 @@ export function createDashboardService({
       await repository.clearBacklogDateOverrides(today);
       await clearTodayTasks(today);
       await replan(true, now);
+      const subjectIds = [...new Set((await repository.listBacklogTasks(today, today)).map((task) => task.subjectId))];
+      publish({ type: 'data', subjectIds, scopes: ['backlog'] });
     },
 
     async searchAnimeSubjects(keyword) {
@@ -604,6 +944,7 @@ export function createDashboardService({
         throw Object.assign(new Error(`Episode ${episodeId} was not found`), { statusCode: 404 });
       }
       await repository.dismissEpisode(episodeId, `${todayInShanghai(clock())}T00:00:00+08:00`);
+      publish({ type: 'data', subjectIds: [episode.subjectId], scopes: ['dashboard'] });
     },
 
     async snoozeEpisodeUntilTomorrow(episodeId) {
@@ -620,8 +961,27 @@ export function createDashboardService({
         throw Object.assign(new Error('Only pending reminders can be snoozed'), { statusCode: 400 });
       }
       await repository.snoozeEpisodeUntil(episodeId, shiftAirDate(today, 1));
+      publish({ type: 'data', subjectIds: [episode.subjectId], scopes: ['dashboard'] });
     }
   };
+
+  if (typeof repository.enqueueOperation === 'function') {
+    operationQueue = createOperationQueue({
+      repository,
+      execute: executeOperation,
+      clock,
+      onComplete: async (operation) => {
+        await applySuccessfulOperation(operation);
+        publish({ type: 'data', subjectIds: operationSubjectIds(operation), scopes: ['dashboard', 'backlog', 'held', 'wishlist', 'search'] });
+        if (operation.kind === 'add_watching' || operation.kind === 'add_wishlist' || operation.kind === 'set_collection') {
+          if (syncInFlight) await syncInFlight.catch(() => undefined);
+          await service.syncNow('incremental').catch(() => undefined);
+        }
+      },
+      onFailed: rollbackOperation
+    });
+    operationQueue.start();
+  }
 
   return service;
 }
@@ -635,6 +995,46 @@ export function canAutoComplete(subject: SubjectRow, episodes: EpisodeRow[]): bo
       .filter((progress) => Number.isInteger(progress) && progress > 0 && progress <= subject.eps)
   );
   return watchedProgress.size === subject.eps;
+}
+
+function subjectState(subject: SubjectRow) {
+  return {
+    id: subject.id,
+    collectionType: subject.collectionType,
+    plannerMode: subject.plannerMode,
+    completedAt: subject.completedAt
+  };
+}
+
+function operationSubjectIds(operation: PendingOperation): number[] {
+  try {
+    const payload = JSON.parse(operation.payload) as { subjectId?: unknown };
+    return Number.isSafeInteger(payload.subjectId) ? [payload.subjectId as number] : [];
+  } catch {
+    return [];
+  }
+}
+
+async function readSyncDiagnostic(repository: Repository, mode: SyncMode): Promise<SyncDiagnostics[SyncMode]> {
+  try {
+    const value = JSON.parse((await repository.getSetting(`sync_diagnostic_${mode}`)) ?? 'null') as unknown;
+    if (!value || typeof value !== 'object') return null;
+    const item = value as Record<string, unknown>;
+    if (
+      typeof item.completedAt !== 'string'
+      || typeof item.durationMs !== 'number'
+      || typeof item.changedSubjects !== 'number'
+      || typeof item.failedSubjects !== 'number'
+    ) return null;
+    return {
+      completedAt: item.completedAt,
+      durationMs: item.durationMs,
+      changedSubjects: item.changedSubjects,
+      failedSubjects: item.failedSubjects
+    };
+  } catch {
+    return null;
+  }
 }
 
 function getAnimeSearchWatchAction(result: { airDate: string }, subject: SubjectRow | null, today: string) {

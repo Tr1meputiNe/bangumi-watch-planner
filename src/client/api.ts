@@ -101,8 +101,16 @@ export function startSync(): Promise<SyncStatus> {
   return api<SyncStatus>('/api/sync', { method: 'POST' });
 }
 
+export function startFullSync(): Promise<SyncStatus> {
+  return api<SyncStatus>('/api/sync/full', { method: 'POST' });
+}
+
 export function getSyncStatus(): Promise<SyncStatus> {
   return api<SyncStatus>('/api/sync/status');
+}
+
+export function retryOperation(operationId: number): Promise<void> {
+  return api<void>(`/api/operations/${operationId}/retry`, { method: 'POST' });
 }
 
 export function saveOAuthConfig(clientId: string, clientSecret: string): Promise<void> {

@@ -6,8 +6,11 @@ import type {
   BacklogTaskRow,
   BangumiCollectionType,
   BroadcastOverride,
+  CollectionSnapshot,
   DashboardSubject,
   EpisodeRow,
+  PendingOperation,
+  PendingOperationKind,
   SubjectRow,
   SyncRepository,
   WishlistData
@@ -35,12 +38,33 @@ export type Repository = SyncRepository & {
   setLastNotificationDate(date: string): Promise<void>;
   saveBroadcastOverride(input: Omit<BroadcastOverride, 'updatedAt'>): Promise<void>;
   deleteBroadcastOverride(subjectId: number): Promise<void>;
+  listCollectionSnapshots(): Promise<CollectionSnapshot[]>;
+  upsertCollectionSnapshot(snapshot: Omit<CollectionSnapshot, 'syncedAt'>): Promise<void>;
+  deleteCollectionSnapshot(subjectId: number): Promise<void>;
+  deleteSubject(subjectId: number): Promise<void>;
+  enqueueOperation(input: {
+    resourceKey: string;
+    kind: PendingOperationKind;
+    payload: string;
+    rollback: string;
+    retryUntil: string;
+  }): Promise<number>;
+  getNextOperation(): Promise<PendingOperation | null>;
+  getOperation(id: number): Promise<PendingOperation | null>;
+  listFailedOperations(): Promise<PendingOperation[]>;
+  markOperationAttempt(id: number, updatedAt: string): Promise<void>;
+  rescheduleOperation(id: number, error: string, updatedAt: string): Promise<void>;
+  completeOperation(id: number): Promise<void>;
+  failOperation(id: number, error: string, updatedAt: string): Promise<void>;
+  retryOperation(id: number, retryUntil: string, updatedAt: string): Promise<void>;
+  countPendingOperations(): Promise<number>;
 };
 
 export function createRepository(dbPath: string): Repository {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
   migrate(db);
 
   return {
@@ -237,6 +261,108 @@ export function createRepository(dbPath: string): Repository {
 
     async deleteBroadcastOverride(subjectId) {
       db.prepare('delete from broadcast_overrides where subject_id = ?').run(subjectId);
+    },
+
+    async listCollectionSnapshots() {
+      return db.prepare(
+        `select subject_id as subjectId, collection_type as collectionType,
+                remote_updated_at as remoteUpdatedAt, fingerprint, synced_at as syncedAt
+         from collection_snapshots
+         order by subject_id`
+      ).all() as CollectionSnapshot[];
+    },
+
+    async upsertCollectionSnapshot(snapshot) {
+      db.prepare(
+        `insert into collection_snapshots (subject_id, collection_type, remote_updated_at, fingerprint, synced_at)
+         values (@subjectId, @collectionType, @remoteUpdatedAt, @fingerprint, datetime('now'))
+         on conflict(subject_id) do update set
+           collection_type = excluded.collection_type,
+           remote_updated_at = excluded.remote_updated_at,
+           fingerprint = excluded.fingerprint,
+           synced_at = excluded.synced_at`
+      ).run(snapshot);
+    },
+
+    async deleteCollectionSnapshot(subjectId) {
+      db.prepare('delete from collection_snapshots where subject_id = ?').run(subjectId);
+    },
+
+    async deleteSubject(subjectId) {
+      db.prepare('delete from subjects where id = ?').run(subjectId);
+    },
+
+    async enqueueOperation(input) {
+      const result = db.prepare(
+        `insert into pending_operations (
+           resource_key, kind, payload, rollback, attempts, state, retry_until, created_at, updated_at, last_error
+         ) values (@resourceKey, @kind, @payload, @rollback, 0, 'queued', @retryUntil, datetime('now'), datetime('now'), null)`
+      ).run(input);
+      return Number(result.lastInsertRowid);
+    },
+
+    async getNextOperation() {
+      return (db.prepare(
+        `select id, resource_key as resourceKey, kind, payload, rollback, attempts, state,
+                retry_until as retryUntil, created_at as createdAt, updated_at as updatedAt, last_error as lastError
+         from pending_operations
+         where state in ('queued', 'running')
+         order by id
+         limit 1`
+      ).get() as PendingOperation | undefined) ?? null;
+    },
+
+    async getOperation(id) {
+      return (db.prepare(
+        `select id, resource_key as resourceKey, kind, payload, rollback, attempts, state,
+                retry_until as retryUntil, created_at as createdAt, updated_at as updatedAt, last_error as lastError
+         from pending_operations where id = ?`
+      ).get(id) as PendingOperation | undefined) ?? null;
+    },
+
+    async listFailedOperations() {
+      return db.prepare(
+        `select id, resource_key as resourceKey, kind, payload, rollback, attempts, state,
+                retry_until as retryUntil, created_at as createdAt, updated_at as updatedAt, last_error as lastError
+         from pending_operations where state = 'failed' order by id desc`
+      ).all() as PendingOperation[];
+    },
+
+    async markOperationAttempt(id, updatedAt) {
+      db.prepare(
+        `update pending_operations
+         set attempts = attempts + 1, state = 'running', updated_at = ?, last_error = null
+         where id = ?`
+      ).run(updatedAt, id);
+    },
+
+    async rescheduleOperation(id, error, updatedAt) {
+      db.prepare(
+        `update pending_operations set state = 'queued', updated_at = ?, last_error = ? where id = ?`
+      ).run(updatedAt, error, id);
+    },
+
+    async completeOperation(id) {
+      db.prepare('delete from pending_operations where id = ?').run(id);
+    },
+
+    async failOperation(id, error, updatedAt) {
+      db.prepare(
+        `update pending_operations set state = 'failed', updated_at = ?, last_error = ? where id = ?`
+      ).run(updatedAt, error, id);
+    },
+
+    async retryOperation(id, retryUntil, updatedAt) {
+      db.prepare(
+        `update pending_operations
+         set state = 'queued', attempts = 0, retry_until = ?, updated_at = ?, last_error = null
+         where id = ? and state = 'failed'`
+      ).run(retryUntil, updatedAt, id);
+    },
+
+    async countPendingOperations() {
+      const row = db.prepare("select count(*) as count from pending_operations where state != 'failed'").get() as { count: number };
+      return row.count;
     },
 
     async listBacklogTasks(fromDate, throughDate) {
@@ -464,7 +590,32 @@ function migrate(db: Database.Database): void {
       date_shift_days integer not null default 0,
       updated_at text not null
     );
+
+    create table if not exists collection_snapshots (
+      subject_id integer primary key,
+      collection_type integer not null,
+      remote_updated_at text,
+      fingerprint text not null,
+      synced_at text not null
+    );
+
+    create table if not exists pending_operations (
+      id integer primary key autoincrement,
+      resource_key text not null,
+      kind text not null,
+      payload text not null,
+      rollback text not null,
+      attempts integer not null default 0,
+      state text not null,
+      retry_until text not null,
+      created_at text not null,
+      updated_at text not null,
+      last_error text
+    );
+
+    create index if not exists pending_operations_state_id_idx on pending_operations(state, id);
   `);
+  db.prepare("update pending_operations set state = 'queued' where state = 'running'").run();
 }
 
 function selectSubjects(db: Database.Database, whereClause = '', params: unknown[] = []): SubjectRow[] {

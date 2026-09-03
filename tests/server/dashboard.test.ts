@@ -12,6 +12,55 @@ import type {
 import type { Repository } from '../../src/server/db.js';
 
 describe('dashboard service', () => {
+  it('checks incrementally while at least one page is connected', async () => {
+    vi.useFakeTimers();
+    const syncCollections = vi.fn(async () => ({ subjectsSynced: 0, episodesSynced: 0 }));
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client(),
+      repository: repository(),
+      syncCollections
+    });
+
+    const unsubscribeFirst = service.subscribe(vi.fn());
+    const unsubscribeSecond = service.subscribe(vi.fn());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(syncCollections).toHaveBeenCalledTimes(1);
+    expect(syncCollections).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'incremental' }));
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(syncCollections).toHaveBeenCalledTimes(2);
+    unsubscribeFirst();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(syncCollections).toHaveBeenCalledTimes(3);
+    unsubscribeSecond();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(syncCollections).toHaveBeenCalledTimes(3);
+  });
+
+  it('queues a full calibration behind an in-flight incremental check', async () => {
+    let releaseIncremental!: () => void;
+    const incrementalGate = new Promise<void>((resolve) => { releaseIncremental = resolve; });
+    const syncCollections = vi.fn(async (input: { mode?: string }) => {
+      if (input.mode === 'incremental') await incrementalGate;
+      return { subjectsSynced: 0, episodesSynced: 0 };
+    });
+    const service = createDashboardService({
+      auth: authStatus(),
+      client: client(),
+      repository: repository(),
+      syncCollections: syncCollections as never
+    });
+
+    const incremental = service.syncNow('incremental');
+    const full = service.syncNow('full');
+    await vi.waitFor(() => expect(syncCollections).toHaveBeenCalledTimes(1));
+    releaseIncremental();
+    await Promise.all([incremental, full]);
+
+    expect(syncCollections.mock.calls.map(([input]) => input.mode)).toEqual(['incremental', 'full']);
+  });
+
   it('marks every unwatched main episode through the selected episode', async () => {
     const markEpisodesWatched = vi.fn(async () => undefined);
     const markEpisodeWatched = vi.fn(async () => undefined);

@@ -91,6 +91,30 @@ describe('collection sync integration', () => {
     expect(setSubjectCollectionType).not.toHaveBeenCalled();
   });
 
+  it('reconciles active rows missing from collection lists during a full calibration', async () => {
+    await repository.upsertSubject({ ...subjectWrite(700, 3), plannerMode: 'backlog' });
+    await repository.upsertSubject({ ...subjectWrite(701, 4), plannerMode: 'backlog' });
+    const getSubjectCollection = vi.fn(async (subjectId: number) => subjectId === 700 ? {
+      subject_id: 700,
+      type: 2,
+      ep_status: 12,
+      updated_at: 1720000000,
+      subject: { id: 700, name: 'Completed', name_cn: '已看完', eps: 12, images: {} }
+    } : null);
+
+    await syncAnimeCollections({
+      username: 'sai',
+      repository,
+      today: '2026-07-19',
+      mode: 'full',
+      client: clientFor({ 1: [], 3: [], 4: [] }, catalogFor('2026-07-19'), { getSubjectCollection })
+    });
+
+    await expect(repository.getSubject(700)).resolves.toMatchObject({ collectionType: 2, plannerMode: 'backlog' });
+    await expect(repository.getSubject(701)).resolves.toBeNull();
+    expect(getSubjectCollection.mock.calls.map(([subjectId]) => subjectId).sort()).toEqual([700, 701]);
+  });
+
   it('keeps previous-quarter watching seasonal through overlap day 14, then moves it to backlog on day 15', async () => {
     const collections = { 1: [collection(203, 1)], 3: [collection(103, 3)], 4: [] };
 
@@ -244,6 +268,33 @@ describe('collection sync integration', () => {
 
     await expect(repository.listBacklogTasks('2026-07-19', '2026-07-19')).resolves.toEqual([]);
     expect(await repository.listBacklogTasks('2026-07-20', '2026-07-25')).not.toHaveLength(0);
+  });
+
+  it('updates SQLite before a queued Bangumi episode write finishes', async () => {
+    await repository.upsertSubject({ ...subjectWrite(1, 3), plannerMode: 'backlog' });
+    await repository.replaceSubjectEpisodes(1, [episodeRow(11, 1, '2020-01-01')]);
+    let releaseRemote!: () => void;
+    const remoteGate = new Promise<void>((resolve) => { releaseRemote = resolve; });
+    const markEpisodesWatched = vi.fn(() => remoteGate);
+    const service = createDashboardService({
+      auth: {
+        createAuthorizationUrl: vi.fn(),
+        handleCallback: vi.fn(),
+        getAccessToken: vi.fn(),
+        getAuthStatus: vi.fn()
+      },
+      client: clientFor({ 1: [], 3: [], 4: [] }, catalogFor('2026-07-19'), { markEpisodesWatched }),
+      repository,
+      clock: () => new Date('2026-07-19T04:00:00.000Z')
+    });
+
+    await service.markEpisodeWatched(11);
+
+    await expect(repository.getEpisode(11)).resolves.toMatchObject({ collectionType: 2 });
+    await expect(repository.countPendingOperations()).resolves.toBe(1);
+    await vi.waitFor(() => expect(markEpisodesWatched).toHaveBeenCalledWith(1, [11]));
+    releaseRemote();
+    await vi.waitFor(async () => expect(await repository.countPendingOperations()).toBe(0));
   });
 });
 
