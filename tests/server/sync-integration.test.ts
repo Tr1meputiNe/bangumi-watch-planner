@@ -296,6 +296,57 @@ describe('collection sync integration', () => {
     releaseRemote();
     await vi.waitFor(async () => expect(await repository.countPendingOperations()).toBe(0));
   });
+
+  it.each(['backlog', 'seasonal'] as const)(
+    'keeps a %s title active when marking through episode 3 and another title supplies later watched numbers',
+    async (plannerMode) => {
+      await repository.upsertSubject({ ...subjectWrite(1, 3), eps: 13, plannerMode });
+      await repository.upsertSubject({ ...subjectWrite(2, 3), eps: 13, plannerMode: 'backlog' });
+      await repository.replaceSubjectEpisodes(1, Array.from({ length: 13 }, (_, index) => ({
+        ...episodeRow(100 + index + 1, 1, '2020-01-01'),
+        sort: index + 1,
+        ep: index + 1,
+        collectionType: index === 0 ? 2 : 0
+      })));
+      await repository.replaceSubjectEpisodes(2, Array.from({ length: 10 }, (_, index) => ({
+        ...episodeRow(200 + index + 4, 2, '2020-01-01'),
+        sort: index + 4,
+        ep: index + 4,
+        collectionType: 2
+      })));
+      let releaseRemote!: () => void;
+      const remoteGate = new Promise<void>((resolve) => { releaseRemote = resolve; });
+      const markEpisodesWatched = vi.fn(() => remoteGate);
+      const setSubjectCollectionType = vi.fn(async () => undefined);
+      const service = createDashboardService({
+        auth: {
+          createAuthorizationUrl: vi.fn(),
+          handleCallback: vi.fn(),
+          getAccessToken: vi.fn(),
+          getAuthStatus: vi.fn()
+        },
+        client: clientFor({ 1: [], 3: [], 4: [] }, catalogFor('2026-07-19'), {
+          markEpisodesWatched,
+          setSubjectCollectionType
+        }),
+        repository,
+        clock: () => new Date('2026-07-19T04:00:00.000Z')
+      });
+
+      await service.markSubjectEpisodesWatchedThrough(1, 103);
+      try {
+        await expect(repository.getEpisode(102)).resolves.toMatchObject({ collectionType: 2 });
+        await expect(repository.getEpisode(103)).resolves.toMatchObject({ collectionType: 2 });
+        await expect(repository.getEpisode(104)).resolves.toMatchObject({ collectionType: 0 });
+        await expect(repository.getSubject(1)).resolves.toMatchObject({ collectionType: 3, plannerMode });
+      } finally {
+        releaseRemote();
+        await vi.waitFor(async () => expect(await repository.countPendingOperations()).toBe(0));
+      }
+      expect(markEpisodesWatched).toHaveBeenCalledWith(1, [102, 103]);
+      expect(setSubjectCollectionType).not.toHaveBeenCalled();
+    }
+  );
 });
 
 function clientFor(

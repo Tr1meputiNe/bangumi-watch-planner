@@ -740,13 +740,14 @@ function compareEpisodeProgress(a: EpisodeRow, b: EpisodeRow): number {
 }
 
 export function progressEpisodesFor(subject: SubjectRow, episodes: EpisodeRow[]): EpisodeRow[] {
-  const mainEpisodes = episodes.filter((episode) => episode.episodeType === 0);
+  const subjectEpisodes = episodes.filter((episode) => episode.subjectId === subject.id);
+  const mainEpisodes = subjectEpisodes.filter((episode) => episode.episodeType === 0);
   const mainProgress = new Set(mainEpisodes.map(episodeProgress).filter((progress) => Number.isInteger(progress) && progress > 0));
   const mainReachesFinalSlot = subject.eps > 1
     && mainProgress.size === subject.eps - 1
     && Array.from({ length: subject.eps - 1 }, (_, index) => index + 1).every((progress) => mainProgress.has(progress));
   const finalSpecial = mainReachesFinalSlot
-    ? episodes.find((episode) => episode.episodeType === 1 && episode.ep === 0 && episode.sort === subject.eps)
+    ? subjectEpisodes.find((episode) => episode.episodeType === 1 && episode.ep === 0 && episode.sort === subject.eps)
     : undefined;
   return [...mainEpisodes, ...(finalSpecial ? [finalSpecial] : [])].sort(compareEpisodeProgress);
 }
