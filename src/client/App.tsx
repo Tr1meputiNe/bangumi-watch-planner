@@ -5,6 +5,7 @@ import {
   HeartPlus,
   LibraryBig,
   ListVideo,
+  MoreHorizontal,
   RadioTower,
   Telescope,
   TvMinimalPlay,
@@ -61,6 +62,7 @@ const emptyHeldState = { data: null as DashboardSubject[] | null, loading: false
 export default function App() {
   const [state, setState] = useState<LoadState>(emptyState);
   const [activeView, setActiveView] = useState<ActiveView>('today');
+  const [moreOpen, setMoreOpen] = useState(false);
   const [backlogState, setBacklogState] = useState<BacklogState>(emptyBacklogState);
   const [calendarState, setCalendarState] = useState<CalendarViewState>(emptyCalendarState);
   const [heldState, setHeldState] = useState(emptyHeldState);
@@ -468,8 +470,7 @@ export default function App() {
   const syncTime = formatDateTime(state.dashboard?.lastSyncAt ?? state.auth?.lastSyncAt ?? null);
 
   return (
-    <main className="app-shell hallmark-workbench">
-      <aside className="app-sidebar" aria-label="应用导航">
+    <main className="app-shell hallmark-workbench layout-refresh">
         <header className="topbar">
           <div className="brand-lockup">
             <span className="brand-mark" aria-hidden="true"><ListVideo /></span>
@@ -514,7 +515,9 @@ export default function App() {
           </div>
         </header>
 
-        <div className="page-tabs" role="tablist" aria-label="视图">
+      <aside className="app-sidebar" aria-label="应用导航">
+        <div className="rail-brand" aria-hidden="true"><ListVideo /><span>Bangumi Planner</span></div>
+        <div className={`page-tabs${moreOpen ? ' more-open' : ''}`} role="tablist" aria-label="视图" onClick={() => setMoreOpen(false)}>
           <Tab icon={CalendarCheck2} active={activeView === 'today'} onClick={() => setActiveView('today')}>今日</Tab>
           <Tab icon={TvMinimalPlay} active={activeView === 'watching'} onClick={() => setActiveView('watching')}>追番</Tab>
           <Tab icon={LibraryBig} active={activeView === 'backlog'} onClick={() => setActiveView('backlog')}>补番计划</Tab>
@@ -523,6 +526,7 @@ export default function App() {
           <Tab icon={Telescope} active={activeView === 'upcoming'} onClick={() => setActiveView('upcoming')}>下季新番</Tab>
           <Tab icon={RadioTower} active={activeView === 'calendar'} onClick={() => setActiveView('calendar')}>每日放送</Tab>
         </div>
+        <button className="mobile-more" type="button" aria-expanded={moreOpen} aria-label="更多页面" onClick={() => setMoreOpen(!moreOpen)}><MoreHorizontal aria-hidden="true" /><span>更多</span></button>
 
         <footer className="app-footer">
           <span>Bangumi Planner</span>
