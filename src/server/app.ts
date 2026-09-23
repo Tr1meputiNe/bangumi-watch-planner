@@ -92,7 +92,11 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
   app.get('/api/dashboard', async () => dashboard.getDashboard());
   app.post<{ Params: { operationId: string } }>('/api/operations/:operationId/retry', async (request, reply) => {
     await dashboard.retryOperation(parsePositiveInteger(request.params.operationId));
-    return reply.code(202).send();
+    return reply.code(202).send({ queued: true });
+  });
+  app.delete<{ Params: { operationId: string } }>('/api/operations/:operationId', async (request, reply) => {
+    await dashboard.dismissFailedOperation(parsePositiveInteger(request.params.operationId));
+    return reply.code(204).send();
   });
   app.get<{ Params: { subjectId: string } }>('/api/subjects/:subjectId/episodes', async (request) => ({
     episodes: await dashboard.getSubjectEpisodes(parsePositiveInteger(request.params.subjectId))

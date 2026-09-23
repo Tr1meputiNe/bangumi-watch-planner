@@ -471,6 +471,27 @@ describe('repository', () => {
     await expect(repository.countPendingOperations()).resolves.toBe(0);
   });
 
+  it('keeps dismissed failures out of the queue and failure list after restart', async () => {
+    const dbPath = join(tempDir, 'dismissed-operations.sqlite');
+    repository.close();
+    repository = createRepository(dbPath);
+    const id = await repository.enqueueOperation({
+      resourceKey: 'subject:501', kind: 'set_collection', payload: '{}', rollback: '{}',
+      retryUntil: '2026-07-19T04:01:00.000Z'
+    });
+    await repository.failOperation(id, 'offline', '2026-07-19T04:01:00.000Z');
+    await repository.dismissFailedOperation(id, '2026-07-19T04:02:00.000Z');
+    repository.close();
+
+    repository = createRepository(dbPath);
+    await expect(repository.getOperation(id)).resolves.toMatchObject({ state: 'dismissed', lastError: 'offline' });
+    await expect(repository.listFailedOperations()).resolves.toEqual([]);
+    await expect(repository.getNextOperation()).resolves.toBeNull();
+    await expect(repository.countPendingOperations()).resolves.toBe(0);
+    await repository.retryOperation(id, '2026-07-19T04:03:00.000Z', '2026-07-19T04:02:00.000Z');
+    await expect(repository.getOperation(id)).resolves.toMatchObject({ state: 'dismissed' });
+  });
+
   it('renders a typical cached library within 300 ms', async () => {
     for (let subjectId = 1; subjectId <= 100; subjectId += 1) {
       await repository.upsertSubject({

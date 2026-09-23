@@ -1,6 +1,7 @@
 import type { EpisodeRow } from '../server/types.js';
 import { displayEpisodeTitle, episodeProgress } from '../shared/format.js';
 import { motionStyle } from './motion.js';
+import { todayInShanghai } from '../shared/date.js';
 
 type Props = {
   subjectTitle: string;
@@ -77,12 +78,6 @@ function buildProgressSlots(episodes: EpisodeRow[], totalEpisodes: number) {
 
 function hasAired(airdate: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(airdate) && airdate <= todayInShanghai();
-}
-
-function todayInShanghai(): string {
-  const parts = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
 }
 
 function formatEpisodeProgress(progress: number): string {

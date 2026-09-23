@@ -506,20 +506,26 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: '同步中' })).toBeDisabled();
   });
 
-  it('shows a readable local-service error instead of Failed to fetch', async () => {
+  it.each([
+    ['立即同步', '/api/sync'],
+    ['立即校准', '/api/sync/full']
+  ])('shows a readable local-service error for %s', async (button, endpoint) => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
         return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: dashboard.lastSyncAt });
       }
       if (url === '/api/dashboard') return Response.json(dashboard);
-      if (url === '/api/sync' && init?.method === 'POST') throw new TypeError('Failed to fetch');
+      if (url === endpoint && init?.method === 'POST') throw new TypeError('Failed to fetch');
       throw new Error(`Unexpected request ${url}`);
     }));
 
     render(<App />);
 
-    await userEvent.click(await screen.findByRole('button', { name: '立即同步' }));
+    if (button === '立即校准') {
+      await userEvent.click(await screen.findByRole('tab', { name: '追番', exact: true }));
+    }
+    await userEvent.click(await screen.findByRole('button', { name: button }));
 
     expect(await screen.findByText('无法连接本机服务，请确认应用仍在运行后重试。')).toBeInTheDocument();
     expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
@@ -539,9 +545,13 @@ describe('App', () => {
 
     render(<App />);
 
-    await userEvent.click(await screen.findByRole('button', { name: '立即同步' }));
-
-    expect(await screen.findByText('请求失败（HTTP 502）')).toBeInTheDocument();
+    const syncButton = await screen.findByRole('button', { name: '立即同步' });
+    vi.useFakeTimers();
+    fireEvent.click(syncButton);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByText('请求失败（HTTP 502）')).toBeInTheDocument();
+    await act(async () => { vi.advanceTimersByTime(8_000); });
+    expect(screen.queryByText('请求失败（HTTP 502）')).not.toBeInTheDocument();
   });
 
   it('shows seven tabs in the required order and loads today backlog immediately', async () => {
@@ -1272,6 +1282,53 @@ describe('App', () => {
       expect(screen.getAllByRole('button', { name: '加入补番' }).every((button) => !button.hasAttribute('disabled'))).toBe(true);
     });
     expect(fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/search/anime?q=%E6%B5%8B%E8%AF%95')).toHaveLength(2);
+  });
+
+  it('lets the user retry or ignore failed operations and close a stale warning', async () => {
+    const failed = new Set([7, 8]);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai' });
+      if (url === '/api/dashboard') return Response.json({
+        ...dashboard,
+        lastError: failed.size ? 'Bangumi 收藏更新失败' : null,
+        syncDiagnostics: {
+          incremental: null, full: null, pendingOperations: 0,
+          failedOperations: [...failed].map((id) => ({ id, kind: 'set_collection', error: '网络不可用' }))
+        }
+      });
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
+      if (url === '/api/operations/7/retry' && init?.method === 'POST') {
+        failed.delete(7);
+        return Response.json({ queued: true }, { status: 202 });
+      }
+      if (url === '/api/operations/8' && init?.method === 'DELETE') {
+        failed.delete(8);
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+    expect(await screen.findByText('2 项操作失败')).toBeInTheDocument();
+    const view = document.querySelector('[data-view]')!;
+    const failures = document.querySelector('.operation-failures')!;
+    expect(view.compareDocumentPosition(failures) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(screen.getByText('2 项操作失败'));
+    expect(screen.getByText('操作 #7 失败')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: '关闭同步错误' }));
+    expect(screen.queryByText('同步错误：Bangumi 收藏更新失败')).not.toBeInTheDocument();
+
+    const first = screen.getByText('操作 #7 失败').closest('.operation-failure')!;
+    await userEvent.click(within(first).getByRole('button', { name: '重试' }));
+    await waitFor(() => expect(screen.queryByText('操作 #7 失败')).not.toBeInTheDocument());
+
+    const second = screen.getByText('操作 #8 失败').closest('.operation-failure')!;
+    await userEvent.click(within(second).getByRole('button', { name: '忽略记录' }));
+    await waitFor(() => expect(screen.queryByText('操作 #8 失败')).not.toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledWith('/api/operations/7/retry', { method: 'POST' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/operations/8', { method: 'DELETE' });
   });
 
   it('optimistically adds a global search result to the wishlist', async () => {

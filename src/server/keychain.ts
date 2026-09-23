@@ -44,8 +44,7 @@ export function createKeychainTokenStore(
     },
 
     async setRefreshToken(value) {
-      await this.deleteRefreshToken();
-      await execFileAsync('security', ['add-generic-password', '-s', service, '-a', account, '-w', value]);
+      await execFileAsync('security', ['add-generic-password', '-U', '-s', service, '-a', account, '-w', value]);
     },
 
     async deleteRefreshToken() {

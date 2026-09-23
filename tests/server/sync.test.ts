@@ -1,10 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BangumiApiError } from '../../src/server/bangumi-client.js';
 import type { Repository } from '../../src/server/db.js';
-import { applyBroadcastOverrides, collectionFingerprint, queueAutoWatchSubject, rebuildBacklogPlan, syncAnimeCollections } from '../../src/server/sync.js';
+import { applyBroadcastOverrides, collectionFingerprint, parseAutoWatchQueue, queueAutoWatchSubject, rebuildBacklogPlan, syncAnimeCollections } from '../../src/server/sync.js';
 import type { BangumiClient, BroadcastCatalog, EpisodeRow, SubjectWrite, SyncProgress, SyncRepository } from '../../src/server/types.js';
 
 describe('syncAnimeCollections', () => {
+  it('uses the same validated auto-watch queue for display and synchronization', () => {
+    for (const raw of [null, '', '{', '{}', 'null']) {
+      expect(parseAutoWatchQueue(raw)).toEqual([]);
+    }
+    const valid = { subjectId: 123, seasonKey: '2026Q4' };
+    expect(parseAutoWatchQueue(JSON.stringify([
+      valid, null, { subjectId: '123', seasonKey: '2026Q4' },
+      { subjectId: 456, seasonKey: '2026Q5' }, { subjectId: 789 }
+    ]))).toEqual([valid]);
+  });
+
   it('does not fetch public schedules or episodes when collection summaries are unchanged', async () => {
     const remote = { ...collection(1, 3), updated_at: 1720000000 };
     const getBroadcastCatalog = vi.fn(async () => broadcastCatalog());
@@ -402,7 +413,6 @@ function bangumiClient(overrides: Partial<BangumiClient> = {}): BangumiClient {
     getMe: vi.fn(),
     getCalendar: vi.fn(async () => []),
     getAnimeCollections: vi.fn(async () => ({ total: 0, data: [] })),
-    getWatchingAnime: vi.fn(async () => ({ total: 0, data: [] })),
     getSubjectEpisodes: vi.fn(async () => ({ total: 0, data: [] })),
     getBroadcastCatalog: vi.fn(async () => broadcastCatalog()),
     markEpisodesWatched: vi.fn(),
@@ -417,6 +427,12 @@ function bangumiClient(overrides: Partial<BangumiClient> = {}): BangumiClient {
 
 function syncRepository(overrides: Partial<SyncRepository> = {}): SyncRepository {
   return {
+    listCollectionSnapshots: vi.fn(async () => []),
+    upsertCollectionSnapshot: vi.fn(async () => undefined),
+    deleteCollectionSnapshot: vi.fn(async () => undefined),
+    listSubjectsByCollection: vi.fn(async () => []),
+    getSubject: vi.fn(async () => null),
+    deleteSubject: vi.fn(async () => undefined),
     upsertSubject: vi.fn(),
     replaceSubjectEpisodes: vi.fn(),
     getSetting: vi.fn(async () => null),

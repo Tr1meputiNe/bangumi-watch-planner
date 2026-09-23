@@ -4,9 +4,15 @@
 
 # Bangumi Watch Planner
 
-这是一个运行在自己电脑上的 Bangumi 追番计划工具。它会同步“在看”和“想看”收藏，按实际放送时间整理本季新番，再把旧番补番安排进当天还有余量的时段。数据保存在本地 SQLite，收藏和分集进度仍以 Bangumi 为准。
+把今天要追的新番、想补的旧番和观看进度放在一起。本地运行，连接 Bangumi 收藏，按放送时间和每天的余量安排观看计划。
 
-![今日安排界面](./assets/readme/today.png)
+**[下载 v1.3.1](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.3.1)** · [启动与配置](#下载和启动) · [排期规则](#排期规则) · [历史版本](#保留的发行版)
+
+![重新设计后的今日安排：精简侧栏、同步状态与追番卡片](./assets/readme/today.png)
+
+*截图为当前本地开发版界面，已发布的 v1.3.1 布局可能不同。*
+
+> 需要自己的 Bangumi OAuth 应用。后台提醒依赖运行主机保持开机且服务运行，不是云端托管服务。数据缓存在本地 SQLite，收藏和分集进度同步到 Bangumi。
 
 ## 主要功能
 
@@ -21,7 +27,7 @@
 
 ### Windows 10 / 11
 
-1. 打开仓库的 [Releases](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases)，进入最新版本，下载名称以 `-windows-x64.zip` 结尾的文件。
+1. 打开 [v1.3.1 下载页](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.3.1)，下载名称以 `-windows-x64.zip` 结尾的文件，不要选择 GitHub 自动生成的 `Source code`。
 2. 解压到一个固定目录，不要只在压缩包预览中运行。
 3. 双击 `Start Bangumi Watch Planner.cmd`。脚本会启动本地服务并打开 `http://127.0.0.1:3777/`。
 4. 需要开机后继续提醒时，再双击 `Install Startup.cmd`；`Uninstall Startup.cmd` 可以移除启动项。
@@ -136,8 +142,6 @@ OAuth 重新授权仍应在运行服务的电脑上完成。局域网内任何�
 | `4` 搁置 | 补番搁置 |
 | `2` 看过 | 已完成 |
 
-搜索、加入想看和加入补番会先更新页面，再由后台串行写回 Bangumi。失败时会恢复原状态并显示可重试错误。
-
 ## 同步策略
 
 首页始终先读取 SQLite 缓存，不等待 Bangumi 网络请求。至少有一个页面打开时，服务会立即执行一次增量检查，之后每分钟检查收藏摘要；所有页面关闭后停止分钟检查。只有摘要变化的动画才重新获取分集，Yuc Wiki 等公开放送数据最多每小时刷新一次。
@@ -170,3 +174,14 @@ git diff --check
 ```
 
 Windows 便携包由 `.github/workflows/release.yml` 在推送 `v*` 标签后自动构建并发布。
+
+## 保留的发行版
+
+日常使用请选择 **v1.3.1**。以下旧版保留供回退，功能与修复以各版本说明为准。
+
+| 版本 | 用途 |
+| --- | --- |
+| [v1.3.1](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.3.1) | 当前推荐版本 |
+| [v1.2.1](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.2.1) | 历史版本 |
+| [v1.1.3](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.1.3) | 历史版本 |
+| [v1.0.0](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.0.0) | 初始版本 |

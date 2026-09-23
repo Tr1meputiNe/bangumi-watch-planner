@@ -37,16 +37,13 @@ export function countSeasonalLoad(episodes: EpisodeRow[], date: string): number 
 export function buildBacklogPlan(input: BacklogPlannerInput): BacklogPlannerOutput {
   const dates = dateRange(input.today, input.throughDate);
   const dateSet = new Set(dates);
-  const fixedTasks = input.fixedTasks
-    .filter((task) => dateSet.has(task.plannedDate))
-    .map((task) => ({ ...task }));
+  const fixedTasks = input.fixedTasks.filter((task) => dateSet.has(task.plannedDate));
   const fixedEpisodeIds = new Set(fixedTasks.map((task) => task.episodeId));
   const queues = rotateQueues(
     input.subjects.map((subject) => ({
       subjectId: subject.subjectId,
       episodes: subject.episodes
         .filter((episode) => episode.episodeType === 0 && episode.collectionType !== 2 && !fixedEpisodeIds.has(episode.id))
-        .slice()
         .sort(compareEpisodes)
     })),
     input.rotationCursorSubjectId

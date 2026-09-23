@@ -1,14 +1,11 @@
 import type { AnimeSearchResult, AuthStatus, BacklogData, CalendarDay, DashboardData, DashboardSubject, EpisodeRow, SyncStatus, UpcomingSeasonData, WishlistData } from '../server/types.js';
 
 async function api<T>(input: RequestInfo | URL, init?: RequestInit, retryOnInvalidToken = true): Promise<T> {
-  const headers = new Headers(init?.headers);
-  const headerEntries = [...headers.entries()];
-  const requestInit = headerEntries.length > 0 ? { ...init, headers: Object.fromEntries(headerEntries) } : init;
-  const response = await request(input, requestInit);
+  const response = await request(input, init);
   if (!response.ok) {
     const body = await response.json().catch(() => null) as unknown;
     const bodyError = body && typeof body === 'object' && 'error' in body ? body.error : undefined;
-    if (isInvalidLocalToken(response, { error: bodyError }) && retryOnInvalidToken && init?.method && init.method !== 'GET') {
+    if (response.status === 403 && typeof bodyError === 'string' && bodyError.includes('Invalid local API token') && retryOnInvalidToken && init?.method && init.method !== 'GET') {
       await refreshApiToken();
       return api<T>(input, init, false);
     }
@@ -32,10 +29,6 @@ async function request(input: RequestInfo | URL, init?: RequestInit): Promise<Re
     }
     throw error;
   }
-}
-
-function isInvalidLocalToken(response: Response, body: { error?: unknown }): boolean {
-  return response.status === 403 && typeof body.error === 'string' && body.error.includes('Invalid local API token');
 }
 
 async function refreshApiToken(): Promise<void> {
@@ -110,7 +103,11 @@ export function getSyncStatus(): Promise<SyncStatus> {
 }
 
 export function retryOperation(operationId: number): Promise<void> {
-  return api<void>(`/api/operations/${operationId}/retry`, { method: 'POST' });
+  return api<{ queued: boolean }>(`/api/operations/${operationId}/retry`, { method: 'POST' }).then(() => undefined);
+}
+
+export function dismissFailedOperation(operationId: number): Promise<void> {
+  return api<void>(`/api/operations/${operationId}`, { method: 'DELETE' });
 }
 
 export function saveOAuthConfig(clientId: string, clientSecret: string): Promise<void> {

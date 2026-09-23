@@ -9,6 +9,7 @@ import type {
   CalendarDay
 } from './types.js';
 import { fetchBroadcastCatalog, fetchYucUpcomingCatalog, shiftAirDate, type BroadcastSchedule } from './broadcast-schedule.js';
+import { todayInShanghai, weekdayFromDate } from '../shared/date.js';
 
 type BangumiClientDeps = {
   fetch?: typeof fetch;
@@ -98,6 +99,14 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
     throw new BangumiApiError('Bangumi API request failed', 502, lastError);
   }
 
+  async function writeCollection(subjectId: number, method: 'POST' | 'PATCH', body: object, episodes = false): Promise<void> {
+    await request<void>(`/v0/users/-/collections/${subjectId}${episodes ? '/episodes' : ''}`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  }
+
   function getAnimeCollections(username: string, type: 1 | 3 | 4, limit: number, offset: number) {
     const params = new URLSearchParams({
       subject_type: '2',
@@ -131,10 +140,6 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
       return mapCalendarDays(days, catalog.schedules);
     },
 
-    async getBroadcastTimes() {
-      return (await getCachedBroadcastCatalog()).schedules;
-    },
-
     getBroadcastCatalog() {
       return getCachedBroadcastCatalog();
     },
@@ -159,10 +164,6 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
       }
     },
 
-    getWatchingAnime(username, limit, offset) {
-      return getAnimeCollections(username, 3, limit, offset);
-    },
-
     async getSubjectEpisodes(subjectId, limit = 1000, offset = 0) {
       const params = new URLSearchParams({
         limit: String(limit),
@@ -176,54 +177,24 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
       return page;
     },
 
-    async markEpisodesWatched(subjectId, episodeIds) {
-      await request<void>(`/v0/users/-/collections/${subjectId}/episodes`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ episode_id: episodeIds, type: 2 })
-      });
+    markEpisodesWatched(subjectId, episodeIds) {
+      return writeCollection(subjectId, 'PATCH', { episode_id: episodeIds, type: 2 }, true);
     },
 
-    async markEpisodesUnwatched(subjectId, episodeIds) {
-      await request<void>(`/v0/users/-/collections/${subjectId}/episodes`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ episode_id: episodeIds, type: 0 })
-      });
+    markEpisodesUnwatched(subjectId, episodeIds) {
+      return writeCollection(subjectId, 'PATCH', { episode_id: episodeIds, type: 0 }, true);
     },
 
-    async setSubjectCollectionType(subjectId, type) {
-      await request<void>(`/v0/users/-/collections/${subjectId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ type })
-      });
+    setSubjectCollectionType(subjectId, type) {
+      return writeCollection(subjectId, 'PATCH', { type });
     },
 
-    async addSubjectToWatching(subjectId) {
-      await request<void>(`/v0/users/-/collections/${subjectId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ type: 3 })
-      });
+    addSubjectToWatching(subjectId) {
+      return writeCollection(subjectId, 'POST', { type: 3 });
     },
 
-    async addSubjectToWishlist(subjectId) {
-      await request<void>(`/v0/users/-/collections/${subjectId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ type: 1 })
-      });
+    addSubjectToWishlist(subjectId) {
+      return writeCollection(subjectId, 'POST', { type: 1 });
     },
 
     searchAnimeSubjects
@@ -272,24 +243,10 @@ function calendarAirDate(airDate: string, weekdayId: number, schedule?: Broadcas
 }
 
 function upcomingShanghaiDateForWeekday(weekdayId: number): Date {
-  const parts = new Intl.DateTimeFormat('en', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const today = new Date(Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day)));
+  const today = new Date(`${todayInShanghai()}T00:00:00Z`);
   const todayId = today.getUTCDay() || 7;
   const distance = (weekdayId - todayId + 7) % 7;
   return new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + distance));
-}
-
-function weekdayFromDate(dateString: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return null;
-  const date = new Date(`${dateString}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.getUTCDay() || 7;
 }
 
 function normalizeBangumiUrl(url: string): string {

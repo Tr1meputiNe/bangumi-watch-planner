@@ -358,7 +358,6 @@ function clientFor(
     getMe: vi.fn(),
     getCalendar: vi.fn(async () => []),
     getAnimeCollections: vi.fn(async (_username, type) => ({ total: collections[type].length, data: collections[type] })),
-    getWatchingAnime: vi.fn(async () => ({ total: 0, data: [] })),
     getSubjectEpisodes: vi.fn(async (subjectId) => ({ total: 1, data: [episodeCollection(subjectId * 10, subjectId, 1)] })),
     getBroadcastCatalog: vi.fn(async () => catalog),
     markEpisodesWatched: vi.fn(),

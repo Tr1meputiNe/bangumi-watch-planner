@@ -18,6 +18,16 @@ function yucSeason(title: string, subjectTitle: string, cover: string, premiere:
 }
 
 describe('Bangumi client', () => {
+  it('keeps collection write results void even when Bangumi returns JSON', async () => {
+    const client = createBangumiClient({
+      fetch: vi.fn(async () => Response.json({ ok: true })),
+      getAccessToken: async () => 'token',
+      userAgent: 'tester/bangumi-watch-planner'
+    });
+    await expect(client.addSubjectToWishlist(123)).resolves.toBeUndefined();
+    await expect(client.markEpisodesWatched(123, [1])).resolves.toBeUndefined();
+  });
+
   it('normalizes Bangumi null data for an empty episode collection', async () => {
     const client = createBangumiClient({
       fetch: vi.fn(async () => Response.json({ total: 0, data: null })),

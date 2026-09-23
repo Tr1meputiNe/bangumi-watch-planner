@@ -4,7 +4,6 @@ import { mkdirSync } from 'node:fs';
 import { episodeProgress } from '../shared/format.js';
 import type {
   BacklogTaskRow,
-  BangumiCollectionType,
   BroadcastOverride,
   CollectionSnapshot,
   DashboardSubject,
@@ -21,8 +20,6 @@ export type Repository = SyncRepository & {
   listEpisodes(): Promise<EpisodeRow[]>;
   listSubjectProgressEpisodes(subjectId: number): Promise<EpisodeRow[]>;
   listSubjects(): Promise<DashboardSubject[]>;
-  getSubject(subjectId: number): Promise<SubjectRow | null>;
-  listSubjectsByCollection(types: BangumiCollectionType[]): Promise<DashboardSubject[]>;
   setSubjectState(subjectId: number, state: Pick<SubjectRow, 'collectionType' | 'plannerMode' | 'completedAt'>): Promise<void>;
   listWishlist(query: string, year: number | null | 'unknown'): Promise<WishlistData>;
   deleteBacklogTask(episodeId: number): Promise<void>;
@@ -38,10 +35,6 @@ export type Repository = SyncRepository & {
   setLastNotificationDate(date: string): Promise<void>;
   saveBroadcastOverride(input: Omit<BroadcastOverride, 'updatedAt'>): Promise<void>;
   deleteBroadcastOverride(subjectId: number): Promise<void>;
-  listCollectionSnapshots(): Promise<CollectionSnapshot[]>;
-  upsertCollectionSnapshot(snapshot: Omit<CollectionSnapshot, 'syncedAt'>): Promise<void>;
-  deleteCollectionSnapshot(subjectId: number): Promise<void>;
-  deleteSubject(subjectId: number): Promise<void>;
   enqueueOperation(input: {
     resourceKey: string;
     kind: PendingOperationKind;
@@ -57,6 +50,7 @@ export type Repository = SyncRepository & {
   completeOperation(id: number): Promise<void>;
   failOperation(id: number, error: string, updatedAt: string): Promise<void>;
   retryOperation(id: number, retryUntil: string, updatedAt: string): Promise<void>;
+  dismissFailedOperation(id: number, updatedAt: string): Promise<void>;
   countPendingOperations(): Promise<number>;
 };
 
@@ -360,8 +354,13 @@ export function createRepository(dbPath: string): Repository {
       ).run(retryUntil, updatedAt, id);
     },
 
+    async dismissFailedOperation(id, updatedAt) {
+      db.prepare("update pending_operations set state = 'dismissed', updated_at = ? where id = ? and state = 'failed'")
+        .run(updatedAt, id);
+    },
+
     async countPendingOperations() {
-      const row = db.prepare("select count(*) as count from pending_operations where state != 'failed'").get() as { count: number };
+      const row = db.prepare("select count(*) as count from pending_operations where state in ('queued', 'running')").get() as { count: number };
       return row.count;
     },
 

@@ -185,7 +185,7 @@ export type PendingOperation = {
   payload: string;
   rollback: string;
   attempts: number;
-  state: 'queued' | 'running' | 'failed';
+  state: 'queued' | 'running' | 'failed' | 'dismissed';
   retryUntil: string;
   createdAt: string;
   updatedAt: string;
@@ -398,11 +398,9 @@ export type BangumiClient = {
   getCalendar(): Promise<CalendarDay[]>;
   getAnimeCollections(username: string, type: 1 | 3 | 4, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getSubjectCollection?(subjectId: number): Promise<BangumiSubjectCollection | null>;
-  getWatchingAnime(username: string, limit: number, offset: number): Promise<BangumiCollectionPage>;
   getSubjectEpisodes(subjectId: number, limit?: number, offset?: number): Promise<BangumiEpisodePage>;
   getBroadcastCatalog?(): Promise<BroadcastCatalog>;
   getUpcomingSeasonCatalog?(seasonKey: string): Promise<UpcomingSeasonCatalog>;
-  getBroadcastTimes?(): Promise<Map<number, { airDate: string; airTime: string; dayOffset: number }>>;
   markEpisodesWatched(subjectId: number, episodeIds: number[]): Promise<void>;
   markEpisodesUnwatched(subjectId: number, episodeIds: number[]): Promise<void>;
   setSubjectCollectionType(subjectId: number, type: 2 | 3 | 4 | 5): Promise<void>;
@@ -429,12 +427,12 @@ export type SyncRepository = {
   listBacklogExclusions(fromDate: string, throughDate: string): Promise<Array<{ plannedDate: string; episodeId: number }>>;
   prunePlannerState(beforeDate: string): Promise<void>;
   listBroadcastOverrides(): Promise<BroadcastOverride[]>;
-  listCollectionSnapshots?(): Promise<CollectionSnapshot[]>;
-  upsertCollectionSnapshot?(snapshot: Omit<CollectionSnapshot, 'syncedAt'>): Promise<void>;
-  deleteCollectionSnapshot?(subjectId: number): Promise<void>;
-  listSubjectsByCollection?(types: BangumiCollectionType[]): Promise<DashboardSubject[]>;
-  getSubject?(subjectId: number): Promise<SubjectRow | null>;
-  deleteSubject?(subjectId: number): Promise<void>;
+  listCollectionSnapshots(): Promise<CollectionSnapshot[]>;
+  upsertCollectionSnapshot(snapshot: Omit<CollectionSnapshot, 'syncedAt'>): Promise<void>;
+  deleteCollectionSnapshot(subjectId: number): Promise<void>;
+  listSubjectsByCollection(types: BangumiCollectionType[]): Promise<DashboardSubject[]>;
+  getSubject(subjectId: number): Promise<SubjectRow | null>;
+  deleteSubject(subjectId: number): Promise<void>;
 };
 
 export type SyncResult = {
@@ -481,6 +479,7 @@ export type DashboardService = {
   getSyncStatus(): SyncStatus;
   getSyncDiagnostics(): Promise<SyncDiagnostics>;
   retryOperation(id: number): Promise<void>;
+  dismissFailedOperation(id: number): Promise<void>;
   subscribe(listener: (event: DashboardEvent) => void): () => void;
   markEpisodeWatched(episodeId: number): Promise<void>;
   markEpisodeUnwatched(episodeId: number): Promise<void>;

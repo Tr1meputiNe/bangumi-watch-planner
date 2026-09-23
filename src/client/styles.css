@@ -3003,6 +3003,68 @@ select[data-state="success"] {
   color: var(--color-ink);
 }
 
+.notice-dismissible,
+.operation-failure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.operation-failures summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  cursor: pointer;
+}
+
+.operation-failures summary span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; }
+.operation-failures summary svg { transition: transform 180ms ease; }
+.operation-failures[open] summary svg { transform: rotate(180deg); }
+.operation-failures-list { max-height: min(360px, 48vh); margin-top: var(--space-sm); overflow-y: auto; scrollbar-width: thin; }
+.operation-failure { padding: var(--space-sm) 0; border-top: 1px solid var(--color-rule-2); }
+.operation-failure:last-child { padding-bottom: 0; }
+
+.notice-dismissible > span,
+.operation-failure > div:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.notice-close {
+  flex: none;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+}
+
+.notice-close:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  color: inherit;
+  box-shadow: none;
+}
+
+.operation-failure p {
+  margin: 4px 0 0;
+}
+
+.operation-failure-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+@media (max-width: 520px) {
+  .operation-failure { align-items: flex-start; flex-direction: column; }
+  .operation-failure-actions { width: 100%; }
+  .operation-failure-actions button { flex: 1; }
+}
+
 .workspace,
 .backlog-workspace {
   display: grid;
@@ -4459,6 +4521,34 @@ button:active,
   from { opacity: 0; }
 }
 .layout-refresh .rail-brand { display: none; }
+.layout-refresh .topbar-actions { display: flex; align-items: center; gap: 16px; }
+.layout-refresh .sync-stamp { display: grid; flex-shrink: 0; white-space: nowrap; gap: 4px; text-align: right; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; color: var(--color-ink-2); }
+.layout-refresh .topbar-actions button { width: auto; flex-shrink: 0; }
+.layout-refresh :is(button, a, input, select):focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
+.layout-refresh :is(input, textarea) { caret-color: var(--color-accent-text); }
+.layout-refresh ::selection { background: var(--color-accent-hover-soft); color: var(--color-ink); }
+.layout-refresh .subject-heading { display: flex; flex-direction: column; align-items: flex-start; }
+.layout-refresh .subject-heading-actions { display: flex; align-items: center; margin-top: 4px; }
+.layout-refresh .sync-stamp > span { color: var(--color-muted); font-size: 11px; }
+.layout-refresh .topbar-stats > span { border: 0; border-left: 1px solid var(--color-rule); border-radius: 0; background: transparent; }
+.layout-refresh :is(.calendar-panel, .wishlist-panel, .calendar-overview, .wishlist-hero) { background: transparent; box-shadow: none; border: 0; border-radius: 0; }
+.layout-refresh :is(.calendar-overview, .wishlist-hero, .backlog-overview) { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 24px; min-height: 0; padding: 16px 0 24px; margin: 0 0 24px; border-bottom: 1px solid var(--color-rule); }
+.layout-refresh :is(.calendar-overview, .wishlist-hero, .backlog-overview) :is(h1, h2, p) { margin: 0; }
+.layout-refresh :is(.calendar-overview, .wishlist-hero, .backlog-overview) p { margin-top: 8px; color: var(--color-muted); }
+.layout-refresh :is(.panel-title, .backlog-section-header) { align-items: center; gap: 16px; flex-wrap: wrap; }
+.layout-refresh :is(.panel-title, .backlog-section-header) h2 { margin: 4px 0; }
+.layout-refresh :is(.workspace, .backlog-workspace, .backlog-library) { gap: 32px; }
+.layout-refresh :is(.subject-row, .backlog-task, .calendar-subject) { padding: 20px 16px; gap: 16px; }
+.layout-refresh :is(.subject-list, .backlog-subject-list) { column-gap: 24px; }
+.layout-refresh :is(.subject-heading, .subject-heading-actions, .backlog-subject-actions, .backlog-day-actions) { gap: 8px; flex-wrap: wrap; }
+.layout-refresh :is(.wishlist-filters, .anime-search) { padding: 16px 0; margin-bottom: 16px; }
+.layout-refresh .wishlist-list { gap: 24px; }
+.layout-refresh .wishlist-item { padding: 0 0 20px; }
+.layout-refresh .wishlist-details { gap: 8px; padding-top: 12px; }
+.layout-refresh .calendar-day { border-radius: 0; box-shadow: none; background: transparent; margin-bottom: 24px; }
+.layout-refresh .calendar-day-header { padding: 16px; background: var(--color-paper-2); border-bottom: 1px solid var(--color-rule); }
+.layout-refresh .empty { padding: 32px 16px; }
+.layout-refresh .panel-eyebrow { font-size: 11px; font-weight: 600; color: var(--color-muted); }
 .layout-refresh .mobile-more { display: none; }
 .layout-refresh .sidebar-covers { display: none; }
 .layout-refresh .topbar { box-shadow: none; border: 0; border-bottom: 1px solid var(--color-rule); border-radius: 0; background: transparent; }
@@ -4474,18 +4564,17 @@ button:active,
 @media (min-width: 60rem) {
   .app-shell.layout-refresh { display: block; width: auto; max-width: 1440px; margin: 0 auto; padding: 24px 32px 48px 112px; }
   .layout-refresh .app-sidebar { position: fixed; inset: 16px auto 16px 12px; top: 16px; width: 72px; min-height: 0; padding: 12px 8px; overflow: hidden; background: var(--color-surface); border: 1px solid var(--color-rule); border-radius: 8px; box-shadow: var(--shadow-card); transition: width 250ms ease, box-shadow 250ms ease; z-index: 50; }
-  .layout-refresh .app-sidebar:is(:hover, :focus-within) { width: 232px; box-shadow: 0 12px 32px color-mix(in srgb, var(--color-ink) 15%, transparent); }
+  .layout-refresh .app-sidebar:is(:hover, :has(:focus-visible)) { width: 232px; box-shadow: 0 12px 32px color-mix(in srgb, var(--color-ink) 15%, transparent); }
   .layout-refresh .rail-brand { display: flex; align-items: center; gap: 18px; height: 56px; padding: 0 16px; white-space: nowrap; font-weight: 700; color: var(--color-accent-text); }
   .layout-refresh .rail-brand svg { width: 24px; height: 24px; flex-shrink: 0; }
   .layout-refresh .page-tabs { border: 0; box-shadow: none; padding: 0; background: transparent; margin-top: 24px; gap: 8px; }
   .layout-refresh .page-tabs button { width: 100%; height: 52px; grid-template-columns: 30px 1fr; gap: 18px; padding: 0 12px; }
   .layout-refresh .tab-label, .layout-refresh .rail-brand span, .layout-refresh .app-footer { opacity: 0; transition: opacity 180ms ease; }
-  .layout-refresh .app-sidebar:is(:hover, :focus-within) :is(.tab-label, .rail-brand span, .app-footer) { opacity: 1; }
+  .layout-refresh .app-sidebar:is(:hover, :has(:focus-visible)) :is(.tab-label, .rail-brand span, .app-footer) { opacity: 1; }
   .layout-refresh .topbar { display: grid; grid-template-columns: minmax(200px, 1fr) auto auto; align-items: center; gap: 24px; padding: 0 8px 24px; }
   .layout-refresh .brand-lockup p { font-size: 18px; }
   .layout-refresh .topbar-stats { grid-column: 2; grid-row: 1; display: flex; flex-wrap: wrap; max-width: 360px; gap: 8px; }
   .layout-refresh .topbar-stats > span { padding: 6px 12px; }
-  .layout-refresh .topbar-stats > span:last-child { width: 100%; border: 0; background: transparent; justify-content: flex-end; min-height: 20px; padding: 0; }
   .layout-refresh .topbar-actions { grid-column: 3; grid-row: 1; }
   .layout-refresh .app-footer { white-space: nowrap; padding: 16px 12px; }
 }
@@ -4514,8 +4603,16 @@ button:active,
   .layout-refresh .topbar-actions button { width: auto; padding: 8px; font-size: 12px; }
   .layout-refresh .topbar-stats { display: flex; flex-wrap: wrap; gap: 8px; }
   .layout-refresh .topbar-stats > span { min-height: 28px; padding: 4px 8px; }
-  .layout-refresh .topbar-stats > span:last-child { border: 0; background: transparent; font-size: 11px; }
   .layout-refresh .backlog-overview { min-height: 0; gap: 16px; }
+  .layout-refresh .topbar-actions { display: contents; }
+  .layout-refresh .topbar-actions button { grid-column: 2; grid-row: 1; min-height: 44px; }
+  .layout-refresh .sync-stamp { grid-column: 1 / -1; grid-row: 3; display: flex; align-items: baseline; gap: 8px; text-align: left; font-size: 12px; }
+  .layout-refresh .sync-stamp > span { font-size: 12px; }
+  .layout-refresh .topbar-stats { grid-column: 1 / -1; grid-row: 2; }
+  .layout-refresh .topbar-stats > span:first-child { border-left: 0; padding-left: 0; }
+  .layout-refresh :is(.subject-list, .backlog-subject-list) { column-gap: 0; }
+  .layout-refresh :is(.subject-row, .backlog-task, .calendar-subject) { padding: 16px 8px; gap: 12px; }
+  .layout-refresh :is(.calendar-overview, .wishlist-hero, .backlog-overview) { gap: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .layout-refresh .app-sidebar, .layout-refresh .tab-label, .layout-refresh .rail-brand span { transition: none; }

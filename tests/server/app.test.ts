@@ -665,8 +665,22 @@ describe('HTTP API', () => {
 
     expect(calibration.statusCode).toBe(202);
     expect(retry.statusCode).toBe(202);
+    expect(retry.json()).toEqual({ queued: true });
     expect(startSync).toHaveBeenCalledWith('full');
     expect(retryOperation).toHaveBeenCalledWith(7);
+    await app.close();
+  });
+
+  it('dismisses a failed operation through the authenticated API', async () => {
+    const dismissFailedOperation = vi.fn(async () => undefined);
+    const app = testApp({ dismissFailedOperation });
+    const denied = await app.inject({ method: 'DELETE', url: '/api/operations/7' });
+    const accepted = await app.inject({ method: 'DELETE', url: '/api/operations/7', headers: { cookie: 'bwp_token=test-token' } });
+
+    expect(denied.statusCode).toBe(403);
+    expect(accepted.statusCode).toBe(204);
+    expect(dismissFailedOperation).toHaveBeenCalledOnce();
+    expect(dismissFailedOperation).toHaveBeenCalledWith(7);
     await app.close();
   });
 

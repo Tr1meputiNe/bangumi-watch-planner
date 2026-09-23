@@ -1,5 +1,6 @@
 import cron from 'node-cron';
-import { createDailyNotificationSummary, shouldNotifyToday, todayInShanghai } from './reminders.js';
+import { createDailyNotificationSummary, shouldNotifyToday } from './reminders.js';
+import { todayInShanghai } from '../shared/date.js';
 import type { DashboardService } from './types.js';
 import type { Notifier } from './notifier.js';
 import type { Repository } from './db.js';

@@ -1,9 +1,10 @@
-import { buildReminderCandidates, todayInShanghai } from './reminders.js';
+import { buildReminderCandidates } from './reminders.js';
+import { todayInShanghai, weekdayFromDate } from '../shared/date.js';
 import { episodeProgress } from '../shared/format.js';
 import { capacityForSeasonalLoad, countSeasonalLoad, estimateBacklogCompletionDate } from './backlog-planner.js';
 import { shiftAirDate } from './broadcast-schedule.js';
 import { nextSeasonKey, seasonKeyForDate } from './season-window.js';
-import { queueAutoWatchSubject, rebuildBacklogPlan, syncAnimeCollections } from './sync.js';
+import { parseAutoWatchQueue, queueAutoWatchSubject, rebuildBacklogPlan, syncAnimeCollections } from './sync.js';
 import { BangumiApiError } from './bangumi-client.js';
 import { createOperationQueue } from './operation-queue.js';
 import type {
@@ -275,6 +276,19 @@ export function createDashboardService({
     return service.getSyncStatus();
   }
 
+  async function updateCollection(
+    subject: SubjectRow,
+    type: 2 | 3 | 4 | 5,
+    applyLocal: () => Promise<void>
+  ): Promise<void> {
+    if (operationQueue) {
+      await enqueueCollectionOperation(subject, 'set_collection', { subjectId: subject.id, type }, applyLocal);
+    } else {
+      await client.setSubjectCollectionType(subject.id, type);
+      await applyLocal();
+    }
+  }
+
   async function executeOperation(operation: PendingOperation): Promise<void> {
     const payload = JSON.parse(operation.payload) as {
       subjectId: number;
@@ -369,6 +383,26 @@ export function createDashboardService({
     };
     publish({ type: 'error', subjectIds: operationSubjectIds(operation), error });
     publish({ type: 'data', subjectIds: operationSubjectIds(operation), scopes: ['dashboard', 'backlog', 'held', 'wishlist', 'search'] });
+  }
+
+  async function getFailedOperation(id: number): Promise<PendingOperation> {
+    const operation = await repository.getOperation(id);
+    if (!operation || operation.state !== 'failed') {
+      throw Object.assign(new Error(`Failed operation ${id} was not found`), { statusCode: 404 });
+    }
+    return operation;
+  }
+
+  async function clearResolvedOperationError(operation: PendingOperation): Promise<void> {
+    if ((await repository.listFailedOperations()).length > 0) return;
+    const message = getSafeCollectionActionError(new Error(operation.lastError ?? ''));
+    if (await repository.getSetting('last_error') === `${message} 可在设置中重新校准。`) {
+      await repository.setSetting('last_error', '');
+    }
+    if (syncStatus.state === 'error' && syncStatus.error === message) {
+      syncStatus = { ...syncStatus, state: 'idle', error: null };
+    }
+    publish({ type: 'data', subjectIds: [], scopes: ['dashboard'] });
   }
 
   const service: DashboardService = {
@@ -597,11 +631,15 @@ export function createDashboardService({
 
     async retryOperation(id): Promise<void> {
       if (!operationQueue) throw Object.assign(new Error('Durable operation queue is unavailable'), { statusCode: 503 });
-      const operation = await repository.getOperation(id);
-      if (!operation || operation.state !== 'failed') {
-        throw Object.assign(new Error(`Failed operation ${id} was not found`), { statusCode: 404 });
-      }
+      const operation = await getFailedOperation(id);
       await operationQueue.retry(id);
+      await clearResolvedOperationError(operation);
+    },
+
+    async dismissFailedOperation(id): Promise<void> {
+      const operation = await getFailedOperation(id);
+      await repository.dismissFailedOperation(id, clock().toISOString());
+      await clearResolvedOperationError(operation);
     },
 
     subscribe(listener): () => void {
@@ -768,26 +806,16 @@ export function createDashboardService({
       if (!subject.plannerMode || subject.collectionType !== 3) {
         throw Object.assign(new Error('Only active planning subjects can be held'), { statusCode: 400 });
       }
-      if (operationQueue) {
-        const now = clock();
-        await enqueueCollectionOperation(subject, 'set_collection', { subjectId, type: 4 }, async () => {
-          await repository.setSubjectState(subjectId, {
-            collectionType: 4,
-            plannerMode: subject.plannerMode,
-            completedAt: null
-          });
-          await replan(await removeTodayTasksForSubject(subjectId, now), now);
+      const queuedAt = operationQueue ? clock() : null;
+      await updateCollection(subject, 4, async () => {
+        await repository.setSubjectState(subjectId, {
+          collectionType: 4,
+          plannerMode: subject.plannerMode,
+          completedAt: null
         });
-        return;
-      }
-      await client.setSubjectCollectionType(subjectId, 4);
-      await repository.setSubjectState(subjectId, {
-        collectionType: 4,
-        plannerMode: subject.plannerMode,
-        completedAt: null
+        const now = queuedAt ?? clock();
+        await replan(await removeTodayTasksForSubject(subjectId, now), now);
       });
-      const now = clock();
-      await replan(await removeTodayTasksForSubject(subjectId, now), now);
     },
 
     async resumeHeldSubject(subjectId) {
@@ -795,24 +823,14 @@ export function createDashboardService({
       if (!subject.plannerMode || subject.collectionType !== 4) {
         throw Object.assign(new Error('Only held planning subjects can be resumed'), { statusCode: 400 });
       }
-      if (operationQueue) {
-        await enqueueCollectionOperation(subject, 'set_collection', { subjectId, type: 3 }, async () => {
-          await repository.setSubjectState(subjectId, {
-            collectionType: 3,
-            plannerMode: subject.plannerMode,
-            completedAt: null
-          });
-          await replan(false);
+      await updateCollection(subject, 3, async () => {
+        await repository.setSubjectState(subjectId, {
+          collectionType: 3,
+          plannerMode: subject.plannerMode,
+          completedAt: null
         });
-        return;
-      }
-      await client.setSubjectCollectionType(subjectId, 3);
-      await repository.setSubjectState(subjectId, {
-        collectionType: 3,
-        plannerMode: subject.plannerMode,
-        completedAt: null
+        await replan(false);
       });
-      await replan(false);
     },
 
     async dropSubject(subjectId) {
@@ -820,26 +838,16 @@ export function createDashboardService({
       if (!subject.plannerMode || ![3, 4].includes(subject.collectionType)) {
         throw Object.assign(new Error('Only active or held planning subjects can be dropped'), { statusCode: 400 });
       }
-      if (operationQueue) {
-        const now = clock();
-        await enqueueCollectionOperation(subject, 'set_collection', { subjectId, type: 5 }, async () => {
-          await repository.setSubjectState(subjectId, {
-            collectionType: 5,
-            plannerMode: subject.plannerMode,
-            completedAt: null
-          });
-          await replan(await removeTodayTasksForSubject(subjectId, now), now);
+      const queuedAt = operationQueue ? clock() : null;
+      await updateCollection(subject, 5, async () => {
+        await repository.setSubjectState(subjectId, {
+          collectionType: 5,
+          plannerMode: subject.plannerMode,
+          completedAt: null
         });
-        return;
-      }
-      await client.setSubjectCollectionType(subjectId, 5);
-      await repository.setSubjectState(subjectId, {
-        collectionType: 5,
-        plannerMode: subject.plannerMode,
-        completedAt: null
+        const now = queuedAt ?? clock();
+        await replan(await removeTodayTasksForSubject(subjectId, now), now);
       });
-      const now = clock();
-      await replan(await removeTodayTasksForSubject(subjectId, now), now);
     },
 
     async pauseBacklogSubject(subjectId) {
@@ -867,24 +875,14 @@ export function createDashboardService({
         throw Object.assign(new Error('Manual completion is only available when the episode total is unknown'), { statusCode: 400 });
       }
       const now = clock();
-      if (operationQueue) {
-        await enqueueCollectionOperation(subject, 'set_collection', { subjectId, type: 2 }, async () => {
-          await repository.setSubjectState(subjectId, {
-            collectionType: 2,
-            plannerMode: subject.plannerMode,
-            completedAt: now.toISOString()
-          });
-          await replan(await removeTodayTasksForSubject(subjectId, now), now);
+      await updateCollection(subject, 2, async () => {
+        await repository.setSubjectState(subjectId, {
+          collectionType: 2,
+          plannerMode: subject.plannerMode,
+          completedAt: now.toISOString()
         });
-        return;
-      }
-      await client.setSubjectCollectionType(subjectId, 2);
-      await repository.setSubjectState(subjectId, {
-        collectionType: 2,
-        plannerMode: subject.plannerMode,
-        completedAt: now.toISOString()
+        await replan(await removeTodayTasksForSubject(subjectId, now), now);
       });
-      await replan(await removeTodayTasksForSubject(subjectId, now), now);
     },
 
     async swapBacklogTask(episodeId) {
@@ -1076,20 +1074,6 @@ function upcomingAction(collectionType: SubjectRow['collectionType'] | null, aut
   return { action: null, label: '已抛弃' };
 }
 
-function parseAutoWatchQueue(value: string | null): Array<{ subjectId: number; seasonKey: string }> {
-  try {
-    const parsed = JSON.parse(value ?? '[]') as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is { subjectId: number; seasonKey: string } => Boolean(
-      item && typeof item === 'object'
-      && Number.isInteger((item as { subjectId?: unknown }).subjectId)
-      && /^\d{4}Q[1-4]$/.test(String((item as { seasonKey?: unknown }).seasonKey ?? ''))
-    ));
-  } catch {
-    return [];
-  }
-}
-
 export function applyCalendarOverrides(days: CalendarDay[], overrides: BroadcastOverride[]): CalendarDay[] {
   if (overrides.length === 0) return days;
   const bySubject = new Map(overrides.map((override) => [override.subjectId, override]));
@@ -1117,12 +1101,6 @@ export function applyCalendarOverrides(days: CalendarDay[], overrides: Broadcast
     }
   }
   return result;
-}
-
-function weekdayFromDate(dateString: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return null;
-  const date = new Date(`${dateString}T00:00:00Z`);
-  return Number.isNaN(date.getTime()) ? null : date.getUTCDay() || 7;
 }
 
 function compactSubject({

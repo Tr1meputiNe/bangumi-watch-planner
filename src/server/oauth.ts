@@ -44,6 +44,7 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
   const fetchImpl = deps.fetch ?? fetch;
   const randomState = deps.randomState ?? (() => randomBytes(24).toString('hex'));
   const redirectUri = `${deps.baseUrl.replace(/\/$/, '')}/auth/callback`;
+  let accessTokenRequest: Promise<string> | null = null;
 
   async function exchangeToken(params: Record<string, string>): Promise<TokenResponse> {
     const response = await fetchImpl('https://bgm.tv/oauth/access_token', {
@@ -51,7 +52,13 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body: new URLSearchParams(params)
+      body: new URLSearchParams(params),
+      signal: AbortSignal.timeout(15_000)
+    }).catch((error: unknown) => {
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        throw oauthError('Bangumi 登录服务响应超时，请稍后重试', 502);
+      }
+      throw error;
     });
 
     if (!response.ok) {
@@ -83,12 +90,36 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
   }
 
   async function storeToken(token: TokenResponse): Promise<void> {
-    await deps.settings.set(ACCESS_TOKEN, token.access_token);
-    const expiresAt = Date.now() + token.expires_in * 1000 - 60_000;
-    await deps.settings.set(ACCESS_TOKEN_EXPIRES_AT, String(expiresAt));
     if (token.refresh_token) {
       await deps.tokenStore.setRefreshToken(token.refresh_token);
     }
+    await deps.settings.set(ACCESS_TOKEN, token.access_token);
+    const expiresAt = Date.now() + token.expires_in * 1000 - 60_000;
+    await deps.settings.set(ACCESS_TOKEN_EXPIRES_AT, String(expiresAt));
+  }
+
+  async function loadAccessToken(): Promise<string> {
+    const accessToken = await deps.settings.get(ACCESS_TOKEN);
+    const expiresAt = Number(await deps.settings.get(ACCESS_TOKEN_EXPIRES_AT));
+    if (accessToken && Number.isFinite(expiresAt) && expiresAt > Date.now()) {
+      return accessToken;
+    }
+
+    const refreshToken = await deps.tokenStore.getRefreshToken();
+    if (!refreshToken) {
+      throw oauthError('Bangumi 尚未登录', 401);
+    }
+
+    const credentials = await assertConfigured();
+    const token = await exchangeToken({
+      grant_type: 'refresh_token',
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
+      refresh_token: refreshToken,
+      redirect_uri: redirectUri
+    });
+    await storeToken(token);
+    return token.access_token;
   }
 
   return {
@@ -125,28 +156,9 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
       await deps.settings.set(OAUTH_STATE, '');
     },
 
-    async getAccessToken() {
-      const accessToken = await deps.settings.get(ACCESS_TOKEN);
-      const expiresAt = Number(await deps.settings.get(ACCESS_TOKEN_EXPIRES_AT));
-      if (accessToken && Number.isFinite(expiresAt) && expiresAt > Date.now()) {
-        return accessToken;
-      }
-
-      const refreshToken = await deps.tokenStore.getRefreshToken();
-      if (!refreshToken) {
-        throw oauthError('Bangumi 尚未登录', 401);
-      }
-
-      const credentials = await assertConfigured();
-      const token = await exchangeToken({
-        grant_type: 'refresh_token',
-        client_id: credentials.clientId,
-        client_secret: credentials.clientSecret,
-        refresh_token: refreshToken,
-        redirect_uri: redirectUri
-      });
-      await storeToken(token);
-      return token.access_token;
+    getAccessToken() {
+      accessTokenRequest ??= loadAccessToken().finally(() => { accessTokenRequest = null; });
+      return accessTokenRequest;
     },
 
     async getAuthStatus() {

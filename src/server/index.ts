@@ -11,7 +11,6 @@ import { getRuntimePlatform, isBackgroundServiceInstalled } from './launch-agent
 import { createSystemNotifier } from './notifier.js';
 import { createOAuthManager } from './oauth.js';
 import { startScheduler } from './scheduler.js';
-import { rebuildBacklogPlan, syncAnimeCollections } from './sync.js';
 
 const config = loadConfig();
 const apiToken = randomBytes(32).toString('base64url');
@@ -44,10 +43,7 @@ const client = createBangumiClient({
 const dashboard = createDashboardService({
   auth,
   client,
-  repository,
-  clock: () => new Date(),
-  syncCollections: syncAnimeCollections,
-  rebuildPlan: rebuildBacklogPlan
+  repository
 });
 const staticRoot = resolve(process.cwd(), 'dist/client');
 

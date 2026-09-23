@@ -1,15 +1,7 @@
 import type { BacklogTaskRow, EpisodeRow } from './types.js';
+import { todayInShanghai } from '../shared/date.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-export function todayInShanghai(now = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).format(now);
-}
 
 export function buildReminderCandidates(episodes: EpisodeRow[], today = todayInShanghai()): EpisodeRow[] {
   return episodes
@@ -48,17 +40,6 @@ export function isValidDateString(value: string): boolean {
 
 export function shouldNotifyToday(lastNotificationDate: string | null, today = todayInShanghai()): boolean {
   return lastNotificationDate !== today;
-}
-
-export function createNotificationSummary(episodes: EpisodeRow[]): { title: string; body: string } {
-  const subjectNames = new Set(episodes.map(displaySubject));
-  const title = `有 ${episodes.length} 集番剧待补`;
-  const preview = [...subjectNames].slice(0, 3).join('、');
-  const suffix = subjectNames.size > 3 ? ` 等 ${subjectNames.size} 部` : '';
-  return {
-    title,
-    body: preview ? `${preview}${suffix} 已有新集可看` : '打开追番计划查看待补列表'
-  };
 }
 
 export function createDailyNotificationSummary(
