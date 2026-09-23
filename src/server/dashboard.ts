@@ -371,6 +371,26 @@ export function createDashboardService({
     publish({ type: 'data', subjectIds: operationSubjectIds(operation), scopes: ['dashboard', 'backlog', 'held', 'wishlist', 'search'] });
   }
 
+  async function getFailedOperation(id: number): Promise<PendingOperation> {
+    const operation = await repository.getOperation(id);
+    if (!operation || operation.state !== 'failed') {
+      throw Object.assign(new Error(`Failed operation ${id} was not found`), { statusCode: 404 });
+    }
+    return operation;
+  }
+
+  async function clearResolvedOperationError(operation: PendingOperation): Promise<void> {
+    if ((await repository.listFailedOperations()).length > 0) return;
+    const message = getSafeCollectionActionError(new Error(operation.lastError ?? ''));
+    if (await repository.getSetting('last_error') === `${message} 可在设置中重新校准。`) {
+      await repository.setSetting('last_error', '');
+    }
+    if (syncStatus.state === 'error' && syncStatus.error === message) {
+      syncStatus = { ...syncStatus, state: 'idle', error: null };
+    }
+    publish({ type: 'data', subjectIds: [], scopes: ['dashboard'] });
+  }
+
   const service: DashboardService = {
     async getDashboard(): Promise<DashboardData> {
       const [episodes, subjects, lastSyncAt, lastError, syncDiagnostics] = await Promise.all([
@@ -597,11 +617,15 @@ export function createDashboardService({
 
     async retryOperation(id): Promise<void> {
       if (!operationQueue) throw Object.assign(new Error('Durable operation queue is unavailable'), { statusCode: 503 });
-      const operation = await repository.getOperation(id);
-      if (!operation || operation.state !== 'failed') {
-        throw Object.assign(new Error(`Failed operation ${id} was not found`), { statusCode: 404 });
-      }
+      const operation = await getFailedOperation(id);
       await operationQueue.retry(id);
+      await clearResolvedOperationError(operation);
+    },
+
+    async dismissFailedOperation(id): Promise<void> {
+      const operation = await getFailedOperation(id);
+      await repository.dismissFailedOperation(id, clock().toISOString());
+      await clearResolvedOperationError(operation);
     },
 
     subscribe(listener): () => void {

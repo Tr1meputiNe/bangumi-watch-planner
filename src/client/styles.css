@@ -3003,6 +3003,68 @@ select[data-state="success"] {
   color: var(--color-ink);
 }
 
+.notice-dismissible,
+.operation-failure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.operation-failures summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  cursor: pointer;
+}
+
+.operation-failures summary span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; }
+.operation-failures summary svg { transition: transform 180ms ease; }
+.operation-failures[open] summary svg { transform: rotate(180deg); }
+.operation-failures-list { max-height: min(360px, 48vh); margin-top: var(--space-sm); overflow-y: auto; scrollbar-width: thin; }
+.operation-failure { padding: var(--space-sm) 0; border-top: 1px solid var(--color-rule-2); }
+.operation-failure:last-child { padding-bottom: 0; }
+
+.notice-dismissible > span,
+.operation-failure > div:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.notice-close {
+  flex: none;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+}
+
+.notice-close:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  color: inherit;
+  box-shadow: none;
+}
+
+.operation-failure p {
+  margin: 4px 0 0;
+}
+
+.operation-failure-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+@media (max-width: 520px) {
+  .operation-failure { align-items: flex-start; flex-direction: column; }
+  .operation-failure-actions { width: 100%; }
+  .operation-failure-actions button { flex: 1; }
+}
+
 .workspace,
 .backlog-workspace {
   display: grid;

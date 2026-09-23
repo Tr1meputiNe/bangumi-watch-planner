@@ -57,6 +57,7 @@ export type Repository = SyncRepository & {
   completeOperation(id: number): Promise<void>;
   failOperation(id: number, error: string, updatedAt: string): Promise<void>;
   retryOperation(id: number, retryUntil: string, updatedAt: string): Promise<void>;
+  dismissFailedOperation(id: number, updatedAt: string): Promise<void>;
   countPendingOperations(): Promise<number>;
 };
 
@@ -360,8 +361,13 @@ export function createRepository(dbPath: string): Repository {
       ).run(retryUntil, updatedAt, id);
     },
 
+    async dismissFailedOperation(id, updatedAt) {
+      db.prepare("update pending_operations set state = 'dismissed', updated_at = ? where id = ? and state = 'failed'")
+        .run(updatedAt, id);
+    },
+
     async countPendingOperations() {
-      const row = db.prepare("select count(*) as count from pending_operations where state != 'failed'").get() as { count: number };
+      const row = db.prepare("select count(*) as count from pending_operations where state in ('queued', 'running')").get() as { count: number };
       return row.count;
     },
 

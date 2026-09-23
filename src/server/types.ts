@@ -185,7 +185,7 @@ export type PendingOperation = {
   payload: string;
   rollback: string;
   attempts: number;
-  state: 'queued' | 'running' | 'failed';
+  state: 'queued' | 'running' | 'failed' | 'dismissed';
   retryUntil: string;
   createdAt: string;
   updatedAt: string;
@@ -481,6 +481,7 @@ export type DashboardService = {
   getSyncStatus(): SyncStatus;
   getSyncDiagnostics(): Promise<SyncDiagnostics>;
   retryOperation(id: number): Promise<void>;
+  dismissFailedOperation(id: number): Promise<void>;
   subscribe(listener: (event: DashboardEvent) => void): () => void;
   markEpisodeWatched(episodeId: number): Promise<void>;
   markEpisodeUnwatched(episodeId: number): Promise<void>;

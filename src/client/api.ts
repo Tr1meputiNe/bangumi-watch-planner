@@ -110,7 +110,11 @@ export function getSyncStatus(): Promise<SyncStatus> {
 }
 
 export function retryOperation(operationId: number): Promise<void> {
-  return api<void>(`/api/operations/${operationId}/retry`, { method: 'POST' });
+  return api<{ queued: boolean }>(`/api/operations/${operationId}/retry`, { method: 'POST' }).then(() => undefined);
+}
+
+export function dismissFailedOperation(operationId: number): Promise<void> {
+  return api<void>(`/api/operations/${operationId}`, { method: 'DELETE' });
 }
 
 export function saveOAuthConfig(clientId: string, clientSecret: string): Promise<void> {

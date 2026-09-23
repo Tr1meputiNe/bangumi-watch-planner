@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { canAutoComplete, createDashboardService } from '../../src/server/dashboard.js';
 import type {
@@ -9,9 +12,38 @@ import type {
   SubjectRow,
   SyncProgress
 } from '../../src/server/types.js';
-import type { Repository } from '../../src/server/db.js';
+import { createRepository, type Repository } from '../../src/server/db.js';
 
 describe('dashboard service', () => {
+  it('acknowledges a failed operation without replaying it and clears its stale warning', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'bwp-failed-operation-'));
+    const repository = createRepository(join(directory, 'app.sqlite'));
+    try {
+      const id = await repository.enqueueOperation({
+        resourceKey: 'subject:501', kind: 'set_collection',
+        payload: JSON.stringify({ subjectId: 501, type: 4 }), rollback: '{}',
+        retryUntil: '2026-07-19T04:01:00.000Z'
+      });
+      await repository.failOperation(id, 'offline', '2026-07-19T04:01:00.000Z');
+      await repository.setSetting('last_error', 'offline 可在设置中重新校准。');
+      const setSubjectCollectionType = vi.fn(async () => undefined);
+      const service = createDashboardService({
+        auth: authStatus(), client: client({ setSubjectCollectionType }), repository
+      });
+
+      await service.dismissFailedOperation(id);
+
+      await expect(repository.getOperation(id)).resolves.toMatchObject({ state: 'dismissed' });
+      expect((await service.getDashboard()).lastError).toBeNull();
+      expect((await service.getSyncDiagnostics()).failedOperations).toEqual([]);
+      expect(setSubjectCollectionType).not.toHaveBeenCalled();
+      await expect(service.dismissFailedOperation(id)).rejects.toMatchObject({ statusCode: 404 });
+    } finally {
+      repository.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('checks incrementally while at least one page is connected', async () => {
     vi.useFakeTimers();
     const syncCollections = vi.fn(async () => ({ subjectsSynced: 0, episodesSynced: 0 }));

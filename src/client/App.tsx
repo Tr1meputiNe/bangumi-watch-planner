@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CalendarCheck2,
+  ChevronDown,
   CirclePause,
   HeartPlus,
   LibraryBig,
@@ -9,11 +10,13 @@ import {
   RadioTower,
   Telescope,
   TvMinimalPlay,
+  X,
   type LucideIcon
 } from 'lucide-react';
 import {
   addSubjectToWishlist,
   addSubjectToWatching,
+  dismissFailedOperation,
   getAuthStatus,
   getBacklog,
   getCalendar,
@@ -70,6 +73,8 @@ export default function App() {
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [dismissedLastError, setDismissedLastError] = useState<string | null>(null);
+  const [resolvingOperationId, setResolvingOperationId] = useState<number | null>(null);
   const [collectionRefreshVersion, setCollectionRefreshVersion] = useState(0);
   const [subjectRefresh, setSubjectRefresh] = useState({ version: 0, ids: [] as number[] });
   const syncHandoffStarted = useRef(false);
@@ -91,6 +96,14 @@ export default function App() {
   const showError = useCallback((message: string) => {
     setState((current) => ({ ...current, error: message }));
   }, []);
+
+  useEffect(() => {
+    if (!state.error) return;
+    const timer = window.setTimeout(() => {
+      setState((current) => current.error === state.error ? { ...current, error: null } : current);
+    }, 8_000);
+    return () => window.clearTimeout(timer);
+  }, [state.error]);
 
   const acceptSyncStarted = useCallback((status: SyncStatus) => {
     syncRequestVersion.current += 1;
@@ -436,12 +449,16 @@ export default function App() {
     }
   }
 
-  async function retryFailedOperation(operationId: number) {
+  async function resolveFailedOperation(operationId: number, action: (id: number) => Promise<void>) {
+    if (resolvingOperationId !== null) return;
+    setResolvingOperationId(operationId);
     try {
-      await retryOperation(operationId);
-      await load();
+      await action(operationId);
+      await loadDashboardOnly();
     } catch (error) {
       showError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setResolvingOperationId(null);
     }
   }
 
@@ -535,9 +552,15 @@ export default function App() {
       </aside>
 
       <div className="app-content">
-        {state.error ? <div className="notice error">{state.error}</div> : null}
+        {state.error ? <div className="notice error notice-dismissible" role="alert">
+          <span>{state.error}</span>
+          <button type="button" className="notice-close" aria-label="关闭错误提示" title="关闭错误提示" onClick={() => setState((current) => ({ ...current, error: null }))}><X size={16} /></button>
+        </div> : null}
         {syncNotice ? <div className="notice" role="status">{syncNotice}</div> : null}
-        {state.dashboard?.lastError ? <div className="notice warning">同步错误：{state.dashboard.lastError}</div> : null}
+        {state.dashboard?.lastError && state.dashboard.lastError !== dismissedLastError ? <div className="notice warning notice-dismissible">
+          <span>同步错误：{state.dashboard.lastError}</span>
+          <button type="button" className="notice-close" aria-label="关闭同步错误" title="关闭同步错误" onClick={() => setDismissedLastError(state.dashboard?.lastError ?? null)}><X size={16} /></button>
+        </div> : null}
 
         <div key={activeView} className="view-motion" data-view={activeView}>
           {activeView === 'today' ? (
@@ -573,7 +596,6 @@ export default function App() {
                 diagnostics={state.dashboard?.syncDiagnostics}
                 disabled={isSyncing}
                 onFullSync={startFullCalibration}
-                onRetryOperation={retryFailedOperation}
               />
             </>
           ) : null}
@@ -640,6 +662,23 @@ export default function App() {
             <CalendarView state={calendarState} onRetry={loadCalendar} onError={showError} />
           ) : null}
         </div>
+
+        {state.dashboard?.syncDiagnostics?.failedOperations.length ? (
+          <details className="notice error operation-failures">
+            <summary><strong>{state.dashboard.syncDiagnostics.failedOperations.length} 项操作失败</strong><span>查看并处理 <ChevronDown size={16} aria-hidden="true" /></span></summary>
+            <div className="operation-failures-list">
+              {state.dashboard.syncDiagnostics.failedOperations.map((operation) => (
+                <div className="operation-failure" key={operation.id}>
+                  <div><strong>操作 #{operation.id} 失败</strong><p>{operation.error}</p></div>
+                  <div className="operation-failure-actions">
+                    <button type="button" className="secondary" disabled={resolvingOperationId !== null} aria-busy={resolvingOperationId === operation.id} onClick={() => void resolveFailedOperation(operation.id, retryOperation)}>重试</button>
+                    <button type="button" className="secondary" disabled={resolvingOperationId !== null} onClick={() => void resolveFailedOperation(operation.id, dismissFailedOperation)}>忽略记录</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        ) : null}
 
         <div className="page-ambient-ornament" aria-hidden="true">
           <span />
@@ -840,12 +879,11 @@ function AnimeSearchPanel({
   );
 }
 
-function SettingsPanel({ auth, diagnostics, disabled, onFullSync, onRetryOperation }: {
+function SettingsPanel({ auth, diagnostics, disabled, onFullSync }: {
   auth: AuthStatus;
   diagnostics?: SyncDiagnostics;
   disabled: boolean;
   onFullSync(): Promise<void>;
-  onRetryOperation(operationId: number): Promise<void>;
 }) {
   const platform = auth.runtimePlatform ?? 'macOS';
   const backgroundDescription = platform === 'Windows'
@@ -879,12 +917,6 @@ function SettingsPanel({ auth, diagnostics, disabled, onFullSync, onRetryOperati
         <div><strong>完整校准</strong><p>{formatSyncDiagnostic(diagnostics?.full)}</p></div>
         <button type="button" className="secondary" disabled={disabled} onClick={() => void onFullSync()}>立即校准</button>
       </div>
-      {diagnostics?.failedOperations.map((operation) => (
-        <div className="settings-row" key={operation.id}>
-          <div><strong>操作 #{operation.id} 失败</strong><p>{operation.error}</p></div>
-          <button type="button" className="secondary" onClick={() => void onRetryOperation(operation.id)}>重试</button>
-        </div>
-      ))}
     </section>
   );
 }
