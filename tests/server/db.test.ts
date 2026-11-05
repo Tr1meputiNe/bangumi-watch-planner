@@ -30,6 +30,7 @@ describe('repository', () => {
       url: 'https://bgm.tv/subject/1'
     });
     await repository.replaceSubjectEpisodes(1, [
+      episode({ id: 10, sort: 1, ep: 1, collectionType: 2 }),
       episode({ id: 11, sort: 2, ep: 2, collectionType: 0 }),
       episode({ id: 12, sort: 3, ep: 3, collectionType: 0 })
     ]);
@@ -41,6 +42,25 @@ describe('repository', () => {
       epStatus: 2,
       nextEpisode: expect.objectContaining({ id: 12, sort: 3 })
     });
+  });
+
+  it('counts a single watched later episode instead of treating its number as completed progress', async () => {
+    await repository.upsertSubject({ id: 1, name: 'Test', nameCn: '', eps: 12, epStatus: 0, image: null, url: '' });
+    await repository.replaceSubjectEpisodes(1, [
+      episode({ id: 11, sort: 1, ep: 1, collectionType: 0 }),
+      episode({ id: 12, sort: 10, ep: 10, collectionType: 0 }),
+      episode({ id: 13, sort: 11, ep: 11, collectionType: 0 })
+    ]);
+
+    await repository.markEpisodeWatched(12);
+    expect((await repository.getSubject(1))?.epStatus).toBe(1);
+    await repository.markEpisodeWatched(12);
+    expect((await repository.getSubject(1))?.epStatus).toBe(1);
+    await repository.markEpisodeWatched(13);
+    expect((await repository.getSubject(1))?.epStatus).toBe(2);
+    await repository.markEpisodeUnwatched(12);
+    expect((await repository.getSubject(1))?.epStatus).toBe(1);
+    expect((await repository.getEpisode(11))?.collectionType).toBe(0);
   });
 
   it('recomputes subject progress and pending episodes when marking an episode unwatched locally', async () => {
@@ -106,6 +126,40 @@ describe('repository', () => {
         expect.objectContaining({ id: 12, sort: 3 })
       ]
     });
+  });
+
+  it.each([
+    ['missing later date', '2020-01-01', ''],
+    ['earlier later date', '2020-01-08', '2020-01-01'],
+    ['reversed broadcast times', '2020-01-01', '2020-01-01']
+  ])('selects the next unwatched episode by progress despite %s', async (_case, firstAirdate, secondAirdate) => {
+    await repository.upsertSubject({
+      id: 1, name: 'Old Anime', nameCn: '旧番', eps: 3, epStatus: 0,
+      image: null, url: '', collectionType: 3, plannerMode: 'backlog'
+    });
+    await repository.replaceSubjectEpisodes(1, [
+      episode({ id: 12, sort: 2, ep: 2, airdate: secondAirdate, airTime: '01:00' }),
+      episode({ id: 11, sort: 1, ep: 1, airdate: firstAirdate, airTime: '23:00' }),
+      episode({ id: 13, sort: 3, ep: 3, airdate: '2020-01-15', airTime: '' })
+    ]);
+
+    expect((await repository.listSubjectsByMode('backlog', [3]))[0].nextEpisode?.id).toBe(11);
+    await repository.markEpisodeWatched(11);
+    expect((await repository.listSubjectsByMode('backlog', [3]))[0].nextEpisode?.id).toBe(12);
+  });
+
+  it('continues with a recognized final numbered special after all main episodes are watched', async () => {
+    await repository.upsertSubject({ id: 1, name: 'Anime', nameCn: '', eps: 3, epStatus: 2, image: null, url: '' });
+    await repository.replaceSubjectEpisodes(1, [
+      episode({ id: 11, sort: 1, ep: 1, collectionType: 2 }),
+      episode({ id: 12, sort: 2, ep: 2, collectionType: 2 }),
+      episode({ id: 21, episodeType: 1, sort: 1, ep: 0, collectionType: 0 }),
+      episode({ id: 23, episodeType: 1, sort: 3, ep: 0, collectionType: 0 })
+    ]);
+
+    expect((await repository.listSubjects())[0].nextEpisode?.id).toBe(23);
+    await repository.markEpisodeWatched(23);
+    expect((await repository.listSubjects())[0].nextEpisode).toBeNull();
   });
 
   it('uses a trailing numbered SP as the final progress episode without including ordinary SPs', async () => {

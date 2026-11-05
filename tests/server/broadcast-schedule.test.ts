@@ -51,7 +51,7 @@ function bangumiData(items: ReturnType<typeof dataItem>[]) {
 }
 
 describe('broadcast schedule', () => {
-  it('maps Yuc titles to Bangumi IDs and converts Japanese 30-hour times to Shanghai', () => {
+  it('maps Yuc titles to Bangumi IDs and normalizes Chinese 30-hour times', () => {
     const catalog = parseYucWikiSeason(yucPage([
       { weekday: '周六', time: '25:30', title: '花织同学转生后还是想干架', jp: '花織さんは転生しても喧嘩がしたい', cover: 'new.jpg', premiere: '7/11周六深夜' },
       { weekday: '周一', time: '24:00', title: '跨季续播', cover: 'continuing.jpg' },
@@ -69,7 +69,7 @@ describe('broadcast schedule', () => {
       seasonKey: '2026Q3',
       seasonKind: 'new',
       normalPremiereDate: '2026-07-12',
-      airTime: '00:30',
+      airTime: '01:30',
       dayOffset: 1,
       scheduleSource: 'Yuc Wiki'
     });
@@ -80,12 +80,28 @@ describe('broadcast schedule', () => {
       image: 'continuing.jpg',
       seasonKey: '2026Q3',
       seasonKind: 'continuing',
-      normalPremiereDate: '2026-04-06',
-      airTime: '23:00',
-      dayOffset: 0,
+      normalPremiereDate: '2026-04-07',
+      airTime: '00:00',
+      dayOffset: 1,
       scheduleSource: 'Yuc Wiki'
     });
     expect(catalog.entries.has(303)).toBe(false);
+  });
+
+  it.each([
+    ['00:30', '00:30', 0, '2026-07-05'],
+    ['22:56', '22:56', 0, '2026-07-05'],
+    ['24:00', '00:00', 1, '2026-07-06'],
+    ['25:30', '01:30', 1, '2026-07-06'],
+    ['30:00', '06:00', 1, '2026-07-06']
+  ])('keeps Yuc time %s in China time and rolls over only after 24:00', (time, airTime, dayOffset, normalPremiereDate) => {
+    const catalog = parseYucWikiSeason(yucPage([
+      { weekday: '周日', time, title: '测试作品', jp: 'テスト', cover: 'test.jpg', premiere: '7/5周日' }
+    ]), '2026Q3', bangumiData([
+      dataItem(101, 'テスト', ['测试作品'], '2026-07-05T12:00:00.000Z')
+    ]));
+
+    expect(catalog.entries.get(101)).toMatchObject({ airTime, dayOffset, normalPremiereDate });
   });
 
   it('filters the Yuc new-anime station to the requested quarter and keeps only Bangumi matches', () => {
@@ -158,7 +174,7 @@ describe('broadcast schedule', () => {
     expect(urls).toContain('http://yuc.wiki/202610/');
     expect(catalog.entries.get(501)).toMatchObject({
       normalPremiereDate: '2026-10-06',
-      airTime: '00:30',
+      airTime: '01:30',
       airWeekday: 2
     });
   });
@@ -256,7 +272,7 @@ describe('broadcast schedule', () => {
       'http://yuc.wiki/202604/',
       'http://yuc.wiki/202610/'
     ]);
-    expect(catalog.schedules.get(101)).toEqual({ airDate: '2026-07-05', airTime: '00:00', dayOffset: 1, source: 'Yuc Wiki' });
+    expect(catalog.schedules.get(101)).toEqual({ airDate: '2026-07-05', airTime: '01:00', dayOffset: 1, source: 'Yuc Wiki' });
     expect([...catalog.seasonWindow.activeSubjectIds]).toEqual([101, 303]);
   });
 
@@ -367,8 +383,8 @@ describe('broadcast schedule', () => {
     expect(times.get(495291)).toEqual({ airDate: '2026-07-06', airTime: '23:30', dayOffset: 1, source: 'Bangumi Index' });
     expect(times.get(501963)).toEqual({ airDate: '2026-07-13', airTime: '23:00', dayOffset: 1, source: 'Bangumi Index' });
     expect(times.get(538760)).toEqual({ airDate: '2026-07-04', airTime: '20:00', dayOffset: 0, source: 'Bangumi Index' });
-    expect(times.get(587109)).toEqual({ airDate: '2026-07-12', airTime: '00:30', dayOffset: 1, source: 'Yuc Wiki' });
+    expect(times.get(587109)).toEqual({ airDate: '2026-07-12', airTime: '01:30', dayOffset: 1, source: 'Yuc Wiki' });
     expect(times.get(602733)).toEqual({ airDate: '2026-07-05', airTime: '01:38', dayOffset: 1, source: 'Bangumi Index' });
-    expect(times.get(552533)).toEqual({ airDate: '2026-07-04', airTime: '23:00', dayOffset: 0, source: 'Yuc Wiki' });
+    expect(times.get(552533)).toEqual({ airDate: '2026-07-05', airTime: '00:00', dayOffset: 1, source: 'Yuc Wiki' });
   });
 });

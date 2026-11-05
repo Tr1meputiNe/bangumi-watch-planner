@@ -18,7 +18,6 @@ import type {
 export type Repository = SyncRepository & {
   close(): void;
   listEpisodes(): Promise<EpisodeRow[]>;
-  listSubjectProgressEpisodes(subjectId: number): Promise<EpisodeRow[]>;
   listSubjects(): Promise<DashboardSubject[]>;
   setSubjectState(subjectId: number, state: Pick<SubjectRow, 'collectionType' | 'plannerMode' | 'completedAt'>): Promise<void>;
   listWishlist(query: string, year: number | null | 'unknown'): Promise<WishlistData>;
@@ -175,6 +174,21 @@ export function createRepository(dbPath: string): Repository {
         }
       });
       tx(episodes);
+    },
+
+    async recordSubjectWatchedAt(subjectId, watchedAt) {
+      db.prepare(`update subjects set last_watched_at = ?
+        where id = ? and (last_watched_at is null or last_watched_at < ?)`
+      ).run(watchedAt, subjectId, watchedAt);
+    },
+
+    async setSubjectLastWatchedAt(subjectId, watchedAt, expectedCurrent) {
+      if (expectedCurrent === undefined) {
+        db.prepare('update subjects set last_watched_at = ? where id = ?').run(watchedAt, subjectId);
+      } else {
+        db.prepare('update subjects set last_watched_at = ? where id = ? and last_watched_at = ?')
+          .run(watchedAt, subjectId, expectedCurrent);
+      }
     },
 
     async listEpisodes() {
@@ -460,15 +474,9 @@ export function createRepository(dbPath: string): Repository {
 
     async markEpisodeWatched(episodeId) {
       const episode = selectEpisodes(db, 'where id = ?', [episodeId])[0] ?? null;
-      const progress = episode ? episodeProgress(episode) : NaN;
       const markWatched = db.transaction(() => {
         db.prepare('update episodes set collection_type = 2, snoozed_until = null where id = ?').run(episodeId);
-        if (episode && Number.isFinite(progress) && progress > 0) {
-          db.prepare('update subjects set ep_status = max(ep_status, ?) where id = ?').run(
-            Math.floor(progress),
-            episode.subjectId
-          );
-        }
+        if (episode) updateWatchedEpisodeCount(db, episode.subjectId);
       });
       markWatched();
     },
@@ -477,12 +485,7 @@ export function createRepository(dbPath: string): Repository {
       const episode = selectEpisodes(db, 'where id = ?', [episodeId])[0] ?? null;
       const markUnwatched = db.transaction(() => {
         db.prepare('update episodes set collection_type = 0, snoozed_until = null where id = ?').run(episodeId);
-        if (episode) {
-          db.prepare('update subjects set ep_status = ? where id = ?').run(
-            highestWatchedMainEpisodeProgress(db, episode.subjectId),
-            episode.subjectId
-          );
-        }
+        if (episode) updateWatchedEpisodeCount(db, episode.subjectId);
       });
       markUnwatched();
     },
@@ -555,6 +558,7 @@ function migrate(db: Database.Database): void {
   addColumnIfMissing(db, 'subjects', 'air_year', 'integer');
   addColumnIfMissing(db, 'subjects', 'total_episodes_known', 'integer not null default 0');
   addColumnIfMissing(db, 'subjects', 'completed_at', 'text');
+  addColumnIfMissing(db, 'subjects', 'last_watched_at', 'text');
   db.exec(`
     create table if not exists backlog_tasks (
       id integer primary key autoincrement,
@@ -623,7 +627,7 @@ function selectSubjects(db: Database.Database, whereClause = '', params: unknown
        id, name, name_cn as nameCn, eps, ep_status as epStatus, image, url,
        collection_type as collectionType, planner_mode as plannerMode, season_key as seasonKey,
        season_kind as seasonKind, air_date as airDate, air_year as airYear, total_episodes_known as totalEpisodesKnown,
-       completed_at as completedAt
+       completed_at as completedAt, last_watched_at as lastWatchedAt
      from subjects
      ${whereClause}
      order by coalesce(nullif(name_cn, ''), name) collate nocase`
@@ -634,7 +638,6 @@ function selectSubjects(db: Database.Database, whereClause = '', params: unknown
 function selectDashboardSubjects(db: Database.Database, whereClause = '', params: unknown[] = []): DashboardSubject[] {
   const subjects = selectSubjects(db, whereClause, params);
   const episodes = selectEpisodes(db, '');
-  const bySubject = new Map<number, EpisodeRow>();
   const countsBySubject = new Map<number, number>();
   const episodesBySubject = new Map<number, EpisodeRow[]>();
   const mainEpisodesBySubject = new Map<number, EpisodeRow[]>();
@@ -654,16 +657,12 @@ function selectDashboardSubjects(db: Database.Database, whereClause = '', params
     const subjectEpisodes = unwatchedEpisodesBySubject.get(episode.subjectId) ?? [];
     subjectEpisodes.push(episode);
     unwatchedEpisodesBySubject.set(episode.subjectId, subjectEpisodes);
-    const current = bySubject.get(episode.subjectId);
-    if (!current || compareEpisode(episode, current) < 0) {
-      bySubject.set(episode.subjectId, episode);
-    }
   }
   return subjects.map((subject) => {
     const progressEpisodes = progressEpisodesFor(subject, episodesBySubject.get(subject.id) ?? []);
     return {
       ...subject,
-      nextEpisode: bySubject.get(subject.id) ?? null,
+      nextEpisode: progressEpisodes.find((episode) => episode.collectionType !== 2) ?? null,
       mainEpisodes: (mainEpisodesBySubject.get(subject.id) ?? []).sort(compareEpisodeProgress),
       progressEpisodes,
       unwatchedMainEpisodeCount: countsBySubject.get(subject.id) ?? 0,
@@ -738,7 +737,7 @@ function compareEpisodeProgress(a: EpisodeRow, b: EpisodeRow): number {
   return episodeProgress(a) - episodeProgress(b);
 }
 
-export function progressEpisodesFor(subject: SubjectRow, episodes: EpisodeRow[]): EpisodeRow[] {
+export function progressEpisodesFor(subject: Pick<SubjectRow, 'id' | 'eps'>, episodes: EpisodeRow[]): EpisodeRow[] {
   const subjectEpisodes = episodes.filter((episode) => episode.subjectId === subject.id);
   const mainEpisodes = subjectEpisodes.filter((episode) => episode.episodeType === 0);
   const mainProgress = new Set(mainEpisodes.map(episodeProgress).filter((progress) => Number.isInteger(progress) && progress > 0));
@@ -751,12 +750,18 @@ export function progressEpisodesFor(subject: SubjectRow, episodes: EpisodeRow[])
   return [...mainEpisodes, ...(finalSpecial ? [finalSpecial] : [])].sort(compareEpisodeProgress);
 }
 
-function highestWatchedMainEpisodeProgress(db: Database.Database, subjectId: number): number {
-  return selectEpisodes(db, 'where subject_id = ? and episode_type = 0 and collection_type = 2', [subjectId]).reduce((highest, episode) => {
-    const progress = episodeProgress(episode);
-    if (!Number.isFinite(progress) || progress <= 0) return highest;
-    return Math.max(highest, Math.floor(progress));
-  }, 0);
+export function watchedEpisodeCount(subject: Pick<SubjectRow, 'id' | 'eps'>, episodes: EpisodeRow[]): number {
+  return new Set(progressEpisodesFor(subject, episodes)
+    .filter((episode) => episode.collectionType === 2)
+    .map(episodeProgress)
+    .filter((progress) => Number.isInteger(progress) && progress > 0 && (subject.eps <= 0 || progress <= subject.eps))).size;
+}
+
+function updateWatchedEpisodeCount(db: Database.Database, subjectId: number): void {
+  const subject = selectSubjects(db, 'where id = ?', [subjectId])[0];
+  if (!subject) return;
+  const episodes = selectEpisodes(db, 'where subject_id = ?', [subjectId]);
+  db.prepare('update subjects set ep_status = ? where id = ?').run(watchedEpisodeCount(subject, episodes), subjectId);
 }
 
 function addColumnIfMissing(db: Database.Database, table: string, column: string, definition: string): void {

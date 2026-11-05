@@ -1,10 +1,52 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import UpcomingSeasonView from '../../src/client/views/UpcomingSeasonView.js';
+import type { UpcomingSeasonData } from '../../src/server/types.js';
 
 describe('UpcomingSeasonView', () => {
+  it('keeps a known premiere date visible when the broadcast hour is unknown', async () => {
+    const data = upcomingData();
+    data.items[0].airTime = '';
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json(data)));
+    render(<UpcomingSeasonView disabled={false} refreshVersion={0} onSyncStarted={vi.fn()} onError={vi.fn()} />);
+
+    expect(await screen.findByText('首播 10月5日 · 时间待定')).toBeInTheDocument();
+  });
+
+  it('offers retry after a failed initial request without claiming the list is empty', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(Response.json({ error: '下季读取失败' }, { status: 502 }))
+      .mockResolvedValueOnce(Response.json(upcomingData())));
+    render(<UpcomingSeasonView disabled={false} refreshVersion={0} onSyncStarted={vi.fn()} onError={vi.fn()} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('下季读取失败');
+    expect(screen.queryByText('暂时没有由 Bangumi 确认的下季度新番。')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '重试下季新番' }));
+    expect(await screen.findByRole('button', { name: '加入想看' })).toBeInTheDocument();
+  });
+
+  it('keeps a pending mutation through refresh and restores its action on failure', async () => {
+    let resolveAction!: (response: Response) => void;
+    const actionResponse = new Promise<Response>((resolve) => { resolveAction = resolve; });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') return actionResponse;
+      return Response.json(upcomingData());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const props = { disabled: false, onSyncStarted: vi.fn(), onError: vi.fn() };
+    const view = render(<UpcomingSeasonView {...props} refreshVersion={0} />);
+    await userEvent.click(await screen.findByRole('button', { name: '加入想看' }));
+    view.rerender(<UpcomingSeasonView {...props} refreshVersion={1} />);
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(2));
+    expect(screen.queryByRole('button', { name: '加入想看' })).not.toBeInTheDocument();
+    resolveAction(Response.json({ error: '收藏失败' }, { status: 502 }));
+
+    expect(await screen.findByRole('button', { name: '加入想看' })).toBeEnabled();
+    expect(props.onError).toHaveBeenCalledWith('收藏失败');
+  });
+
   it('shows only Bangumi-confirmed Yuc items and schedules the selected title optimistically', async () => {
     let resolveAction!: (response: Response) => void;
     const actionResponse = new Promise<Response>((resolve) => { resolveAction = resolve; });
@@ -19,7 +61,7 @@ describe('UpcomingSeasonView', () => {
     render(<UpcomingSeasonView disabled={false} refreshVersion={0} onSyncStarted={onSyncStarted} onError={vi.fn()} />);
 
     expect(await screen.findByRole('heading', { name: '2026 秋季新番' })).toBeInTheDocument();
-    expect(screen.getByText('Yuc 新番站 · Bangumi 已确认')).toBeInTheDocument();
+    expect(screen.queryByText('Yuc 新番站 · Bangumi 已确认')).not.toBeInTheDocument();
     expect(screen.getByText('2 部')).toHaveClass('wishlist-count');
     expect(screen.getByRole('heading', { name: '星期一' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '星期二' })).toBeInTheDocument();
@@ -108,7 +150,7 @@ describe('UpcomingSeasonView', () => {
 
     expect(await screen.findByRole('button', { name: '加入想看' })).toBeEnabled();
     expect(screen.getByRole('button', { name: '已安排开季在看' })).toBeDisabled();
-    resolveSecond(Response.json(runningSyncStatus(), { status: 202 }));
+    await act(async () => { resolveSecond(Response.json(runningSyncStatus(), { status: 202 })); });
   });
 
   it('shows a source warning when Yuc new-anime station is unavailable', async () => {
@@ -120,7 +162,7 @@ describe('UpcomingSeasonView', () => {
   });
 });
 
-function upcomingData() {
+function upcomingData(): UpcomingSeasonData {
   return {
     seasonKey: '2026Q4',
     available: true,

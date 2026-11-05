@@ -8,7 +8,7 @@ import { createDashboardService } from '../../src/server/dashboard.js';
 import { createRepository } from '../../src/server/db.js';
 import { createOAuthManager } from '../../src/server/oauth.js';
 
-describe('OAuth callback to backlog planner flow', () => {
+describe('OAuth callback to free backlog flow', () => {
   let cleanup = () => undefined;
 
   afterEach(() => {
@@ -165,25 +165,24 @@ describe('OAuth callback to backlog planner flow', () => {
     expect(initialDashboard.subjects.map((subject: { id: number }) => subject.id)).toEqual([123]);
     expect(initialDashboard.pendingEpisodes).toEqual([expect.objectContaining({ id: 456, subjectId: 123 })]);
     expect(initialBacklog.active.map((subject: { id: number }) => subject.id)).toEqual([124]);
-    expect(initialBacklog.futureDays.flatMap((day: { tasks: Array<{ subjectId: number }> }) => day.tasks).some((task: { subjectId: number }) => task.subjectId === 124)).toBe(true);
+    expect(initialBacklog.futureDays).toEqual([]);
+    expect(initialBacklog.recent).toEqual([]);
     expect(initialWishlist.items).toEqual([expect.objectContaining({ id: 201, isCurrentSeason: false })]);
 
     expect((await app.inject({ method: 'POST', url: '/api/subjects/201/start' })).statusCode).toBe(202);
     await vi.waitFor(() => expect(dashboard.getSyncStatus().state).toBe('idle'));
     const startedBacklog = await getJson(app, '/api/backlog');
     expect(startedBacklog.active.map((subject: { id: number }) => subject.id).sort()).toEqual([124, 201]);
-    const firstTwoSlotDay = startedBacklog.futureDays.find((day: { tasks: unknown[] }) => day.tasks.length === 2);
-    expect(new Set(firstTwoSlotDay.tasks.map((task: { subjectId: number }) => task.subjectId)).size).toBe(2);
+    expect(startedBacklog.futureDays).toEqual([]);
     expect((await getJson(app, '/api/wishlist?year=all')).items).toEqual([]);
 
-    expect((await app.inject({ method: 'POST', url: '/api/backlog/today/replan' })).statusCode).toBe(204);
-    const plannedToday = await getJson(app, '/api/backlog');
-    const watchedTask = plannedToday.todayTasks.find((task: { subjectId: number }) => task.subjectId === 124);
-    expect(watchedTask).toBeDefined();
-    expect((await app.inject({ method: 'POST', url: `/api/episodes/${watchedTask.episodeId}/watched` })).statusCode).toBe(204);
-    const refilledToday = await getJson(app, '/api/backlog');
-    expect(refilledToday.todayTasks.some((task: { episodeId: number }) => task.episodeId === watchedTask.episodeId)).toBe(false);
-    expect((await repository.getEpisode(watchedTask.episodeId))?.collectionType).toBe(2);
+    expect((await app.inject({ method: 'POST', url: '/api/backlog/today/replan' })).statusCode).toBe(410);
+    expect((await app.inject({ method: 'POST', url: '/api/episodes/1241/watched' })).statusCode).toBe(204);
+    await vi.waitFor(async () => expect(await repository.countPendingOperations()).toBe(0));
+    const freelyWatched = await getJson(app, '/api/backlog');
+    expect(freelyWatched.todayTasks).toEqual([]);
+    expect(freelyWatched.recent).toEqual([expect.objectContaining({ id: 124, lastWatchedAt: '2026-07-19T04:00:00.000Z' })]);
+    expect((await repository.getEpisode(1241))?.collectionType).toBe(2);
 
     expect((await app.inject({ method: 'POST', url: '/api/backlog/201/pause' })).statusCode).toBe(204);
     const heldBacklog = await getJson(app, '/api/backlog');
@@ -197,12 +196,13 @@ describe('OAuth callback to backlog planner flow', () => {
     expect((await app.inject({ method: 'POST', url: '/api/episodes/2012/watched' })).statusCode).toBe(204);
     const completedBacklog = await getJson(app, '/api/backlog');
     expect(completedBacklog.completed).toEqual(expect.arrayContaining([expect.objectContaining({ id: 201, collectionType: 2 })]));
-    expect(collectionTypes.get(201)).toBe(2);
+    await vi.waitFor(() => expect(collectionTypes.get(201)).toBe(2));
 
     expect((await app.inject({ method: 'POST', url: '/api/episodes/2011/unwatched' })).statusCode).toBe(204);
     const reopenedBacklog = await getJson(app, '/api/backlog');
     expect(reopenedBacklog.active).toEqual(expect.arrayContaining([expect.objectContaining({ id: 201, collectionType: 3 })]));
-    expect(reopenedBacklog.futureDays.flatMap((day: { tasks: Array<{ episodeId: number }> }) => day.tasks).some((task: { episodeId: number }) => task.episodeId === 2011)).toBe(true);
+    expect(reopenedBacklog.futureDays).toEqual([]);
+    await vi.waitFor(async () => expect(await repository.countPendingOperations()).toBe(0));
     expect(subjectWrites).toEqual(expect.arrayContaining([
       { subjectId: 201, type: 3 },
       { subjectId: 201, type: 4 },

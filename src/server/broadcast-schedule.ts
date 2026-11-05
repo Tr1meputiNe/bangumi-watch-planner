@@ -304,7 +304,7 @@ export function parseYucWikiSeason(html: string, seasonKey: string, data: Bangum
       if (!item || subjectId === null) continue;
 
       const converted = time
-        ? convertYucTime(Number(time[1]), Number(time[2]))
+        ? normalizeYucTime(Number(time[1]), Number(time[2]))
         : bangumiDataSchedule(item, sourceWeekday);
       if (!converted) continue;
       const normalPremiereDate = yucPremiereDate(
@@ -486,13 +486,11 @@ function normalizeTitle(value: string): string {
   return value.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
-function convertYucTime(hour: number, minute: number): { airTime: string; dayOffset: number } {
-  const shanghaiMinutes = hour * 60 + minute - 60;
-  const dayOffset = Math.floor(shanghaiMinutes / (24 * 60));
-  const normalized = ((shanghaiMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+function normalizeYucTime(hour: number, minute: number): { airTime: string; dayOffset: number } {
+  // Yuc already uses China time; only normalize its 24+ hour notation.
   return {
-    airTime: `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`,
-    dayOffset
+    airTime: `${String(hour % 24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+    dayOffset: Math.floor(hour / 24)
   };
 }
 

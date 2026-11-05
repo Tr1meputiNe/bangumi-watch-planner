@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   dismissReminder,
   dropSubject,
@@ -7,22 +7,24 @@ import {
   markUnwatched,
   markWatched,
   markWatchedThrough,
-  snoozeReminderUntilTomorrow,
-  swapBacklogTask
+  snoozeReminderUntilTomorrow
 } from '../api.js';
 import LongPressButton from '../LongPressButton.js';
 import WatchProgressGrid from '../WatchProgressGrid.js';
+import CoverImage from '../CoverImage.js';
 import { commitWithMotion, MotionValue, motionStyle } from '../motion.js';
-import type { BacklogData, BacklogTaskRow, DashboardData, DashboardSubject, DashboardSubjectSummary, EpisodeRow } from '../../server/types.js';
+import type { BacklogData, DashboardData, DashboardSubject, DashboardSubjectSummary, EpisodeRow } from '../../server/types.js';
 import { displayEpisodeTitle, displaySubjectName } from '../../shared/format.js';
 
 type WatchingViewProps = {
   mode: 'today' | 'watching';
   dashboard: DashboardData;
   backlog?: BacklogData | null;
+  backlogError?: string | null;
+  onRetryBacklog?(): Promise<void>;
   disabled: boolean;
-  changedSubjectIds?: number[];
   refreshVersion?: number;
+  onOpenBacklog?(): void;
   onChanged(): Promise<void>;
   onError(message: string): void;
 };
@@ -31,16 +33,32 @@ export default function WatchingView({
   mode,
   dashboard,
   backlog,
+  backlogError,
+  onRetryBacklog,
   disabled,
-  changedSubjectIds = [],
   refreshVersion = 0,
+  onOpenBacklog,
   onChanged,
   onError
 }: WatchingViewProps) {
   const [busyEpisodeId, setBusyEpisodeId] = useState<number | null>(null);
+  const [busySubjectId, setBusySubjectId] = useState<number | null>(null);
+  const actionPending = useRef(false);
+  const [retryingBacklog, setRetryingBacklog] = useState(false);
+  const backlogRetryPending = useRef(false);
   const [hiddenSubjectIds, setHiddenSubjectIds] = useState<Set<number>>(new Set());
   const pendingEpisodes = dashboard.pendingEpisodes;
-  const todayLabel = useMemo(() => formatTodayLabel(), []);
+  const [todayLabel, setTodayLabel] = useState(formatTodayLabel);
+  useEffect(() => {
+    if (mode !== 'today') return;
+    const update = () => setTodayLabel(formatTodayLabel());
+    update();
+    const timer = window.setInterval(update, 30_000);
+    window.addEventListener('focus', update);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', update); };
+  }, [mode]);
+  const actionsDisabled = disabled || busyEpisodeId !== null || busySubjectId !== null;
+  const recentSubjects = (backlog?.recent ?? []).slice(0, 3);
   const subjectsById = useMemo(
     () => new Map(dashboard.subjects.map((subject) => [subject.id, subject])),
     [dashboard.subjects]
@@ -51,7 +69,23 @@ export default function WatchingView({
     return counts;
   }, [pendingEpisodes]);
 
+  async function retryBacklog() {
+    if (!onRetryBacklog || disabled || backlogRetryPending.current) return;
+    backlogRetryPending.current = true;
+    setRetryingBacklog(true);
+    try {
+      await onRetryBacklog();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      backlogRetryPending.current = false;
+      setRetryingBacklog(false);
+    }
+  }
+
   async function runEpisodeAction(episodeId: number, action: () => Promise<unknown>) {
+    if (disabled || actionPending.current) return;
+    actionPending.current = true;
     setBusyEpisodeId(episodeId);
     try {
       await action();
@@ -59,11 +93,15 @@ export default function WatchingView({
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
     } finally {
+      actionPending.current = false;
       setBusyEpisodeId(null);
     }
   }
 
   async function runSubjectAction(subjectId: number, action: () => Promise<void>) {
+    if (disabled || actionPending.current) return;
+    actionPending.current = true;
+    setBusySubjectId(subjectId);
     commitWithMotion(() => setHiddenSubjectIds((current) => new Set(current).add(subjectId)));
     try {
       await action();
@@ -71,6 +109,8 @@ export default function WatchingView({
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
     } finally {
+      actionPending.current = false;
+      setBusySubjectId(null);
       commitWithMotion(() => setHiddenSubjectIds((current) => {
         const next = new Set(current);
         next.delete(subjectId);
@@ -80,23 +120,22 @@ export default function WatchingView({
   }
 
   return (
-    <div className="workspace">
+    <div className={`workspace${mode === 'today' ? ' today-workspace' : ''}`}>
       {mode === 'today' ? (
         <header className="backlog-overview today-overview">
           <div className="backlog-overview-copy">
-            <h1>今日安排</h1>
+            <h1>今天</h1>
             <p>{todayLabel}</p>
           </div>
           <dl className="backlog-overview-stats">
-            <div><dt>追番</dt><dd><MotionValue value={pendingEpisodes.length}>{pendingEpisodes.length} 集</MotionValue></dd></div>
-            <div><dt>补番</dt><dd><MotionValue value={backlog?.todayTasks.length ?? 0}>{backlog?.todayTasks.length ?? 0} 集</MotionValue></dd></div>
+            <div><dt>已播出待看</dt><dd><MotionValue value={pendingEpisodes.length}>{pendingEpisodes.length} 集</MotionValue></dd></div>
           </dl>
         </header>
       ) : null}
 
       {mode === 'today' ? <section className="panel backlog-panel" aria-label="今日追番">
         <div className="panel-title">
-          <div><span className="panel-eyebrow">本季新番</span><h2>今日追番</h2><p className="today-date">{todayLabel}</p></div>
+          <div><h2>今日追番</h2></div>
           <strong><MotionValue value={pendingEpisodes.length} /></strong>
         </div>
         {pendingEpisodes.length > 0 ? (
@@ -107,7 +146,7 @@ export default function WatchingView({
                 index={index}
                 episode={episode}
                 subject={subjectsById.get(episode.subjectId)}
-                disabled={disabled || busyEpisodeId === episode.id}
+                disabled={actionsDisabled}
                 processing={busyEpisodeId === episode.id}
                 onWatched={() => void runEpisodeAction(episode.id, () => markWatched(episode.id))}
                 onSnooze={() => void runEpisodeAction(episode.id, () => snoozeReminderUntilTomorrow(episode.id))}
@@ -119,46 +158,44 @@ export default function WatchingView({
       </section> : null}
 
       {mode === 'today' ? (
-        <section className="backlog-section backlog-today" aria-label="今日补番">
+        <section className="backlog-section today-recent" aria-label="接着看">
           <header className="backlog-section-header">
-            <div><span className="panel-eyebrow">旧番计划</span><h2>今日补番</h2></div>
-            <strong className="backlog-section-count"><MotionValue value={backlog?.todayTasks.length ?? 0}>{backlog?.todayTasks.length ?? 0} 集</MotionValue></strong>
+            <div><h2>接着看</h2></div>
+            {onOpenBacklog ? <button type="button" className="secondary" onClick={onOpenBacklog}>全部补番</button> : null}
           </header>
-          {backlog === undefined || backlog === null ? (
-            <div className="empty">正在加载补番安排。</div>
-          ) : backlog.todayTasks.length > 0 ? (
-            <div className="backlog-task-list">
-              {backlog.todayTasks.map((task, index) => (
-                <TodayBacklogTask
-                  key={task.id}
-                  task={task}
-                  index={index + 1}
-                  subject={findBacklogSubject(backlog, task.subjectId)}
-                  disabled={disabled || busyEpisodeId !== null}
-                  processing={busyEpisodeId === task.episodeId}
-                  onWatched={() => void runEpisodeAction(task.episodeId, () => markWatched(task.episodeId))}
-                  onSwap={() => void runEpisodeAction(task.episodeId, () => swapBacklogTask(task.episodeId))}
-                />
-              ))}
+          {!backlog ? backlogError ? (
+            <div className="empty retryable">
+              <p role="alert">{backlogError}</p>
+              {onRetryBacklog ? <button type="button" className="secondary"
+                disabled={disabled || retryingBacklog} aria-busy={retryingBacklog}
+                onClick={() => void retryBacklog()}>重试观看记录</button> : null}
             </div>
-          ) : <div className="empty">今天没有补番任务。</div>}
+          ) : <div className="empty" role="status">正在加载观看记录。</div>
+            : recentSubjects.length > 0 ? (
+              <div className="subject-list today-recent-list">
+                {recentSubjects.map((subject, index) => (
+                  <RecentSubject key={subject.id} subject={subject} index={index} />
+                ))}
+              </div>
+            ) : <div className="empty">暂无最近观看</div>}
         </section>
       ) : null}
 
       {mode === 'watching' ? <section className="panel watching-panel" aria-label="在看动画">
         <div className="panel-title compact">
-          <div><span className="panel-eyebrow">本季追番</span><h2>在看动画</h2></div>
+          <div><h2>在看动画</h2></div>
           <strong><MotionValue value={dashboard.subjects.length} /></strong>
         </div>
         <div className="subject-list">
+          {dashboard.subjects.length === 0 ? <div className="empty">暂无正在追的新番。</div> : null}
           {dashboard.subjects.filter((subject) => !hiddenSubjectIds.has(subject.id)).map((subject, index) => (
             <SubjectItem
               key={subject.id}
               index={index}
               subject={subject}
               pendingCount={pendingBySubject.get(subject.id) ?? 0}
-              disabled={disabled || busyEpisodeId !== null}
-              refreshVersion={changedSubjectIds.includes(subject.id) ? refreshVersion : 0}
+              disabled={actionsDisabled}
+              refreshVersion={refreshVersion}
               onWatchedThrough={(episodeId) => runEpisodeAction(episodeId, () => markWatchedThrough(subject.id, episodeId))}
               onWatched={(episodeId) => runEpisodeAction(episodeId, () => markWatched(episodeId))}
               onUnwatched={(episodeId) => runEpisodeAction(episodeId, () => markUnwatched(episodeId))}
@@ -173,46 +210,26 @@ export default function WatchingView({
   );
 }
 
-function TodayBacklogTask({
-  task,
-  index,
-  subject,
-  disabled,
-  processing,
-  onWatched,
-  onSwap
-}: {
-  task: BacklogTaskRow;
+function RecentSubject({ subject, index }: {
+  subject: DashboardSubject;
   index: number;
-  subject?: DashboardSubject;
-  disabled: boolean;
-  processing: boolean;
-  onWatched(): void;
-  onSwap(): void;
 }) {
-  const subjectTitle = displaySubjectName(task.episode.subjectName, task.episode.subjectNameCn);
-  const episodeNumber = task.episode.ep ?? task.episode.sort;
-
+  const title = displaySubjectName(subject.name, subject.nameCn);
+  const next = subject.nextEpisode;
   return (
-    <article className="backlog-task motion-item" style={motionStyle(index - 1, `today-backlog-task-${task.id}`)}>
-      <a className="backlog-task-cover" href={task.episode.subjectUrl} target="_blank" rel="noreferrer" aria-label={subjectTitle}>
-        {subject?.image ? <img src={subject.image} alt="" /> : <span>{String(index).padStart(2, '0')}</span>}
+    <article className="subject-row today-recent-row motion-item" style={motionStyle(index, `today-recent-${subject.id}`)}>
+      <a className="subject-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={title}>
+        <CoverImage src={subject.image} fallback={title} />
       </a>
-      <div className="backlog-task-copy">
-        <span className="backlog-task-meta">补番 {String(index).padStart(2, '0')} · 第 {episodeNumber} 集</span>
-        <a href={task.episode.subjectUrl} target="_blank" rel="noreferrer">{subjectTitle}</a>
-        <p>{displayEpisodeTitle(task.episode.name, task.episode.nameCn, task.episode.sort)}</p>
-      </div>
-      <div className="backlog-task-actions">
-        <button type="button" disabled={disabled} onClick={onWatched}>{processing ? '处理中' : '已看'}</button>
-        <button type="button" className="ghost" disabled={disabled} onClick={onSwap}>换一部</button>
+      <div className="subject-detail">
+        <div className="subject-heading"><a href={subject.url} target="_blank" rel="noreferrer">{title}</a></div>
+        <p>已看 {subject.epStatus} / {subject.eps || '?'} 集</p>
+        {next ? <>
+          <p>下一集：第 {next.ep ?? next.sort} 集 · {displayEpisodeTitle(next.name, next.nameCn, next.sort)}</p>
+        </> : <p>暂无可继续的集数</p>}
       </div>
     </article>
   );
-}
-
-function findBacklogSubject(backlog: BacklogData, subjectId: number): DashboardSubject | undefined {
-  return [...backlog.active, ...backlog.held, ...backlog.completed].find((subject) => subject.id === subjectId);
 }
 
 function SubjectItem({
@@ -243,6 +260,8 @@ function SubjectItem({
   const [expanded, setExpanded] = useState(false);
   const [episodes, setEpisodes] = useState<EpisodeRow[] | null>(null);
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
+  const [episodeError, setEpisodeError] = useState<string | null>(null);
+  const episodeRequest = useRef(0);
   const subjectTitle = displaySubjectName(subject.name, subject.nameCn);
   const progressText = `${subject.epStatus} / ${subject.eps || '?'}`;
   const progressPercent = subject.eps > 0 ? Math.min(100, Math.round((subject.epStatus / subject.eps) * 100)) : 0;
@@ -251,35 +270,44 @@ function SubjectItem({
     ?? pendingCount;
 
   const loadEpisodes = useCallback(async () => {
+    const request = ++episodeRequest.current;
     setLoadingEpisodes(true);
+    setEpisodeError(null);
     try {
-      setEpisodes(await getSubjectEpisodes(subject.id));
+      const result = await getSubjectEpisodes(subject.id);
+      if (request === episodeRequest.current) setEpisodes(result);
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      if (request !== episodeRequest.current) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setEpisodeError(message);
+      onError(message);
     } finally {
-      setLoadingEpisodes(false);
+      if (request === episodeRequest.current) setLoadingEpisodes(false);
     }
   }, [onError, subject.id]);
 
   useEffect(() => {
-    if (expanded && refreshVersion > 0) void loadEpisodes();
+    if (expanded) void loadEpisodes();
+    return () => { episodeRequest.current += 1; };
   }, [expanded, loadEpisodes, refreshVersion]);
 
   async function runGridAction(action: () => Promise<void>) {
-    await action();
-    await loadEpisodes();
+    try {
+      await action();
+      await loadEpisodes();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    }
   }
 
   function toggleEpisodes() {
-    const nextExpanded = !expanded;
-    setExpanded(nextExpanded);
-    if (nextExpanded && episodes === null) void loadEpisodes();
+    setExpanded((current) => !current);
   }
 
   return (
     <article className="subject-row motion-item" style={motionStyle(index, `watching-subject-${subject.id}`)}>
       <a className="subject-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={subjectTitle}>
-        {subject.image ? <img src={subject.image} alt="" /> : <span>{subject.nameCn || subject.name}</span>}
+        <CoverImage src={subject.image} fallback={subject.nameCn || subject.name} />
       </a>
       <div className="subject-detail">
         <div className="subject-heading">
@@ -303,12 +331,16 @@ function SubjectItem({
           type="button"
           className="secondary episode-grid-toggle"
           onClick={toggleEpisodes}
-          disabled={disabled || loadingEpisodes}
+          disabled={disabled}
           aria-label={`${expanded ? '收起' : '查看'}${subjectTitle}集数`}
           aria-expanded={expanded}
         >
-          {loadingEpisodes ? '加载中' : expanded ? '收起集数' : '查看集数'}
+          {expanded ? '收起集数' : '查看集数'}
         </button>
+        {expanded && loadingEpisodes ? <p role="status">正在加载集数。</p> : null}
+        {expanded && episodeError ? <div className="episode-load-error"><p role="alert">{episodeError}</p>
+          <button type="button" className="secondary" disabled={disabled || loadingEpisodes} onClick={() => void loadEpisodes()}>重试加载集数</button></div> : null}
+        {expanded && episodes?.length === 0 && !loadingEpisodes && !episodeError ? <p>暂无已同步集数。</p> : null}
         {expanded && episodes ? (
           <WatchProgressGrid
             subjectTitle={subjectTitle}
@@ -350,10 +382,13 @@ function EpisodeItem({
   return (
     <article className="episode-row motion-item" style={motionStyle(index, `pending-episode-${episode.id}`)}>
       <a className="episode-visual" href={episode.subjectUrl} target="_blank" rel="noreferrer" aria-label={subjectTitle}>
-        {subject?.image ? <img src={subject.image} alt="" /> : <span>{subjectTitle}</span>}
+        <CoverImage src={subject?.image} fallback={subjectTitle} />
         <span className="episode-index" title={formatEpisodeAirdate(episode.airdate, episode.airTime)}>
           <span>{episode.airTime || episode.airdate.slice(5) || '--'}</span>
-          <strong>{episode.airTime && episode.airdate ? `${episode.airdate.slice(5)} · ` : ''}第 {episode.sort} 集</strong>
+          <strong>
+            {episode.airTime && episode.airdate ? <span className="episode-date">{episode.airdate.slice(5)}</span> : null}
+            <span className="episode-number">第 {episode.ep ?? episode.sort} 集</span>
+          </strong>
         </span>
       </a>
       <div className="episode-main">

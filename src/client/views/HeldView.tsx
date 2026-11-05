@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { dropSubject, resumeHeldSubject } from '../api.js';
 import LongPressButton from '../LongPressButton.js';
+import CoverImage from '../CoverImage.js';
 import type { DashboardSubject } from '../../server/types.js';
 import { displayEpisodeTitle, displaySubjectName } from '../../shared/format.js';
 import { commitWithMotion, MotionValue, motionStyle } from '../motion.js';
+import '../secondary-views.css';
 
 export default function HeldView({ subjects, disabled, onChanged, onError }: {
   subjects: DashboardSubject[];
@@ -12,10 +14,13 @@ export default function HeldView({ subjects, disabled, onChanged, onError }: {
   onError(message: string): void;
 }) {
   const [hiddenSubjectIds, setHiddenSubjectIds] = useState<Set<number>>(new Set());
-  const seasonalCount = subjects.filter((subject) => subject.plannerMode === 'seasonal').length;
+  const pendingIds = useRef(new Set<number>());
   const visibleSubjects = subjects.filter((subject) => !hiddenSubjectIds.has(subject.id));
+  const seasonalCount = visibleSubjects.filter((subject) => subject.plannerMode === 'seasonal').length;
 
   async function runAction(subjectId: number, action: () => Promise<void>) {
+    if (disabled || pendingIds.current.has(subjectId)) return;
+    pendingIds.current.add(subjectId);
     commitWithMotion(() => setHiddenSubjectIds((current) => new Set(current).add(subjectId)));
     try {
       await action();
@@ -23,6 +28,7 @@ export default function HeldView({ subjects, disabled, onChanged, onError }: {
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
     } finally {
+      pendingIds.current.delete(subjectId);
       commitWithMotion(() => setHiddenSubjectIds((current) => {
         const next = new Set(current);
         next.delete(subjectId);
@@ -32,24 +38,24 @@ export default function HeldView({ subjects, disabled, onChanged, onError }: {
   }
 
   return (
-    <div className="backlog-workspace held-workspace">
+    <div className="backlog-workspace held-workspace secondary-page">
       <header className="backlog-overview" aria-label="搁置概览">
         <div className="backlog-overview-copy">
-          <span className="panel-eyebrow">暂时放下</span>
+
           <h1>搁置</h1>
-          <p>恢复后会回到原来的追番或补番计划。</p>
+
         </div>
         <dl className="backlog-overview-stats held-overview-stats">
-          <div><dt>全部</dt><dd><MotionValue value={subjects.length}>{subjects.length} 部</MotionValue></dd></div>
+          <div><dt>全部</dt><dd><MotionValue value={visibleSubjects.length}>{visibleSubjects.length} 部</MotionValue></dd></div>
           <div><dt>本季追番</dt><dd><MotionValue value={seasonalCount}>{seasonalCount} 部</MotionValue></dd></div>
-          <div><dt>补番</dt><dd><MotionValue value={subjects.length - seasonalCount}>{subjects.length - seasonalCount} 部</MotionValue></dd></div>
+          <div><dt>补番</dt><dd><MotionValue value={visibleSubjects.length - seasonalCount}>{visibleSubjects.length - seasonalCount} 部</MotionValue></dd></div>
         </dl>
       </header>
 
       <section className="backlog-section held-library" aria-label="已搁置动画">
         <header className="backlog-section-header">
           <div><span className="panel-eyebrow">统一片库</span><h2>已搁置动画</h2></div>
-          <strong className="backlog-section-count"><MotionValue value={subjects.length}>{subjects.length} 部</MotionValue></strong>
+          <strong className="backlog-section-count"><MotionValue value={visibleSubjects.length}>{visibleSubjects.length} 部</MotionValue></strong>
         </header>
         {visibleSubjects.length > 0 ? (
           <div className="backlog-subject-list">
@@ -64,7 +70,7 @@ export default function HeldView({ subjects, disabled, onChanged, onError }: {
               />
             ))}
           </div>
-        ) : <div className="empty">没有搁置的动画。</div>}
+        ) : hiddenSubjectIds.size > 0 ? <div className="empty" role="status">正在更新收藏…</div> : <div className="empty">没有搁置的动画。</div>}
       </section>
     </div>
   );
@@ -83,7 +89,7 @@ function HeldSubjectItem({ index, subject, disabled, onResume, onDrop }: {
   return (
     <article className="subject-row backlog-subject-row held-subject-row motion-item" style={motionStyle(index, `held-subject-${subject.id}`)}>
       <a className="subject-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={title}>
-        {subject.image ? <img src={subject.image} alt="" /> : <span>{title}</span>}
+        <CoverImage src={subject.image} fallback={title} />
       </a>
       <div className="subject-detail">
         <div className="subject-heading">

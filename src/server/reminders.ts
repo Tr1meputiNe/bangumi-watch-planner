@@ -44,14 +44,14 @@ export function shouldNotifyToday(lastNotificationDate: string | null, today = t
 
 export function createDailyNotificationSummary(
   seasonalEpisodes: EpisodeRow[],
-  backlogTasks: BacklogTaskRow[]
+  legacyBacklogTasks?: BacklogTaskRow[]
+): { title: string; body: string } | null;
+export function createDailyNotificationSummary(
+  seasonalEpisodes: EpisodeRow[]
 ): { title: string; body: string } | null {
   const sections: string[] = [];
   if (seasonalEpisodes.length > 0) {
     sections.push(`今日新番待看：${formatEpisodes(seasonalEpisodes)}`);
-  }
-  if (backlogTasks.length > 0) {
-    sections.push(`今日补番计划：${formatEpisodes(backlogTasks.map((task) => task.episode))}`);
   }
   return sections.length === 0 ? null : { title: '今日追番计划', body: sections.join('\n') };
 }

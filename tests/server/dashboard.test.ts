@@ -716,7 +716,7 @@ describe('dashboard service', () => {
     expect(upsertSubject).toHaveBeenCalledWith(expect.objectContaining({ collectionType: 1, plannerMode: null }));
   });
 
-  it('pauses a backlog title remotely before local state and replans once', async () => {
+  it('pauses a backlog title remotely before local state without scheduling', async () => {
     const events: string[] = [];
     const setSubjectCollectionType = vi.fn(async () => { events.push('remote'); });
     const setSubjectState = vi.fn(async () => { events.push('local'); });
@@ -737,19 +737,18 @@ describe('dashboard service', () => {
 
     await service.pauseBacklogSubject(1);
 
-    expect(events).toEqual(['remote', 'local', 'delete task', 'replan']);
+    expect(events).toEqual(['remote', 'local']);
     expect(setSubjectCollectionType).toHaveBeenCalledWith(1, 4);
     expect(setSubjectState).toHaveBeenCalledWith(1, {
       collectionType: 4,
       plannerMode: 'backlog',
       completedAt: null
     });
-    expect(rebuildPlan).toHaveBeenCalledOnce();
-    expect(deleteBacklogTask).toHaveBeenCalledWith(11);
-    expect(rebuildPlan).toHaveBeenCalledWith(expect.objectContaining({ today: '2026-07-19', includeToday: true }));
+    expect(rebuildPlan).not.toHaveBeenCalled();
+    expect(deleteBacklogTask).not.toHaveBeenCalled();
   });
 
-  it('resumes a held title as backlog and replans once', async () => {
+  it('resumes a held title as backlog without scheduling', async () => {
     const setSubjectCollectionType = vi.fn(async () => undefined);
     const setSubjectState = vi.fn(async () => undefined);
     const rebuildPlan = vi.fn(async () => undefined);
@@ -769,7 +768,7 @@ describe('dashboard service', () => {
       plannerMode: 'backlog',
       completedAt: null
     });
-    expect(rebuildPlan).toHaveBeenCalledOnce();
+    expect(rebuildPlan).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -792,7 +791,7 @@ describe('dashboard service', () => {
 
     expect(setSubjectCollectionType).toHaveBeenCalledWith(1, collectionType);
     expect(setSubjectState).toHaveBeenCalledWith(1, { collectionType, plannerMode, completedAt: null });
-    expect(rebuildPlan).toHaveBeenCalledOnce();
+    expect(rebuildPlan).not.toHaveBeenCalled();
   });
 
   it('returns all held titles with seasonal titles first', async () => {
@@ -836,7 +835,7 @@ describe('dashboard service', () => {
     expect(rebuildPlan).not.toHaveBeenCalled();
   });
 
-  it('marks the final main episode before completing the subject and replans once', async () => {
+  it('marks the final main episode before completing the subject without scheduling', async () => {
     const events: string[] = [];
     const markEpisodesWatched = vi.fn(async () => { events.push('remote episode'); });
     const markEpisodeWatched = vi.fn(async () => { events.push('local episode'); });
@@ -862,17 +861,17 @@ describe('dashboard service', () => {
 
     await service.markEpisodeWatched(12);
 
-    expect(events).toEqual(['remote episode', 'local episode', 'remote subject', 'local subject', 'replan']);
+    expect(events).toEqual(['remote episode', 'local episode', 'remote subject', 'local subject']);
     expect(setSubjectCollectionType).toHaveBeenCalledWith(1, 2);
     expect(setSubjectState).toHaveBeenCalledWith(1, {
       collectionType: 2,
       plannerMode: 'backlog',
       completedAt: '2026-07-19T04:00:00.000Z'
     });
-    expect(rebuildPlan).toHaveBeenCalledOnce();
+    expect(rebuildPlan).not.toHaveBeenCalled();
   });
 
-  it('removes a watched task without refilling today', async () => {
+  it('records a watched episode without touching legacy tasks or scheduling', async () => {
     const deleteBacklogTask = vi.fn(async () => undefined);
     const rebuildPlan = vi.fn(async () => undefined);
     const service = createDashboardService({
@@ -890,9 +889,8 @@ describe('dashboard service', () => {
 
     await service.markEpisodeWatched(11);
 
-    expect(deleteBacklogTask).toHaveBeenCalledWith(11);
-    expect(rebuildPlan).toHaveBeenCalledWith(expect.objectContaining({ today: '2026-07-19', includeToday: false }));
-    expect(rebuildPlan).toHaveBeenCalledOnce();
+    expect(deleteBacklogTask).not.toHaveBeenCalled();
+    expect(rebuildPlan).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -918,7 +916,7 @@ describe('dashboard service', () => {
     await service.markEpisodeWatched(12);
 
     expect(setSubjectCollectionType).not.toHaveBeenCalledWith(1, 2);
-    expect(rebuildPlan).toHaveBeenCalledOnce();
+    expect(rebuildPlan).not.toHaveBeenCalled();
   });
 
   it('does not change SQLite when the episode write fails remotely', async () => {
@@ -963,7 +961,7 @@ describe('dashboard service', () => {
     await expect(service.markEpisodeWatched(12)).rejects.toThrow('completion failed');
 
     expect(setSubjectState).not.toHaveBeenCalled();
-    expect(rebuildPlan).toHaveBeenCalledOnce();
+    expect(rebuildPlan).not.toHaveBeenCalled();
   });
 
   it('reopens a completed subject in its existing planner mode', async () => {
@@ -989,7 +987,7 @@ describe('dashboard service', () => {
 
     await service.markEpisodeUnwatched(11);
 
-    expect(events).toEqual(['remote episode', 'local episode', 'remote subject', 'local subject', 'replan']);
+    expect(events).toEqual(['remote episode', 'local episode', 'remote subject', 'local subject']);
     expect(setSubjectCollectionType).toHaveBeenCalledWith(1, 3);
     expect(setSubjectState).toHaveBeenCalledWith(1, {
       collectionType: 3,
@@ -1021,7 +1019,7 @@ describe('dashboard service', () => {
       plannerMode: 'backlog',
       completedAt: '2026-07-19T04:00:00.000Z'
     });
-    expect(rebuildPlan).toHaveBeenCalledOnce();
+    expect(rebuildPlan).not.toHaveBeenCalled();
   });
 
   it('rejects manual completion when the total is known', async () => {
@@ -1061,101 +1059,21 @@ describe('dashboard service', () => {
     expect(setSubjectState).not.toHaveBeenCalled();
   });
 
-  it('swaps a task by excluding it today and rebuilding all seven dates', async () => {
-    const deleteBacklogTask = vi.fn(async () => undefined);
-    const excludeEpisodeOnDate = vi.fn(async () => undefined);
-    const rebuildPlan = vi.fn(async () => undefined);
-    const service = createDashboardService({
-      auth: authStatus(),
-      client: client(),
-      repository: repository({
-        listBacklogTasks: vi.fn(async () => [backlogTask()]),
-        deleteBacklogTask,
-        excludeEpisodeOnDate
-      }),
-      rebuildPlan,
-      clock: fixedClock
-    });
+  it.each(['swapBacklogTask', 'skipBacklogToday', 'replanBacklogToday'] as const)(
+    'rejects retired %s actions without mutating old planner data', async (action) => {
+      const stored = repository();
+      const rebuildPlan = vi.fn(async () => undefined);
+      const service = createDashboardService({ auth: authStatus(), client: client(), repository: stored, rebuildPlan });
 
-    await service.swapBacklogTask(11);
+      const operation = action === 'swapBacklogTask' ? service[action](11) : service[action]();
+      await expect(operation).rejects.toMatchObject({ statusCode: 410 });
 
-    expect(deleteBacklogTask).toHaveBeenCalledWith(11);
-    expect(excludeEpisodeOnDate).toHaveBeenCalledWith('2026-07-19', 11);
-    expect(rebuildPlan).toHaveBeenCalledWith(expect.objectContaining({ today: '2026-07-19', includeToday: true }));
-    expect(rebuildPlan).toHaveBeenCalledOnce();
-  });
-
-  it('rejects swapping an episode that is not in today\'s backlog plan', async () => {
-    const deleteBacklogTask = vi.fn(async () => undefined);
-    const excludeEpisodeOnDate = vi.fn(async () => undefined);
-    const rebuildPlan = vi.fn(async () => undefined);
-    const service = createDashboardService({
-      auth: authStatus(),
-      client: client(),
-      repository: repository({
-        listBacklogTasks: vi.fn(async () => [backlogTask({ episodeId: 12 })]),
-        deleteBacklogTask,
-        excludeEpisodeOnDate
-      }),
-      rebuildPlan,
-      clock: fixedClock
-    });
-
-    await expect(service.swapBacklogTask(11)).rejects.toMatchObject({ statusCode: 404 });
-
-    expect(deleteBacklogTask).not.toHaveBeenCalled();
-    expect(excludeEpisodeOnDate).not.toHaveBeenCalled();
-    expect(rebuildPlan).not.toHaveBeenCalled();
-  });
-
-  it('skips today by clearing its tasks, setting the skip, and replanning once', async () => {
-    const replaceBacklogTasks = vi.fn(async () => undefined);
-    const skipBacklogDate = vi.fn(async () => undefined);
-    const rebuildPlan = vi.fn(async () => undefined);
-    const service = createDashboardService({
-      auth: authStatus(),
-      client: client(),
-      repository: repository({ replaceBacklogTasks, skipBacklogDate }),
-      rebuildPlan,
-      clock: fixedClock
-    });
-
-    await service.skipBacklogToday();
-
-    expect(replaceBacklogTasks).toHaveBeenCalledWith({
-      fromDate: '2026-07-19',
-      throughDate: '2026-07-19',
-      preserveLocked: false,
-      tasks: []
-    });
-    expect(skipBacklogDate).toHaveBeenCalledWith('2026-07-19');
-    expect(rebuildPlan).toHaveBeenCalledOnce();
-  });
-
-  it('replans today after clearing its skips, exclusions, and tasks', async () => {
-    const clearBacklogDateOverrides = vi.fn(async () => undefined);
-    const replaceBacklogTasks = vi.fn(async () => undefined);
-    const rebuildPlan = vi.fn(async () => undefined);
-    const service = createDashboardService({
-      auth: authStatus(),
-      client: client(),
-      repository: repository({ clearBacklogDateOverrides, replaceBacklogTasks }),
-      rebuildPlan,
-      clock: fixedClock
-    });
-
-    await service.replanBacklogToday();
-
-    expect(clearBacklogDateOverrides).toHaveBeenCalledWith('2026-07-19');
-    expect(replaceBacklogTasks).toHaveBeenCalledWith({
-      fromDate: '2026-07-19',
-      throughDate: '2026-07-19',
-      preserveLocked: false,
-      tasks: []
-    });
-    expect(rebuildPlan).toHaveBeenCalledWith(expect.objectContaining({ today: '2026-07-19', includeToday: true }));
-    expect(rebuildPlan).toHaveBeenCalledOnce();
-  });
+      expect(stored.replaceBacklogTasks).not.toHaveBeenCalled();
+      expect(stored.deleteBacklogTask).not.toHaveBeenCalled();
+      expect(stored.skipBacklogDate).not.toHaveBeenCalled();
+      expect(rebuildPlan).not.toHaveBeenCalled();
+    }
+  );
 
   it('builds the backlog read model and trims wishlist queries with the injected Shanghai clock', async () => {
     const todayTask = backlogTask({ plannedDate: '2026-07-19' });
@@ -1185,14 +1103,14 @@ describe('dashboard service', () => {
     const backlog = await service.getBacklog();
     expect(backlog).toMatchObject({
       today: '2026-07-19',
-      todayTasks: [todayTask],
+      todayTasks: [],
       active: [active],
       held: [held],
       completed: [completed],
-      estimatedCompletionDate: '2026-07-19'
+      estimatedCompletionDate: null
     });
-    expect(backlog.futureDays).toHaveLength(6);
-    expect(backlog.futureDays[0]).toEqual({ date: '2026-07-20', seasonalLoad: 1, capacity: 2, tasks: [futureTask] });
+    expect(backlog.futureDays).toEqual([]);
+    expect(backlog.recent).toEqual([]);
     await expect(service.getWishlist('  title  ', 2026)).resolves.toEqual({ items: [], years: [2026] });
     expect(listWishlist).toHaveBeenCalledWith('title', 2026);
   });
@@ -1314,6 +1232,8 @@ function repository(overrides: Partial<Repository> = {}): Repository {
     listSubjectsByCollection: vi.fn(async () => []),
     listSubjectsByMode: vi.fn(async () => []),
     setSubjectState: vi.fn(async () => undefined),
+    setSubjectLastWatchedAt: vi.fn(async () => undefined),
+    recordSubjectWatchedAt: vi.fn(async () => undefined),
     listWishlist: vi.fn(async () => ({ items: [], years: [] })),
     listBroadcastOverrides: vi.fn(async () => []),
     saveBroadcastOverride: vi.fn(async () => undefined),

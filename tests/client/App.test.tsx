@@ -182,6 +182,135 @@ function completedSyncStatus(subjectsSynced = 1, episodesSynced = 12) {
 }
 
 describe('App', () => {
+  it('refreshes cached search results when returning to backlog', async () => {
+    let changed = false;
+    let searchRequests = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: null });
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
+      if (url === '/api/calendar') return Response.json([]);
+      if (url === '/api/sync/status') return Response.json(completedSyncStatus());
+      if (url.startsWith('/api/search/anime?')) {
+        searchRequests += 1;
+        return Response.json({ results: [changed ? searchResult(501, null, 'add', '加入补番') : searchResult(501, 3, null, '已在看')] });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    }));
+    render(<App />);
+    await userEvent.click(await screen.findByRole('tab', { name: '补番' }));
+    await userEvent.type(screen.getByPlaceholderText('番名、中文名或原名'), 'test');
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+    expect(await screen.findAllByRole('button', { name: '已在看' })).toHaveLength(2);
+    await userEvent.click(screen.getByRole('tab', { name: '每日放送' }));
+    changed = true;
+    await userEvent.click(screen.getByRole('tab', { name: '补番' }));
+    expect(await screen.findByRole('button', { name: '加入补番' })).toBeEnabled();
+    expect(searchRequests).toBe(2);
+  });
+
+  it('refreshes both expanded episode grids for batched subject events', async () => {
+    class FakeEventSource {
+      static instance: FakeEventSource;
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      constructor() { FakeEventSource.instance = this; }
+      close() {}
+      emit(id: number) { this.onmessage?.({ data: JSON.stringify({ type: 'data', subjectIds: [id], scopes: ['dashboard'] }) } as MessageEvent<string>); }
+    }
+    vi.stubGlobal('EventSource', FakeEventSource);
+    const requests = new Map<number, number>();
+    const other = { ...dashboard.subjects[0], id: 2, nameCn: '另一部动画', mainEpisodes: dashboard.subjects[0].mainEpisodes.map(e => ({ ...e, id: e.id + 100, subjectId: 2 })) };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: null });
+      if (url === '/api/dashboard') return Response.json({ ...dashboard, subjects: [...dashboard.subjects, other] });
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
+      if (url === '/api/sync/status') return Response.json(completedSyncStatus());
+      const match = url.match(/^\/api\/subjects\/(\d+)\/episodes$/);
+      if (match) {
+        const id = Number(match[1]); requests.set(id, (requests.get(id) ?? 0) + 1);
+        return Response.json({ episodes: id === 1 ? dashboard.subjects[0].mainEpisodes : other.mainEpisodes });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    }));
+    render(<App />);
+    await userEvent.click(await screen.findByRole('tab', { name: '追番' }));
+    await userEvent.click(screen.getByRole('button', { name: '查看测试番剧集数' }));
+    await userEvent.click(screen.getByRole('button', { name: '查看另一部动画集数' }));
+    await waitFor(() => expect(requests.get(2)).toBe(1));
+    await act(async () => { FakeEventSource.instance.emit(1); FakeEventSource.instance.emit(2); });
+    await waitFor(() => { expect(requests.get(1)).toBe(2); expect(requests.get(2)).toBe(2); });
+  });
+
+  it('does not let an older SSE response overwrite newer progress', async () => {
+    class FakeEventSource {
+      static instance: FakeEventSource;
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      constructor() { FakeEventSource.instance = this; }
+      close() {}
+      emit() { this.onmessage?.({ data: JSON.stringify({ type: 'data', subjectIds: [1], scopes: ['dashboard'] }) } as MessageEvent<string>); }
+    }
+    vi.stubGlobal('EventSource', FakeEventSource);
+    const pending: Array<(response: Response) => void> = [];
+    let requests = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: null });
+      if (url === '/api/dashboard') {
+        if (++requests === 1) return Response.json(dashboard);
+        return new Promise<Response>((resolve) => pending.push(resolve));
+      }
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
+      if (url === '/api/sync/status') return Response.json(completedSyncStatus());
+      throw new Error(`Unexpected request ${url}`);
+    }));
+    render(<App />);
+    await screen.findByText('第一集');
+    await act(async () => { FakeEventSource.instance.emit(); FakeEventSource.instance.emit(); });
+    expect(pending).toHaveLength(2);
+    await act(async () => pending[1](Response.json({ ...dashboard, pendingEpisodes: [] })));
+    expect(screen.queryByText('第一集')).not.toBeInTheDocument();
+    await act(async () => pending[0](Response.json(dashboard)));
+    expect(screen.queryByText('第一集')).not.toBeInTheDocument();
+  });
+
+  it('refreshes a previously visited calendar after changes on other pages', async () => {
+    let calendarRequests = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: null });
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
+      if (url === '/api/calendar') { calendarRequests += 1; return Response.json([]); }
+      if (url === '/api/sync/status') return Response.json(completedSyncStatus());
+      throw new Error(`Unexpected request ${url}`);
+    }));
+    render(<App />);
+    await userEvent.click(await screen.findByRole('tab', { name: '每日放送' }));
+    await screen.findByText('暂无每日放送数据。');
+    await userEvent.click(screen.getByRole('tab', { name: '今日' }));
+    await userEvent.click(screen.getByRole('tab', { name: '每日放送' }));
+    await waitFor(() => expect(calendarRequests).toBe(2));
+  });
+
+  it('gives an explicit empty result after a successful anime search', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: null });
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
+      if (url === '/api/sync/status') return Response.json(completedSyncStatus());
+      if (url.startsWith('/api/search/anime?')) return Response.json({ results: [] });
+      throw new Error(`Unexpected request ${url}`);
+    }));
+    render(<App />);
+    await userEvent.click(await screen.findByRole('tab', { name: '补番' }));
+    await userEvent.type(screen.getByPlaceholderText('番名、中文名或原名'), '不存在的动画');
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }));
+    expect(await screen.findByText(/没有找到.*不存在的动画/)).toBeInTheDocument();
+  });
+
   it('refreshes the active projection from SSE without resetting tab, search, or scroll', async () => {
     class FakeEventSource {
       static instance: FakeEventSource | null = null;
@@ -220,7 +349,7 @@ describe('App', () => {
     }));
 
     render(<App />);
-    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
+    await userEvent.click(await screen.findByRole('tab', { name: '补番' }));
     const input = await screen.findByPlaceholderText('番名、中文名或原名');
     await userEvent.type(input, 'test');
     await userEvent.click(screen.getByRole('button', { name: '搜索' }));
@@ -235,12 +364,12 @@ describe('App', () => {
     await waitFor(() => expect(searchRequests).toBe(before.searchRequests + 1));
     expect(dashboardRequests).toBe(before.dashboardRequests + 1);
     expect(backlogRequests).toBe(before.backlogRequests + 1);
-    expect(screen.getByRole('tab', { name: '补番计划' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: '补番' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByPlaceholderText('番名、中文名或原名')).toHaveValue('test');
     expect(document.documentElement.scrollTop).toBe(240);
   });
 
-  it('opens a unified today view with seasonal and backlog tasks in separate sections', async () => {
+  it('opens today with seasonal episodes and automatic recent viewing, without backlog tasks', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url === '/api/auth/status') {
@@ -250,6 +379,8 @@ describe('App', () => {
       if (url === '/api/backlog') {
         return Response.json({
           ...emptyBacklog,
+          active: [{ ...dashboard.subjects[0], id: 90, nameCn: '补番动画', image: 'backlog-cover.jpg' }],
+          recent: [{ ...dashboard.subjects[0], id: 90, nameCn: '补番动画', image: 'backlog-cover.jpg' }],
           todayTasks: [{
             id: 91,
             episodeId: 92,
@@ -273,12 +404,15 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('tab', { name: '今日' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('heading', { name: '今日安排' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '今天' })).toBeInTheDocument();
     expect(screen.queryByText('今天看什么')).not.toBeInTheDocument();
     expect(screen.queryByText(/追番与补番分开安排/)).not.toBeInTheDocument();
     expect(screen.getByLabelText('今日追番')).toHaveTextContent('测试番剧');
     const backlogTitle = await screen.findByText('补番动画');
-    expect(screen.getByLabelText('今日补番')).toContainElement(backlogTitle);
+    expect(screen.getByLabelText('接着看')).toContainElement(backlogTitle);
+    expect(within(screen.getByLabelText('接着看')).getAllByRole('link', { name: '补番动画' })[0].querySelector('img')).toHaveAttribute('src', 'backlog-cover.jpg');
+    expect(screen.queryByLabelText('今日补番')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '换一部' })).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '追番' })).toHaveAttribute('aria-selected', 'false');
   });
 
@@ -326,7 +460,7 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: '同步中 1/4' })).toBeDisabled();
     expect(dashboardRequests).toBe(1);
 
-    expect(await screen.findByRole('status', {}, { timeout: 2_000 })).toHaveTextContent('同步完成：4 部番剧，48 集分集');
+    expect(await screen.findByText('同步完成：4 部番剧，48 集分集', {}, { timeout: 2_000 })).toHaveAttribute('role', 'status');
     expect(dashboardRequests).toBe(2);
   });
 
@@ -376,11 +510,11 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('补番加载失败')).toBeInTheDocument();
+    expect(await within(await screen.findByLabelText('接着看')).findByText('补番加载失败')).toBeInTheDocument();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(backlogRequests).toBe(1);
-    await userEvent.click(screen.getByRole('tab', { name: '补番计划' }));
-    await userEvent.click(screen.getByRole('button', { name: '重试补番计划' }));
+    await userEvent.click(screen.getByRole('tab', { name: '补番' }));
+    await userEvent.click(screen.getByRole('button', { name: '重试补番片库' }));
     await waitFor(() => expect(backlogRequests).toBe(2));
   });
 
@@ -432,7 +566,7 @@ describe('App', () => {
     const pendingButton = screen.getByRole('button', { name: '同步中 0/4' });
     expect(pendingButton).toBeDisabled();
     expect(pendingButton).toHaveAttribute('aria-busy', 'true');
-    expect(screen.getByRole('tab', { name: /补番计划/ })).toBeEnabled();
+    expect(screen.getByRole('tab', { name: /^补番$/ })).toBeEnabled();
     expect(screen.queryByLabelText('搜索动画')).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/sync')).toHaveLength(1);
 
@@ -440,7 +574,7 @@ describe('App', () => {
       await vi.advanceTimersByTimeAsync(1_000);
     });
 
-    expect(screen.getByRole('status')).toHaveTextContent('同步完成：4 部番剧，48 集分集');
+    expect(screen.getByText('同步完成：4 部番剧，48 集分集')).toHaveAttribute('role', 'status');
     expect(screen.getByRole('button', { name: '立即同步' })).toBeEnabled();
     expect(dashboardRequests).toBe(2);
   });
@@ -523,7 +657,7 @@ describe('App', () => {
     render(<App />);
 
     if (button === '立即校准') {
-      await userEvent.click(await screen.findByRole('tab', { name: '追番', exact: true }));
+      await userEvent.click(await screen.findByRole('tab', { name: /^追番$/ }));
     }
     await userEvent.click(await screen.findByRole('button', { name: button }));
 
@@ -583,29 +717,54 @@ describe('App', () => {
     expect((await screen.findAllByRole('tab')).map((tab) => tab.textContent)).toEqual([
       '今日',
       '追番',
-      '补番计划',
+      '补番',
       '搁置',
       '想看',
       '下季新番',
       '每日放送'
     ]);
-    await screen.findByLabelText('今日补番');
+    await screen.findByLabelText('接着看');
     expect(fetchMock.mock.calls.some(([input]) => input.toString() === '/api/backlog')).toBe(true);
     expect(document.querySelector('.hallmark-workbench')).toBeInTheDocument();
     expect(document.querySelectorAll('.page-tabs .tab-mark')).toHaveLength(7);
     expect(document.querySelector('.app-footer')).toBeInTheDocument();
-    expect(screen.getByLabelText('近期在看').querySelector('img')).toHaveAttribute('src', 'cover.jpg');
+    expect(screen.getByLabelText('接着看')).toHaveTextContent('暂无最近观看');
     expect(screen.getByLabelText('今日追番').querySelector('.title-cover-reel')).not.toBeInTheDocument();
     expect(document.querySelector('.page-ambient-covers')).not.toBeInTheDocument();
-    expect(document.querySelector('.page-ambient-ornament')).toBeInTheDocument();
+    expect(document.querySelector('.page-ambient-ornament')).not.toBeInTheDocument();
     expect(screen.getAllByText('测试番剧').length).toBeGreaterThan(0);
     expect(screen.queryByText('旧番标题')).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('tab', { name: '补番计划' }));
+    await userEvent.click(screen.getByRole('tab', { name: '补番' }));
 
     expect(await screen.findByText('旧番标题')).toBeInTheDocument();
     expect(screen.getByLabelText('搜索动画')).toBeEnabled();
     expect(screen.queryByText('测试番剧')).not.toBeInTheDocument();
+  });
+
+  it('moves keyboard focus through the mobile more menu and keeps the selected page visible', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') return Response.json({ authenticated: true, username: 'sai', nickname: 'Sai', lastSyncAt: null });
+      if (url === '/api/dashboard') return Response.json(dashboard);
+      if (url === '/api/backlog') return Response.json(emptyBacklog);
+      if (url === '/api/held') return Response.json([]);
+      throw new Error(`Unexpected request ${url}`);
+    }));
+
+    render(<App />);
+    const more = await screen.findByRole('button', { name: '更多页面' });
+    const held = screen.getByRole('tab', { name: '搁置' });
+
+    await userEvent.click(more);
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(held).toHaveFocus();
+
+    await userEvent.click(held);
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    expect(more).toHaveFocus();
+    expect(more).toHaveAttribute('aria-current', 'page');
+    expect(more).toHaveTextContent('搁置');
   });
 
   it('optimistically removes a seasonal title when it is held', async () => {
@@ -1018,13 +1177,7 @@ describe('App', () => {
     await userEvent.click(unwatchedButton);
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/subjects/1/watched-through', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify({ episodeId: 12 })
-      });
+      expect(fetchMock).toHaveBeenCalledWith('/api/subjects/1/watched-through', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ episodeId: 12 }) });
     });
   });
 
@@ -1217,7 +1370,7 @@ describe('App', () => {
 
     render(<App />);
 
-    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
+    await userEvent.click(await screen.findByRole('tab', { name: '补番' }));
     await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
     await userEvent.click(screen.getByRole('button', { name: '搜索' }));
     expect(await screen.findAllByText('测试动画')).toHaveLength(2);
@@ -1232,7 +1385,7 @@ describe('App', () => {
         method: 'POST'
       });
     });
-    expect(dashboardRequests).toBe(1);
+    expect(dashboardRequests).toBe(2);
 
     expect(await screen.findByRole('button', { name: '同步中' })).toBeDisabled();
     await waitFor(() => expect(dashboardRequests).toBe(2));
@@ -1271,7 +1424,7 @@ describe('App', () => {
 
     render(<App />);
 
-    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
+    await userEvent.click(await screen.findByRole('tab', { name: '补番' }));
     await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
     await userEvent.click(screen.getByRole('button', { name: '搜索' }));
     await userEvent.click(await screen.findByRole('button', { name: '加入补番' }));
@@ -1320,11 +1473,11 @@ describe('App', () => {
     await userEvent.click(screen.getByRole('button', { name: '关闭同步错误' }));
     expect(screen.queryByText('同步错误：Bangumi 收藏更新失败')).not.toBeInTheDocument();
 
-    const first = screen.getByText('操作 #7 失败').closest('.operation-failure')!;
+    const first = screen.getByText('操作 #7 失败').closest<HTMLElement>('.operation-failure')!;
     await userEvent.click(within(first).getByRole('button', { name: '重试' }));
     await waitFor(() => expect(screen.queryByText('操作 #7 失败')).not.toBeInTheDocument());
 
-    const second = screen.getByText('操作 #8 失败').closest('.operation-failure')!;
+    const second = screen.getByText('操作 #8 失败').closest<HTMLElement>('.operation-failure')!;
     await userEvent.click(within(second).getByRole('button', { name: '忽略记录' }));
     await waitFor(() => expect(screen.queryByText('操作 #8 失败')).not.toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledWith('/api/operations/7/retry', { method: 'POST' });
@@ -1360,7 +1513,7 @@ describe('App', () => {
 
     render(<App />);
 
-    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
+    await userEvent.click(await screen.findByRole('tab', { name: '补番' }));
     await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
     await userEvent.click(screen.getByRole('button', { name: '搜索' }));
     await userEvent.click(await screen.findByRole('button', { name: '加入想看' }));
@@ -1414,7 +1567,7 @@ describe('App', () => {
 
     render(<App />);
 
-    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
+    await userEvent.click(await screen.findByRole('tab', { name: '补番' }));
     await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
     await userEvent.click(screen.getByRole('button', { name: '搜索' }));
 
@@ -1454,7 +1607,7 @@ describe('App', () => {
 
     render(<App />);
 
-    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
+    await userEvent.click(await screen.findByRole('tab', { name: '补番' }));
     await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
     await userEvent.click(screen.getByRole('button', { name: '搜索' }));
     await userEvent.click(await screen.findByRole('button', { name: '恢复补番' }));
@@ -1498,7 +1651,7 @@ describe('App', () => {
 
     render(<App />);
 
-    await userEvent.click(await screen.findByRole('tab', { name: '补番计划' }));
+    await userEvent.click(await screen.findByRole('tab', { name: '补番' }));
     await userEvent.type(await screen.findByLabelText('搜索动画'), '测试');
     await userEvent.click(screen.getByRole('button', { name: '搜索' }));
     await userEvent.click(await screen.findByRole('button', { name: '加入补番' }));

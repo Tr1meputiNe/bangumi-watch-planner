@@ -9,10 +9,67 @@ afterEach(() => {
 });
 
 describe('WishlistView', () => {
+  it('distinguishes a failed load from an empty collection and retries in place', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ error: '想看读取失败' }, { status: 502 }))
+      .mockResolvedValueOnce(Response.json(wishlistData()));
+    vi.stubGlobal('fetch', fetchMock);
+    const onError = vi.fn();
+    render(<WishlistView disabled={false} refreshVersion={0} onSyncStarted={vi.fn()} onError={onError} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('想看读取失败');
+    expect(screen.queryByText('没有符合条件的想看动画。')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '重试想看列表' }));
+
+    expect(await screen.findByText('旧番想看')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps a pending start removed when a refreshed list still includes it', async () => {
+    let resolveStart!: (response: Response) => void;
+    const startResponse = new Promise<Response>((resolve) => { resolveStart = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') return startResponse;
+      return Response.json(wishlistData());
+    }));
+    const props = { disabled: false, onSyncStarted: vi.fn(), onError: vi.fn() };
+    const view = render(<WishlistView {...props} refreshVersion={0} />);
+    await userEvent.click(await screen.findByRole('button', { name: '加入补番' }));
+    view.rerender(<WishlistView {...props} refreshVersion={1} />);
+    await waitFor(() => expect(screen.queryByText('旧番想看')).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: '加入补番' })).not.toBeInTheDocument();
+    resolveStart(Response.json(runningSyncStatus()));
+    await waitFor(() => expect(props.onSyncStarted).toHaveBeenCalled());
+  });
+
+  it('does not cancel a newer filter request when an earlier start finishes', async () => {
+    let resolveStart!: (response: Response) => void;
+    let resolveFilter!: (response: Response) => void;
+    const startResponse = new Promise<Response>((resolve) => { resolveStart = resolve; });
+    const filterResponse = new Promise<Response>((resolve) => { resolveFilter = resolve; });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') return startResponse;
+      if (input.toString().endsWith('year=2026')) return filterResponse;
+      return Response.json(wishlistData());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const onSyncStarted = vi.fn();
+    render(<WishlistView disabled={false} refreshVersion={0} onSyncStarted={onSyncStarted} onError={vi.fn()} />);
+    await userEvent.click(await screen.findByRole('button', { name: '加入补番' }));
+    await userEvent.selectOptions(screen.getByLabelText('年份'), '2026');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/wishlist?q=&year=2026'));
+    await act(async () => { resolveStart(Response.json(runningSyncStatus())); });
+    await act(async () => { resolveFilter(Response.json({ ...wishlistData(), items: [wishlistData().items[0]] })); });
+
+    expect(screen.getByText('1 部')).toBeInTheDocument();
+    expect(screen.getByText('本季度想看')).toBeInTheDocument();
+    expect(screen.queryByText('未来想看')).not.toBeInTheDocument();
+  });
+
   it('filters by debounced name and every year option without writing Bangumi state', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const fetchMock = vi.fn(async () => Response.json(wishlistData()));
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json(wishlistData()));
     vi.stubGlobal('fetch', fetchMock);
     render(<WishlistView disabled={false} refreshVersion={0} onSyncStarted={vi.fn()} onError={vi.fn()} />);
 
@@ -22,7 +79,7 @@ describe('WishlistView', () => {
     expect(document.querySelector('.wishlist-hero-covers')).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: '全部年份' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '年份未知' })).toBeInTheDocument();
-    expect(screen.getByText('我的片单')).toBeInTheDocument();
+    expect(screen.queryByText('我的片单')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '想看' })).toBeInTheDocument();
     expect(screen.queryByText('先收进片库，到合适的季度再开始。')).not.toBeInTheDocument();
 

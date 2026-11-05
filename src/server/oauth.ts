@@ -99,11 +99,8 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
   }
 
   async function loadAccessToken(): Promise<string> {
-    const accessToken = await deps.settings.get(ACCESS_TOKEN);
-    const expiresAt = Number(await deps.settings.get(ACCESS_TOKEN_EXPIRES_AT));
-    if (accessToken && Number.isFinite(expiresAt) && expiresAt > Date.now()) {
-      return accessToken;
-    }
+    const accessToken = await getCachedAccessToken();
+    if (accessToken) return accessToken;
 
     const refreshToken = await deps.tokenStore.getRefreshToken();
     if (!refreshToken) {
@@ -122,6 +119,15 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
     return token.access_token;
   }
 
+  async function getCachedAccessToken(): Promise<string | null> {
+    const [accessToken, expiresAtValue] = await Promise.all([
+      deps.settings.get(ACCESS_TOKEN),
+      deps.settings.get(ACCESS_TOKEN_EXPIRES_AT)
+    ]);
+    const expiresAt = Number(expiresAtValue);
+    return accessToken && Number.isFinite(expiresAt) && expiresAt > Date.now() ? accessToken : null;
+  }
+
   return {
     async createAuthorizationUrl() {
       const credentials = await assertConfigured();
@@ -132,7 +138,6 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
       url.searchParams.set('client_id', credentials.clientId);
       url.searchParams.set('response_type', 'code');
       url.searchParams.set('redirect_uri', redirectUri);
-      url.searchParams.set('scope', 'write:collection');
       url.searchParams.set('state', state);
       return url;
     },
@@ -162,16 +167,16 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
     },
 
     async getAuthStatus() {
-      const [username, nickname, lastSyncAt, refreshToken, launchAgentInstalled, notificationsEnabled, credentials] = await Promise.all([
+      const [username, nickname, lastSyncAt, refreshToken, accessToken, launchAgentInstalled, notificationsEnabled, credentials] = await Promise.all([
         deps.settings.get(USERNAME),
         deps.settings.get(NICKNAME),
         deps.settings.get(LAST_SYNC_AT),
         deps.tokenStore.getRefreshToken(),
+        getCachedAccessToken(),
         deps.getLaunchAgentInstalled?.() ?? Promise.resolve(false),
         deps.notificationsEnabled?.() ?? Promise.resolve(true),
         getCredentials()
       ]);
-      const accessToken = await deps.settings.get(ACCESS_TOKEN);
 
       return {
         authenticated: Boolean(username && (refreshToken || accessToken)),

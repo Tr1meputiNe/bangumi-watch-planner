@@ -14,13 +14,14 @@ import type {
   SyncMode,
   SyncResult
 } from './types.js';
-import { buildBacklogPlan, countSeasonalLoad } from './backlog-planner.js';
 import { BangumiApiError } from './bangumi-client.js';
+import { watchedEpisodeCount } from './db.js';
 import { shiftAirDate } from './broadcast-schedule.js';
 import { isValidDateString } from './reminders.js';
 import { todayInShanghai } from '../shared/date.js';
 
 type SyncedSubject = Pick<SubjectRow, 'id' | 'name' | 'nameCn' | 'eps' | 'epStatus' | 'image' | 'url'>;
+type SyncedEpisode = EpisodeRow & { remoteWatchTime: string | null };
 type AutoWatchQueueItem = { subjectId: number; seasonKey: string };
 const AUTO_WATCH_QUEUE_SETTING = 'auto_watch_queue';
 // ponytail: one local account, replace with a repository transaction if multi-account writes are added.
@@ -174,23 +175,35 @@ export async function syncAnimeCollections({
         completedAt: collectionType === 2 ? existing?.completedAt ?? new Date().toISOString() : null
       });
     } else {
+      const previousEpisodes = existing ? await repository.listSubjectProgressEpisodes(subject.id) : [];
+      const previousTypes = new Map(previousEpisodes.map((episode) => [episode.id, episode.collectionType]));
       const episodes = await getAllSubjectEpisodes(client, subject, broadcastSchedules);
+      const remoteWatchTime = episodes
+        .filter((episode) => episode.collectionType === 2
+          && (!existing?.lastWatchedAt || previousTypes.get(episode.id) !== 2))
+        .map((episode) => episode.remoteWatchTime)
+        .filter((time): time is string => time !== null)
+        .sort()
+        .at(-1);
       const apiTotal = collection.subject.eps ?? 0;
       const premiereDate = collection.subject.date ?? '';
       const resolvedClassification = classification.plannerMode === 'backlog'
         && (isStillUpdating(episodes, today) || (isValidDateString(premiereDate) && premiereDate >= today))
         ? { ...classification, plannerMode: 'seasonal' as const }
         : classification;
+      const eps = Math.max(apiTotal, collection.ep_status, mainEpisodeCount(episodes), highestMainEpisodeNumber(episodes));
       await repository.upsertSubject({
         ...subject,
         ...resolvedClassification,
-        eps: Math.max(apiTotal, collection.ep_status, mainEpisodeCount(episodes), highestMainEpisodeNumber(episodes)),
+        eps,
+        epStatus: watchedEpisodeCount({ id: subject.id, eps }, episodes),
         airDate: getAirDate(collection.subject.date),
         airYear: getAirYear(collection.subject.date),
         totalEpisodesKnown: apiTotal > 0,
         completedAt: null
       });
       await repository.replaceSubjectEpisodes(subject.id, episodes);
+      if (remoteWatchTime) await repository.recordSubjectWatchedAt(subject.id, remoteWatchTime);
       episodesSynced += episodes.length;
     }
 
@@ -229,9 +242,6 @@ export async function syncAnimeCollections({
     throw new Error('Every episode collection failed');
   }
 
-  if (!incremental || changedCollections.some(({ collectionType }) => collectionType !== 1) || removedSubjectIds.length > 0) {
-    await rebuildBacklogPlan({ repository, today, includeToday: false });
-  }
   await repository.setSetting('last_sync_at', new Date().toISOString());
   await repository.setSetting('last_error', '');
   const result: SyncResult = {
@@ -297,69 +307,27 @@ async function readAutoWatchQueue(
   }
 }
 
-export function parseAutoWatchQueue(raw: string | null): AutoWatchQueueItem[] {
+export function parseAutoWatchQueue(value: string | null): AutoWatchQueueItem[] {
   try {
-    const value = JSON.parse(raw ?? '[]') as unknown;
-    if (!Array.isArray(value)) return [];
-    return value.filter((item): item is AutoWatchQueueItem => Boolean(
-      item && typeof item === 'object'
-      && Number.isInteger((item as AutoWatchQueueItem).subjectId)
-      && /^\d{4}Q[1-4]$/.test((item as AutoWatchQueueItem).seasonKey)
-    ));
+    const parsed = JSON.parse(value ?? '[]') as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is AutoWatchQueueItem => {
+      if (!item || typeof item !== 'object') return false;
+      const { subjectId, seasonKey } = item as Partial<AutoWatchQueueItem>;
+      return Number.isInteger(subjectId) && typeof seasonKey === 'string' && /^\d{4}Q[1-4]$/.test(seasonKey);
+    });
   } catch {
     return [];
   }
 }
 
-export async function rebuildBacklogPlan({ repository, today, includeToday }: {
+/** Kept for older integrations; free backlog no longer produces scheduled tasks. */
+export async function rebuildBacklogPlan(_input: {
   repository: SyncRepository;
   today: string;
   includeToday: boolean;
 }): Promise<void> {
-  const throughDate = addDays(today, 6);
-  await repository.prunePlannerState(today);
-  if (!includeToday) await repository.lockBacklogDate(today);
-
-  const [seasonal, backlog, currentTasks, skipped, exclusions, cursorValue] = await Promise.all([
-    repository.listSubjectsByMode('seasonal', [3]),
-    repository.listSubjectsByMode('backlog', [3]),
-    repository.listBacklogTasks(today, throughDate),
-    repository.listSkippedBacklogDates(today, throughDate),
-    repository.listBacklogExclusions(today, throughDate),
-    repository.getSetting('backlog_rotation_cursor')
-  ]);
-  const seasonalEpisodes = seasonal.flatMap((subject) => subject.mainEpisodes)
-    .filter((episode) => episode.airdate >= today && episode.airdate <= throughDate);
-  const backlogEpisodeIds = new Set(backlog.flatMap((subject) => subject.unwatchedMainEpisodes).map((episode) => episode.id));
-  const seasonalLoadByDate = new Map(dateRange(today, throughDate).map((date) => [date, countSeasonalLoad(seasonalEpisodes, date)]));
-  const skippedDates = new Set(skipped);
-  if (!includeToday) skippedDates.add(today);
-  const exclusionsByDate = new Map<string, Set<number>>();
-  for (const exclusion of exclusions) {
-    const episodeIds = exclusionsByDate.get(exclusion.plannedDate) ?? new Set<number>();
-    episodeIds.add(exclusion.episodeId);
-    exclusionsByDate.set(exclusion.plannedDate, episodeIds);
-  }
-
-  const plan = buildBacklogPlan({
-    today,
-    throughDate,
-    seasonalLoadByDate,
-    subjects: backlog.map((subject) => ({ subjectId: subject.id, episodes: subject.unwatchedMainEpisodes })),
-    fixedTasks: currentTasks
-      .filter((task) => task.locked && backlogEpisodeIds.has(task.episodeId))
-      .map(({ episodeId, subjectId, plannedDate, slot }) => ({ episodeId, subjectId, plannedDate, slot, locked: true as const })),
-    skippedDates,
-    exclusions: exclusionsByDate,
-    rotationCursorSubjectId: parseCursor(cursorValue)
-  });
-  await repository.replaceBacklogTasks({
-    fromDate: today,
-    throughDate,
-    preserveLocked: false,
-    tasks: plan.tasks
-  });
-  await repository.setSetting('backlog_rotation_cursor', plan.rotationCursorSubjectId === null ? '' : String(plan.rotationCursorSubjectId));
+  void _input;
 }
 
 async function getBroadcastCatalog(client: BangumiClient): Promise<BroadcastCatalog> {
@@ -394,11 +362,11 @@ async function getAllSubjectEpisodes(
   client: BangumiClient,
   subject: SyncedSubject,
   broadcastTimes: BroadcastCatalog['schedules']
-): Promise<EpisodeRow[]> {
+): Promise<SyncedEpisode[]> {
   const limit = 1000;
   let offset = 0;
   let total = Number.POSITIVE_INFINITY;
-  const episodes: EpisodeRow[] = [];
+  const episodes: SyncedEpisode[] = [];
   const schedule = broadcastTimes.get(subject.id);
 
   while (offset < total) {
@@ -515,7 +483,7 @@ function mapEpisode(
   subject: SyncedSubject,
   collection: BangumiEpisodeCollection,
   schedule?: BroadcastSchedule
-): EpisodeRow {
+): SyncedEpisode {
   const episode = collection.episode;
   return {
     id: episode.id,
@@ -531,6 +499,7 @@ function mapEpisode(
     airdate: shiftAirDate(episode.airdate || '', schedule?.dayOffset ?? 0),
     airTime: schedule?.airTime ?? '',
     collectionType: collection.type,
+    remoteWatchTime: collection.type === 2 ? episodeWatchTime(collection.updated_at) : null,
     dismissedAt: null,
     snoozedUntil: null
   };
@@ -556,20 +525,7 @@ function getAirDate(date: string | undefined): string | null {
   return date && isValidDateString(date) ? date : null;
 }
 
-function parseCursor(value: string | null): number | null {
-  return value && /^[1-9]\d*$/.test(value) ? Number(value) : null;
-}
 
-function dateRange(from: string, through: string): string[] {
-  const dates: string[] = [];
-  for (let date = from; date <= through; date = addDays(date, 1)) dates.push(date);
-  return dates;
-}
-
-function addDays(date: string, days: number): string {
-  const [year, month, day] = date.split('-').map(Number);
-  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
-}
 
 async function runWithConcurrency<T>(
   items: T[],
@@ -595,4 +551,12 @@ async function runWithConcurrency<T>(
 
   await Promise.all(workers);
   if (failed) throw firstError;
+}
+
+function episodeWatchTime(timestamp: number): string | null {
+  // Bangumi chapter collection timestamps use 0 for unknown. Subject collection
+  // timestamps also change on ratings/comments and cannot establish watch order.
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= 0) return null;
+  const time = new Date(timestamp * 1000);
+  return Number.isFinite(time.getTime()) ? time.toISOString() : null;
 }

@@ -67,13 +67,13 @@ describe('shouldNotifyToday', () => {
 });
 
 describe('createDailyNotificationSummary', () => {
-  it('builds two labeled sections when both kinds have tasks', () => {
+  it('ignores legacy backlog tasks and only announces seasonal episodes', () => {
     expect(createDailyNotificationSummary(
       [{ ...baseEpisode, subjectNameCn: '测试新番', ep: 3 }],
       [backlogTask({ episode: { ...baseEpisode, subjectNameCn: '旧番', ep: 2 } })]
     )).toEqual({
       title: '今日追番计划',
-      body: '今日新番待看：测试新番 第 3 集\n今日补番计划：旧番 第 2 集'
+      body: '今日新番待看：测试新番 第 3 集'
     });
   });
 
@@ -82,6 +82,10 @@ describe('createDailyNotificationSummary', () => {
       [{ ...baseEpisode, subjectNameCn: '测试新番', ep: 3 }],
       []
     )?.body).toBe('今日新番待看：测试新番 第 3 集');
+  });
+
+  it('does not send a notification for legacy backlog tasks on their own', () => {
+    expect(createDailyNotificationSummary([], [backlogTask()])).toBeNull();
   });
 
   it('returns null when both sections are empty', () => {

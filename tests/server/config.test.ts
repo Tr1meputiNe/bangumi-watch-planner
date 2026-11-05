@@ -23,23 +23,23 @@ describe('loadConfig', () => {
     }
   });
 
-  it('listens on all interfaces by default so LAN devices can reach the app', () => {
+  it('listens on loopback by default', () => {
     const previousHost = process.env.HOST;
-    delete process.env.HOST;
+    process.env.HOST = '';
 
     try {
-      expect(loadConfig().host).toBe('0.0.0.0');
+      expect(loadConfig().host).toBe('127.0.0.1');
     } finally {
       restoreEnv('HOST', previousHost);
     }
   });
 
-  it('allows the listen host to be overridden', () => {
+  it('allows LAN access when explicitly configured', () => {
     const previousHost = process.env.HOST;
-    process.env.HOST = '127.0.0.1';
+    process.env.HOST = '0.0.0.0';
 
     try {
-      expect(loadConfig().host).toBe('127.0.0.1');
+      expect(loadConfig().host).toBe('0.0.0.0');
     } finally {
       restoreEnv('HOST', previousHost);
     }

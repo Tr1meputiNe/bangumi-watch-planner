@@ -1,357 +1,341 @@
-import { useState } from 'react';
-import {
-  completeBacklog,
-  markWatched,
-  markUnwatched,
-  markWatchedThrough,
-  pauseBacklog,
-  replanBacklogToday,
-  skipBacklogToday,
-  swapBacklogTask
-} from '../api.js';
-import type { BacklogData, BacklogTaskRow, DashboardSubject } from '../../server/types.js';
-import { displayEpisodeTitle, displaySubjectName } from '../../shared/format.js';
-import { MotionValue, motionStyle } from '../motion.js';
+import { Fragment, useEffect, useId, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp, ImageOff, Pause, Search, Shuffle, TvMinimalPlay } from 'lucide-react';
+import { completeBacklog, markWatched, markUnwatched, markWatchedThrough, pauseBacklog } from '../api.js';
+import type { BacklogData, DashboardSubject } from '../../server/types.js';
+import { displayEpisodeTitle, displaySubjectName, episodeProgress } from '../../shared/format.js';
 import WatchProgressGrid from '../WatchProgressGrid.js';
+import CoverImage from '../CoverImage.js';
+import '../backlog.css';
 
-type BacklogViewProps = {
+type Props = {
   data: BacklogData;
   disabled: boolean;
   onChanged(): Promise<void>;
   onError(message: string): void;
 };
+type SortOrder = 'recent' | 'name' | 'remaining';
+type RunAction = (key: string, action: () => Promise<unknown>, message: string) => Promise<void>;
+const PAGE_SIZE = 24;
+const COLLAPSE_MS = 180;
 
-export default function BacklogView({ data, disabled, onChanged, onError }: BacklogViewProps) {
+export default function BacklogView({ data, disabled, onChanged, onError }: Props) {
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<SortOrder>('recent');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [busyAction, setBusyAction] = useState<string | null>(null);
-  const subjectsById = new Map(
-    [...data.active, ...data.held, ...data.completed].map((subject) => [subject.id, subject])
-  );
+  const busyRef = useRef(false);
+  const [notice, setNotice] = useState('');
+  const [candidateIds, setCandidateIds] = useState<number[] | null>(null);
+  const seenCandidates = useRef(new Set<number>());
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [closing, setClosing] = useState(false);
+  const [expandedOrder, setExpandedOrder] = useState<number[] | null>(null);
+  const [columns, setColumns] = useState(2);
+  const libraryRef = useRef<HTMLDivElement>(null);
+  const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const viewId = useId();
+  const panelId = `${viewId}-progress`;
+  const activeById = new Map(data.active.map((subject) => [subject.id, subject]));
+  const recent = (data.recent ?? []).flatMap((subject) => {
+    const active = activeById.get(subject.id);
+    return active ? [active] : [];
+  }).slice(0, 6);
+  const keyword = query.trim().toLocaleLowerCase();
+  const matching = data.active
+    .filter((subject) => `${subject.name}\n${subject.nameCn}`.toLocaleLowerCase().includes(keyword))
+    .sort((a, b) => compareSubjects(a, b, sort));
+  if (expandedOrder) {
+    const positions = new Map(expandedOrder.map((id, index) => [id, index]));
+    matching.sort((a, b) => (positions.get(a.id) ?? Infinity) - (positions.get(b.id) ?? Infinity));
+  }
+  const visibleSubjects = matching.slice(0, visibleCount);
+  const expandedIndex = visibleSubjects.findIndex((subject) => subject.id === expandedId);
+  const expandedSubject = expandedIndex >= 0 ? visibleSubjects[expandedIndex] : null;
+  const panelAfterIndex = expandedIndex >= 0
+    ? Math.min(visibleSubjects.length, Math.ceil((expandedIndex + 1) / columns) * columns) - 1
+    : -1;
+  const hasMatches = matching.length > 0;
+  const eligible = data.active.filter((subject) => subject.nextEpisode !== null);
+  const candidates = (candidateIds ?? []).flatMap((id) => {
+    const subject = activeById.get(id);
+    return subject?.nextEpisode ? [subject] : [];
+  });
+  const actionsDisabled = disabled || busyAction !== null;
 
-  async function runAction(key: string, action: () => Promise<unknown>) {
+  useEffect(() => {
+    const grid = libraryRef.current;
+    if (!grid) return;
+    const measure = (width = grid.getBoundingClientRect().width) => {
+      // These container widths match the gallery's CSS container queries.
+      setColumns(width >= 960 ? 4 : width >= 640 ? 3 : 2);
+    };
+    measure();
+    if (typeof ResizeObserver === 'function') {
+      const observer = new ResizeObserver((entries) => measure(entries[0]?.contentRect.width));
+      observer.observe(grid);
+      return () => observer.disconnect();
+    }
+    const onResize = () => measure();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [hasMatches]);
+
+  useEffect(() => () => {
+    if (collapseTimer.current) clearTimeout(collapseTimer.current);
+  }, []);
+
+  const runAction: RunAction = async (key, action, message) => {
+    if (disabled || busyRef.current) return;
+    busyRef.current = true;
     setBusyAction(key);
+    setNotice('');
     try {
       await action();
       await onChanged();
+      setNotice(message);
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
     } finally {
+      busyRef.current = false;
       setBusyAction(null);
     }
+  };
+
+  function collapseDetails(restoreFocus = true) {
+    if (collapseTimer.current) clearTimeout(collapseTimer.current);
+    if (restoreFocus && expandedId !== null) document.getElementById(`${viewId}-toggle-${expandedId}`)?.focus();
+    const finish = () => {
+      setExpandedId(null);
+      setExpandedOrder(null);
+      setClosing(false);
+      collapseTimer.current = null;
+    };
+    if (!restoreFocus || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      finish();
+      return;
+    }
+    setClosing(true);
+    collapseTimer.current = setTimeout(finish, COLLAPSE_MS);
   }
 
-  const actionsDisabled = disabled || busyAction !== null;
-  const markThrough = (subjectId: number, episodeId: number) => void runAction(`watched-through-${episodeId}`, () => markWatchedThrough(subjectId, episodeId));
-  const markOne = (episodeId: number) => void runAction(`watched-${episodeId}`, () => markWatched(episodeId));
-  const markUnwatchedEpisode = (episodeId: number) => void runAction(`unwatched-${episodeId}`, () => markUnwatched(episodeId));
+  function toggleDetails(subjectId: number) {
+    if (expandedId === subjectId && !closing) {
+      collapseDetails();
+      return;
+    }
+    if (collapseTimer.current) clearTimeout(collapseTimer.current);
+    setClosing(false);
+    // Keep this row in place while a progress update changes recent-viewing order.
+    setExpandedOrder(matching.map((subject) => subject.id));
+    setExpandedId(subjectId);
+  }
+
+  function pickCandidates() {
+    if (disabled || eligible.length === 0) return;
+    let pool = eligible.filter((subject) => !seenCandidates.current.has(subject.id));
+    if (pool.length === 0) {
+      seenCandidates.current.clear();
+      const previous = new Set(candidateIds ?? []);
+      pool = eligible.filter((subject) => !previous.has(subject.id));
+      if (pool.length === 0) pool = [...eligible];
+    }
+    for (let i = pool.length - 1; i > 0; i -= 1) {
+      const randomIndex = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[randomIndex]] = [pool[randomIndex], pool[i]];
+    }
+    const batchSize = Math.min(3, Math.max(1, Math.ceil(eligible.length / 2)));
+    const next = pool.slice(0, batchSize).map((subject) => subject.id);
+    for (const id of next) seenCandidates.current.add(id);
+    setCandidateIds(next);
+  }
 
   return (
-    <div className="backlog-workspace">
-      <header className="backlog-overview" aria-label="补番概览">
-        <div className="backlog-overview-copy">
-          <span className="panel-eyebrow">旧番进度</span>
-          <h1>补番计划</h1>
-          <p>公平轮转多部旧番，依据每日新番负载自动调整。</p>
+    <div className="free-backlog">
+      <header className="free-backlog-hero">
+        <div>
+          <div className="free-backlog-title-line"><h1>补番</h1><span className="free-backlog-count">片库 {data.active.length} 部</span></div>
         </div>
-        <dl className="backlog-overview-stats">
-          <div><dt>今日</dt><dd><MotionValue value={data.todayTasks.length}>{data.todayTasks.length} 集</MotionValue></dd></div>
-          <div><dt>进行中</dt><dd><MotionValue value={data.active.length}>{data.active.length} 部</MotionValue></dd></div>
-          <div><dt>预计完成</dt><dd>{data.estimatedCompletionDate || '待估算'}</dd></div>
-        </dl>
+        <button type="button" className="secondary free-backlog-pick" onClick={pickCandidates}
+          disabled={actionsDisabled || eligible.length === 0 || (eligible.length === 1 && candidates[0]?.id === eligible[0].id)}>
+          <Shuffle size={17} aria-hidden="true" />{candidateIds === null ? '帮我挑一部' : '换一批'}
+        </button>
       </header>
+      <p role="status" aria-live="polite" className="free-backlog-notice">{notice}</p>
 
-      <section className="backlog-section backlog-today" aria-label="今日任务">
-        <header className="backlog-section-header">
-          <div>
-            <span className="panel-eyebrow">今天</span>
-            <h1>今日任务</h1>
-            <p><time dateTime={data.today}>{formatPlanDate(data.today)}</time> · 安排 {data.todayTasks.length} 集</p>
-          </div>
-          <div className="backlog-day-actions">
-            <button
-              type="button"
-              className="secondary"
-              disabled={actionsDisabled}
-              onClick={() => void runAction('skip-today', skipBacklogToday)}
-            >
-              今天跳过
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              disabled={actionsDisabled}
-              onClick={() => void runAction('replan-today', replanBacklogToday)}
-            >
-              重新规划今天
-            </button>
-          </div>
-        </header>
-        {data.todayTasks.length > 0 ? (
-          <div className="backlog-task-list">
-            {data.todayTasks.map((task, index) => (
-              <BacklogTask
-                key={task.id}
-                task={task}
-                index={index + 1}
-                subject={subjectsById.get(task.subjectId)}
-                disabled={actionsDisabled}
-                busyAction={busyAction}
-                onAction={runAction}
-              />
-            ))}
+      <section className="free-backlog-section free-backlog-recent-section" aria-label="最近在看">
+        <header className="free-backlog-section-heading"><h2>最近在看</h2></header>
+        {recent.length > 0 ? (
+          <div className="free-backlog-recent">
+            {recent.map((subject) => <CompactSubjectCard key={subject.id} subject={subject} />)}
           </div>
         ) : (
-          <div className="empty backlog-today-empty">
-            <span>今天没有补番任务。</span>
+          <div className="free-backlog-recent-empty"><span className="free-backlog-recent-icon"><TvMinimalPlay size={19} aria-hidden="true" /></span><p>暂无最近观看</p></div>
+        )}
+      </section>
+
+      {candidateIds !== null ? (
+        <section className="free-backlog-section free-backlog-discovery" aria-label="按需挑选">
+          <header className="free-backlog-section-heading"><h2>这次的候选</h2></header>
+          <div aria-label="这次的候选" className="free-backlog-recent">
+            {candidates.length > 0 ? candidates.map((subject) => <CompactSubjectCard key={subject.id} subject={subject} />)
+              : <p className="free-backlog-empty">暂无候选</p>}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="free-backlog-section" aria-label="全部待补">
+        <header className="free-backlog-section-heading free-backlog-library-heading">
+          <div className="free-backlog-title-line"><h2>全部待补</h2><span className="free-backlog-count">{keyword ? `${matching.length} 部符合` : `${data.active.length} 部`}</span></div>
+          <div className="free-backlog-toolbar">
+            <label className="free-backlog-search">
+              <Search size={16} aria-hidden="true" />
+              <input type="search" aria-label="搜索补番" placeholder="搜索中文名或原名" value={query}
+                onChange={(event) => { setQuery(event.target.value); setVisibleCount(PAGE_SIZE); collapseDetails(false); }} />
+            </label>
+            <select aria-label="补番排序" value={sort} className="free-backlog-sort"
+              onChange={(event) => { setSort(event.target.value as SortOrder); setVisibleCount(PAGE_SIZE); collapseDetails(false); }}>
+              <option value="recent">最近看过</option><option value="name">名称</option><option value="remaining">剩余集数少的优先</option>
+            </select>
+          </div>
+        </header>
+        {hasMatches ? (
+          <div className="free-backlog-library-container">
+            <div className="free-backlog-library" ref={libraryRef}>
+              {visibleSubjects.map((subject, index) => (
+                <Fragment key={subject.id}>
+                  <LibrarySubjectCard subject={subject} expanded={expandedId === subject.id && !closing}
+                    toggleId={`${viewId}-toggle-${subject.id}`} panelId={panelId} onToggle={() => toggleDetails(subject.id)}
+                    disabled={actionsDisabled} busyAction={busyAction} onAction={runAction} />
+                  {index === panelAfterIndex && expandedSubject ? (
+                    <SubjectProgressPanel subject={expandedSubject} panelId={panelId} closing={closing}
+                      disabled={actionsDisabled} busyAction={busyAction} onAction={runAction} onCollapse={() => collapseDetails()} />
+                  ) : null}
+                </Fragment>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="free-backlog-empty">
+            {data.active.length === 0 ? <><p>还没有待补的动画。</p><span>从「想看」添加</span></>
+              : <><p>没有找到符合条件的动画。</p><button type="button" className="ghost" onClick={() => { setQuery(''); setVisibleCount(PAGE_SIZE); }}>清除搜索</button></>}
           </div>
         )}
-        <p className="completion-estimate">
-          {data.estimatedCompletionDate ? `预计完成 ${data.estimatedCompletionDate}` : '当前负载下无法估算'}
-        </p>
+        {!expandedSubject ? <div id={panelId} hidden /> : null}
+        {matching.length > visibleCount ? (
+          <div className="free-backlog-more"><button type="button" className="secondary" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>再显示 {Math.min(PAGE_SIZE, matching.length - visibleCount)} 部</button><span>已显示 {visibleCount} / {matching.length} 部</span></div>
+        ) : null}
       </section>
-
-      <section className="backlog-section backlog-week" aria-label="未来 7 天">
-        <header className="backlog-section-header">
-          <div>
-            <span className="panel-eyebrow">接下来</span>
-            <h2>未来 7 天</h2>
-          </div>
-          <span className="backlog-section-count">按新番负载动态排期</span>
-        </header>
-        <div className="backlog-days">
-          {data.futureDays.map((day, dayIndex) => (
-            <section key={day.date} className="backlog-day motion-item" style={motionStyle(dayIndex, `backlog-day-${day.date}`)} aria-label={day.date}>
-              <header>
-                <strong>{formatPlanDate(day.date)}</strong>
-                <span>新番 {day.seasonalLoad} 集 · 可补 {day.capacity} 集</span>
-              </header>
-              {day.tasks.length > 0 ? (
-                <ul>
-                  {day.tasks.map((task, taskIndex) => {
-                    const subject = subjectsById.get(task.subjectId);
-                    return (
-                      <li key={task.id} className="backlog-day-task motion-item" style={motionStyle(taskIndex, `backlog-future-task-${task.id}`)}>
-                        <a className="backlog-day-cover" href={task.episode.subjectUrl} target="_blank" rel="noreferrer" aria-label={taskLabel(task)}>
-                          {subject?.image ? <img src={subject.image} alt="" /> : <span>{episodeNumber(task)}</span>}
-                        </a>
-                        <span>{taskLabel(task)}</span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <p>无补番任务</p>
-              )}
-            </section>
-          ))}
-        </div>
-      </section>
-
-      <div className="backlog-library">
-        <SubjectSection
-          title="进行中"
-          subjects={data.active}
-          empty="没有进行中的补番。"
-          disabled={disabled || busyAction !== null}
-          onWatchedThrough={markThrough}
-          onWatched={markOne}
-          onUnwatched={markUnwatchedEpisode}
-          renderActions={(subject) => (
-            <>
-              <button
-                type="button"
-                className="secondary"
-                  disabled={actionsDisabled}
-                onClick={() => void runAction(`pause-${subject.id}`, () => pauseBacklog(subject.id))}
-              >
-                搁置
-              </button>
-              {!subject.totalEpisodesKnown ? (
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={actionsDisabled}
-                  onClick={() => void runAction(`complete-${subject.id}`, () => completeBacklog(subject.id))}
-                >
-                  手动完成
-                </button>
-              ) : null}
-            </>
-          )}
-        />
-      </div>
     </div>
   );
 }
 
-function BacklogTask({
-  task,
-  index,
-  subject,
-  disabled,
-  busyAction,
-  onAction
-}: {
-  task: BacklogTaskRow;
-  index: number;
-  subject?: DashboardSubject;
+function LibrarySubjectCard({ subject, expanded, toggleId, panelId, onToggle, disabled, busyAction, onAction }: {
+  subject: DashboardSubject;
+  expanded: boolean;
+  toggleId: string;
+  panelId: string;
+  onToggle(): void;
   disabled: boolean;
   busyAction: string | null;
-  onAction(key: string, action: () => Promise<unknown>): Promise<void>;
+  onAction: RunAction;
 }) {
+  const title = displaySubjectName(subject.name, subject.nameCn);
   return (
-    <article className="backlog-task motion-item" style={motionStyle(index - 1, `backlog-task-${task.id}`)}>
-      <a className="backlog-task-cover" href={task.episode.subjectUrl} target="_blank" rel="noreferrer" aria-label={taskLabel(task)}>
-        {subject?.image ? <img src={subject.image} alt="" /> : <span>{String(index).padStart(2, '0')}</span>}
-      </a>
-      <div className="backlog-task-copy">
-        <span className="backlog-task-meta">任务 {String(index).padStart(2, '0')} · 第 {episodeNumber(task)} 集</span>
-        <a href={task.episode.subjectUrl} target="_blank" rel="noreferrer">{taskLabel(task)}</a>
-        <p>{task.episode.nameCn || task.episode.name || `第 ${episodeNumber(task)} 集`}</p>
+    <article className={`free-backlog-card${expanded ? ' is-expanded' : ''}`} aria-label={title}>
+      <SubjectCover subject={subject} />
+      <div className="free-backlog-card-copy">
+        <h3 title={title}><a href={subject.url} target="_blank" rel="noreferrer">{title}</a></h3>
+        <p className="free-backlog-original-name" title={subject.name}>{subject.nameCn && subject.name !== subject.nameCn ? subject.name : ''}</p>
+        <SubjectProgress subject={subject} />
       </div>
-      <div className="backlog-task-actions">
-        <button
-          type="button"
-          disabled={disabled || busyAction === `watched-${task.episodeId}`}
-          onClick={() => void onAction(`watched-${task.episodeId}`, () => markWatched(task.episodeId))}
-        >
-          已看
+      <div className="free-backlog-card-actions">
+        <button type="button" id={toggleId} className="secondary free-backlog-expand" aria-expanded={expanded} aria-controls={panelId} onClick={onToggle}>
+          {expanded ? '收起集数' : '展开集数'}<ChevronDown size={15} aria-hidden="true" />
         </button>
-        <button
-          type="button"
-          className="ghost"
-          disabled={disabled || busyAction === `swap-${task.episodeId}`}
-          onClick={() => void onAction(`swap-${task.episodeId}`, () => swapBacklogTask(task.episodeId))}
-        >
-          换一部
-        </button>
+        <button type="button" className="ghost free-backlog-pause" disabled={disabled} aria-busy={busyAction === `pause-${subject.id}`}
+          aria-label={`搁置《${title}》`} title="搁置，保留观看进度"
+          onClick={() => void onAction(`pause-${subject.id}`, () => pauseBacklog(subject.id), `已搁置《${title}》`)}><Pause size={17} aria-hidden="true" /></button>
       </div>
     </article>
   );
 }
 
-function SubjectSection({
-  title,
-  subjects,
-  empty,
-  disabled,
-  onWatchedThrough,
-  onWatched,
-  onUnwatched,
-  renderActions
-}: {
-  title: string;
-  subjects: DashboardSubject[];
-  empty: string;
-  disabled: boolean;
-  onWatchedThrough: (subjectId: number, episodeId: number) => void;
-  onWatched: (episodeId: number) => void;
-  onUnwatched: (episodeId: number) => void;
-  renderActions?: (subject: DashboardSubject) => React.ReactNode;
-}) {
+function CompactSubjectCard({ subject }: { subject: DashboardSubject }) {
+  const title = displaySubjectName(subject.name, subject.nameCn);
   return (
-    <section className="backlog-section backlog-subject-section" aria-label={title}>
-      <header className="backlog-section-header">
-        <div><span className="panel-eyebrow">补番片库</span><h2>{title}</h2></div>
-        <strong className="backlog-section-count"><MotionValue value={subjects.length}>{subjects.length} 部</MotionValue></strong>
-      </header>
-      {subjects.length > 0 ? (
-        <div className="backlog-subject-list">
-          {subjects.map((subject, index) => (
-            <BacklogSubjectItem
-              key={subject.id}
-              index={index}
-              subject={subject}
-              disabled={disabled}
-              renderActions={renderActions}
-              onWatchedThrough={onWatchedThrough}
-              onWatched={onWatched}
-              onUnwatched={onUnwatched}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="empty">{empty}</div>
-      )}
+    <article className="free-backlog-card is-compact" aria-label={title}>
+      <SubjectCover subject={subject} />
+      <div className="free-backlog-card-copy">
+        <h3><a href={subject.url} target="_blank" rel="noreferrer">{title}</a></h3>
+        <SubjectProgress subject={subject} />
+      </div>
+    </article>
+  );
+}
+
+function SubjectCover({ subject }: { subject: DashboardSubject }) {
+  const title = displaySubjectName(subject.name, subject.nameCn);
+  return (
+    <a className="free-backlog-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={`${title} Bangumi 条目`}>
+      <CoverImage src={subject.image} alt={`${title}封面`} fallbackClassName="free-backlog-cover-placeholder" fallback={<><ImageOff size={24} aria-hidden="true" /><span>暂无封面</span></>} />
+    </a>
+  );
+}
+
+function SubjectProgress({ subject }: { subject: DashboardSubject }) {
+  const percent = subject.eps > 0 ? Math.min(100, Math.max(0, Math.round(subject.epStatus / subject.eps * 100))) : 0;
+  return (
+    <div className="free-backlog-progress">
+      <span>{subject.epStatus} / {subject.totalEpisodesKnown && subject.eps > 0 ? subject.eps : '?'} 集</span>
+      <div className="free-backlog-progress-track" aria-hidden="true"><i style={{ width: `${percent}%` }} /></div>
+    </div>
+  );
+}
+
+function SubjectProgressPanel({ subject, panelId, closing, disabled, busyAction, onAction, onCollapse }: {
+  subject: DashboardSubject;
+  panelId: string;
+  closing: boolean;
+  disabled: boolean;
+  busyAction: string | null;
+  onAction: RunAction;
+  onCollapse(): void;
+}) {
+  const title = displaySubjectName(subject.name, subject.nameCn);
+  const next = subject.nextEpisode;
+  const episodes = subject.progressEpisodes ?? subject.mainEpisodes ?? [];
+  return (
+    <section id={panelId} className={`free-backlog-details${closing ? ' is-closing' : ''}`} role="region" aria-label={`${title}观看进度`} aria-hidden={closing || undefined} inert={closing}>
+      <div className="free-backlog-details-clip"><div className="free-backlog-details-inner">
+        <header className="free-backlog-details-heading">
+          <div><h3>{title}<span>观看进度</span></h3><p>{next ? `下一集 · 第 ${episodeProgress(next)} 集 · ${displayEpisodeTitle(next.name, next.nameCn, next.sort)}` : '暂无未看的本篇集数'}</p></div>
+          <button type="button" className="ghost" aria-label={`收起《${title}》的集数`} onClick={onCollapse}>收起<ChevronUp size={15} aria-hidden="true" /></button>
+        </header>
+        {episodes.length > 0 || subject.eps > 0 ? (
+          <WatchProgressGrid subjectTitle={title} episodes={episodes} totalEpisodes={subject.eps} disabled={disabled}
+            motionKey={`backlog-episode-${subject.id}`}
+            onWatchedThrough={(episodeId) => void onAction(`watched-through-${episodeId}`, () => markWatchedThrough(subject.id, episodeId), '进度已更新')}
+            onWatched={(episodeId) => void onAction(`watched-${episodeId}`, () => markWatched(episodeId), '进度已更新')}
+            onUnwatched={(episodeId) => void onAction(`unwatched-${episodeId}`, () => markUnwatched(episodeId), '进度已更新')} />
+        ) : <p className="free-backlog-empty">暂无分集信息</p>}
+        {!subject.totalEpisodesKnown ? <div className="free-backlog-manual-complete"><span>总集数未知</span><button type="button" className="secondary" disabled={disabled} aria-busy={busyAction === `complete-${subject.id}`}
+          onClick={() => void onAction(`complete-${subject.id}`, () => completeBacklog(subject.id), `已将《${title}》标为看过`)}>手动完成</button></div> : null}
+      </div></div>
     </section>
   );
 }
 
-function BacklogSubjectItem({
-  index,
-  subject,
-  disabled,
-  renderActions,
-  onWatchedThrough,
-  onWatched,
-  onUnwatched
-}: {
-  index: number;
-  subject: DashboardSubject;
-  disabled: boolean;
-  renderActions?: (subject: DashboardSubject) => React.ReactNode;
-  onWatchedThrough: (subjectId: number, episodeId: number) => void;
-  onWatched: (episodeId: number) => void;
-  onUnwatched: (episodeId: number) => void;
-}) {
-  const subjectTitle = displaySubjectName(subject.name, subject.nameCn);
-  const progressText = `${subject.epStatus} / ${subject.eps || '?'}`;
-  const progressPercent = subject.eps > 0 ? Math.min(100, Math.round((subject.epStatus / subject.eps) * 100)) : 0;
-  const episodeOptions = subject.progressEpisodes ?? subject.mainEpisodes ?? subject.unwatchedMainEpisodes ?? [];
-  const unwatchedProgressCount = subject.unwatchedProgressEpisodeCount
-    ?? episodeOptions.filter((episode) => episode.collectionType !== 2).length;
-
-  return (
-    <article className="subject-row backlog-subject-row motion-item" style={motionStyle(index, `backlog-subject-${subject.id}`)}>
-      <a className="subject-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={subjectTitle}>
-        {subject.image ? <img src={subject.image} alt="" /> : <span>{subject.nameCn || subject.name}</span>}
-      </a>
-      <div className="subject-detail">
-        <div className="subject-heading">
-          <a href={subject.url} target="_blank" rel="noreferrer">{subjectTitle}</a>
-          <span>{unwatchedProgressCount > 0 ? `${unwatchedProgressCount} 集未看` : '已同步'}</span>
-        </div>
-        <div className="progress-row">
-          <MotionValue value={progressText}>{progressText}</MotionValue>
-          <div className="progress-track" aria-hidden="true"><i style={{ width: `${progressPercent}%` }} /></div>
-        </div>
-        {subject.nextEpisode ? (
-          <p>下一集：{displayEpisodeTitle(subject.nextEpisode.name, subject.nextEpisode.nameCn, subject.nextEpisode.sort)} · {formatEpisodeAirdate(subject.nextEpisode.airdate, subject.nextEpisode.airTime)}</p>
-        ) : <p>暂无未看的本篇集数</p>}
-        {subject.eps > 0 || episodeOptions.length > 0 ? (
-          <WatchProgressGrid
-            subjectTitle={subjectTitle}
-            episodes={episodeOptions}
-            totalEpisodes={subject.eps}
-            disabled={disabled}
-            motionKey="backlog-episode"
-            onWatchedThrough={(episodeId) => onWatchedThrough(subject.id, episodeId)}
-            onWatched={onWatched}
-            onUnwatched={onUnwatched}
-          />
-        ) : null}
-        {renderActions ? <div className="backlog-subject-actions">{renderActions(subject)}</div> : null}
-      </div>
-    </article>
-  );
-}
-
-function taskLabel(task: BacklogTaskRow): string {
-  return `${task.episode.subjectNameCn || task.episode.subjectName} 第 ${episodeNumber(task)} 集`;
-}
-
-function episodeNumber(task: BacklogTaskRow): number {
-  return task.episode.ep ?? task.episode.sort;
-}
-
-function formatEpisodeAirdate(airdate: string, airTime = ''): string {
-  if (airdate && airTime) return `播出时间：${airdate} ${airTime}`;
-  if (airdate) return `播出日期：${airdate} · 具体时间未知`;
-  return '播出时间未知';
-}
-
-function formatPlanDate(date: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', weekday: 'short'
-  }).format(new Date(`${date}T12:00:00+08:00`));
+function compareSubjects(a: DashboardSubject, b: DashboardSubject, sort: SortOrder): number {
+  if (sort === 'remaining') {
+    const remainingA = a.totalEpisodesKnown && a.eps > 0 ? Math.max(0, a.eps - a.epStatus) : Infinity;
+    const remainingB = b.totalEpisodesKnown && b.eps > 0 ? Math.max(0, b.eps - b.epStatus) : Infinity;
+    if (remainingA !== remainingB) return remainingA - remainingB;
+  }
+  if (sort === 'recent') {
+    const aTime = a.lastWatchedAt ? Date.parse(a.lastWatchedAt) : 0;
+    const bTime = b.lastWatchedAt ? Date.parse(b.lastWatchedAt) : 0;
+    const difference = (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+    if (difference) return difference;
+  }
+  return displaySubjectName(a.name, a.nameCn).localeCompare(displaySubjectName(b.name, b.nameCn), 'zh-CN', { numeric: true }) || a.id - b.id;
 }

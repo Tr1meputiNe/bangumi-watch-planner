@@ -46,3 +46,25 @@ describe('LongPressButton', () => {
     expect(onCommit).toHaveBeenCalledOnce();
   });
 });
+
+it('cancels a pending long press when the control becomes disabled', () => {
+  vi.useFakeTimers();
+  const onCommit = vi.fn();
+  const { rerender } = render(<LongPressButton subjectTitle="测试番剧" onCommit={onCommit} />);
+  fireEvent.keyDown(screen.getByRole('button'), { key: 'Enter' });
+  act(() => vi.advanceTimersByTime(800));
+  rerender(<LongPressButton subjectTitle="测试番剧" disabled onCommit={onCommit} />);
+  act(() => vi.advanceTimersByTime(1_500));
+  expect(onCommit).not.toHaveBeenCalled();
+  expect(screen.getByRole('button')).not.toHaveClass('is-pressing');
+});
+
+it('cancels a pending long press when the window loses focus', () => {
+  vi.useFakeTimers();
+  const onCommit = vi.fn();
+  render(<LongPressButton subjectTitle="测试番剧" onCommit={onCommit} />);
+  fireEvent.keyDown(screen.getByRole('button'), { key: 'Enter' });
+  fireEvent.blur(window);
+  act(() => vi.advanceTimersByTime(1_500));
+  expect(onCommit).not.toHaveBeenCalled();
+});

@@ -528,6 +528,62 @@ describe('HTTP API', () => {
     await app.close();
   });
 
+  it('explains a rejected OAuth scope without treating it as a missing code', async () => {
+    const handleCallback = vi.fn();
+    const app = buildApp({
+      auth: {
+        createAuthorizationUrl: vi.fn(),
+        handleCallback,
+        getAccessToken: vi.fn(),
+        getAuthStatus: vi.fn()
+      },
+      dashboard: {
+        getDashboard: vi.fn(),
+        syncNow: vi.fn(),
+        markEpisodeWatched: vi.fn(),
+        dismissEpisode: vi.fn()
+      },
+      staticRoot: null
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/auth/callback?error=invalid_scope&error_description=An+unsupported+scope+was+requested&state=state-1'
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toContain('不支持的权限');
+    expect(response.body).toContain('重新登录');
+    expect(handleCallback).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('returns to the app when an OAuth callback is opened without parameters', async () => {
+    const app = buildApp({
+      auth: {
+        createAuthorizationUrl: vi.fn(),
+        handleCallback: vi.fn(),
+        getAccessToken: vi.fn(),
+        getAuthStatus: vi.fn()
+      },
+      dashboard: {
+        getDashboard: vi.fn(),
+        syncNow: vi.fn(),
+        markEpisodeWatched: vi.fn(),
+        dismissEpisode: vi.fn()
+      },
+      staticRoot: null
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/auth/callback' });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe('/');
+
+    await app.close();
+  });
+
   it('returns an already authenticated user home after a stale OAuth callback', async () => {
     const startSync = vi.fn();
     const app = buildApp({

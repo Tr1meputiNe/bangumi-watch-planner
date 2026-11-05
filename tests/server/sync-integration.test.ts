@@ -197,10 +197,11 @@ describe('collection sync integration', () => {
     await expect(repository.getSubject(150)).resolves.toMatchObject({ plannerMode: 'seasonal' });
     await expect(repository.getSubject(151)).resolves.toMatchObject({ plannerMode: 'backlog' });
     await expect(repository.getSubject(152)).resolves.toMatchObject({ collectionType: 4, plannerMode: 'seasonal' });
-    expect((await repository.listBacklogTasks('2026-07-19', '2026-07-25')).some((item) => item.subjectId === 150)).toBe(false);
+    // Legacy rows are inert; classification no longer consults or rewrites the old task table.
+    expect((await repository.listBacklogTasks('2026-07-19', '2026-07-25')).some((item) => item.subjectId === 150)).toBe(true);
   });
 
-  it('rebuilds tomorrow through day six while preserving locked today and planner overrides', async () => {
+  it('does not generate or modify legacy tasks when an older integration requests a plan', async () => {
     await repository.upsertSubject({ ...subjectWrite(1, 3), plannerMode: 'seasonal' });
     await repository.replaceSubjectEpisodes(1, [episodeRow(11, 1, '2026-07-26')]);
     await repository.upsertSubject({ ...subjectWrite(2, 3), plannerMode: 'backlog' });
@@ -226,19 +227,15 @@ describe('collection sync integration', () => {
     await rebuildBacklogPlan({ repository, today: '2026-07-19', includeToday: false });
 
     const tasks = await repository.listBacklogTasks('2026-07-18', '2026-07-26');
-    expect(tasks).toContainEqual(expect.objectContaining({ episodeId: 22, plannedDate: '2026-07-19', locked: true }));
-    expect(tasks.some((item) => item.plannedDate === '2026-07-20')).toBe(false);
-    expect(tasks).toContainEqual(expect.objectContaining({ episodeId: 21 }));
-    expect(tasks.find((item) => item.episodeId === 21)?.plannedDate).not.toBe('2026-07-21');
-    expect(tasks.every((item) => item.plannedDate >= '2026-07-19' && item.plannedDate <= '2026-07-25')).toBe(true);
-    await expect(repository.listSkippedBacklogDates('2026-07-19', '2026-07-25')).resolves.toEqual(['2026-07-20']);
-    await expect(repository.listBacklogExclusions('2026-07-19', '2026-07-25')).resolves.toEqual([
-      { plannedDate: '2026-07-21', episodeId: 21 }
+    expect(tasks.map(({ episodeId, plannedDate, locked }) => ({ episodeId, plannedDate, locked }))).toEqual([
+      { episodeId: 21, plannedDate: '2026-07-18', locked: false },
+      { episodeId: 22, plannedDate: '2026-07-19', locked: false },
+      { episodeId: 23, plannedDate: '2026-07-20', locked: false }
     ]);
-    expect(await repository.getSetting('backlog_rotation_cursor')).toBe('2');
+    expect(await repository.getSetting('backlog_rotation_cursor')).toBeNull();
   });
 
-  it('does not add more tasks today after the planned tasks are watched', async () => {
+  it('records freely chosen episodes without creating daily or future tasks', async () => {
     await repository.upsertSubject({ ...subjectWrite(2, 3), plannerMode: 'backlog' });
     await repository.replaceSubjectEpisodes(2, [
       episodeRow(21, 2, '2020-01-01'),
@@ -248,7 +245,7 @@ describe('collection sync integration', () => {
     ]);
     await rebuildBacklogPlan({ repository, today: '2026-07-19', includeToday: true });
     const plannedToday = await repository.listBacklogTasks('2026-07-19', '2026-07-19');
-    expect(plannedToday).toHaveLength(2);
+    expect(plannedToday).toHaveLength(0);
 
     const service = createDashboardService({
       auth: {
@@ -262,12 +259,12 @@ describe('collection sync integration', () => {
       clock: () => new Date('2026-07-19T04:00:00.000Z')
     });
 
-    for (const task of plannedToday) {
-      await service.markEpisodeWatched(task.episodeId);
-    }
+    await service.markEpisodeWatched(21);
+    await vi.waitFor(async () => expect(await repository.countPendingOperations()).toBe(0));
 
     await expect(repository.listBacklogTasks('2026-07-19', '2026-07-19')).resolves.toEqual([]);
-    expect(await repository.listBacklogTasks('2026-07-20', '2026-07-25')).not.toHaveLength(0);
+    expect(await repository.listBacklogTasks('2026-07-20', '2026-07-25')).toHaveLength(0);
+    expect((await service.getBacklog()).recent?.map((item) => item.id)).toEqual([2]);
   });
 
   it('updates SQLite before a queued Bangumi episode write finishes', async () => {

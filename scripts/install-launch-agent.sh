@@ -37,8 +37,9 @@ while IFS= read -r line; do
   printf '%s\n' "$line"
 done < "$TEMPLATE" > "$TARGET"
 
-launchctl unload "$TARGET" >/dev/null 2>&1 || true
-launchctl load "$TARGET"
+DOMAIN="gui/$(id -u)"
+launchctl bootout "$DOMAIN" "$TARGET" >/dev/null 2>&1 || true
+launchctl bootstrap "$DOMAIN" "$TARGET"
 
 echo "Installed $PLIST_ID"
 echo "Open http://127.0.0.1:3777 after the service starts."

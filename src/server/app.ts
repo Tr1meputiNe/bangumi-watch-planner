@@ -1,5 +1,6 @@
 import fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
+import { createCoverImageLoader, type CoverImageLoader } from './cover-images.js';
 import type { DashboardService, OAuthConfigInput, OAuthManager, SettingsService } from './types.js';
 
 type AppDeps = {
@@ -10,12 +11,21 @@ type AppDeps = {
   afterOAuthUserLoaded?: () => Promise<void>;
   logger?: boolean;
   apiToken?: string | null;
+  coverImages?: CoverImageLoader;
 };
 
 const API_TOKEN_COOKIE = 'bwp_token';
 
-export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUserLoaded, logger = false, apiToken = null }: AppDeps) {
+export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUserLoaded, logger = false, apiToken = null, coverImages = createCoverImageLoader() }: AppDeps) {
   const app = fastify({ logger });
+
+  app.get<{ Querystring: { url?: string } }>('/api/images/cover', async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    const image = await coverImages(request.query.url ?? '');
+    return reply.header('cache-control', 'public, max-age=86400')
+      .header('x-content-type-options', 'nosniff')
+      .type(image.contentType).send(image.data);
+  });
 
   app.addHook('preHandler', async (request, reply) => {
     if (!apiToken) return;
@@ -48,10 +58,17 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
     return reply.redirect(url.toString());
   });
 
-  app.get<{ Querystring: { code?: string; state?: string } }>('/auth/callback', async (request, reply) => {
-    const { code, state } = request.query;
+  app.get<{ Querystring: { code?: string; state?: string; error?: string } }>('/auth/callback', async (request, reply) => {
+    const { code, state, error } = request.query;
+    if (error) {
+      const message = error === 'invalid_scope'
+        ? 'Bangumi 拒绝授权：请求了不支持的权限。请返回首页重新登录。'
+        : 'Bangumi 授权失败，请返回首页重新登录。';
+      return reply.code(400).type('text/plain').send(message);
+    }
+    if (!code && !state) return reply.redirect('/');
     if (!code || !state) {
-      return reply.code(400).type('text/plain').send('Missing OAuth code or state');
+      return reply.code(400).type('text/plain').send('Bangumi 登录链接不完整，请返回首页重新登录。');
     }
 
     try {

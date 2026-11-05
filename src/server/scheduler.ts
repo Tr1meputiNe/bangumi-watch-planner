@@ -35,12 +35,8 @@ export async function runReminderCheck(deps: Omit<SchedulerDeps, 'cronExpression
   if (!(await deps.notificationsEnabled())) return;
 
   const dashboard = await deps.dashboard.getDashboard();
-  const backlog = await deps.dashboard.getBacklog();
   const today = todayInShanghai(deps.clock?.());
-  const summary = createDailyNotificationSummary(
-    dashboard.pendingEpisodes,
-    backlog.todayTasks.filter((task) => task.plannedDate === today)
-  );
+  const summary = createDailyNotificationSummary(dashboard.pendingEpisodes);
   if (!summary) return;
 
   const lastNotificationDate = await deps.repository.getLastNotificationDate();

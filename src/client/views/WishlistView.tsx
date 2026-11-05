@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { getWishlist, startSubject } from '../api.js';
+import CoverImage from '../CoverImage.js';
 import type { SyncStatus, WishlistData } from '../../server/types.js';
 import { displaySubjectName } from '../../shared/format.js';
 import { commitWithMotion, MotionValue, motionStyle } from '../motion.js';
+import '../secondary-views.css';
 
 type WishlistViewProps = {
   disabled: boolean;
@@ -19,6 +21,10 @@ export default function WishlistView({ disabled, refreshVersion, onSyncStarted, 
   const [year, setYear] = useState<number | null | 'unknown'>(null);
   const [data, setData] = useState<WishlistData>(emptyWishlist);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryVersion, setRetryVersion] = useState(0);
+  const [startingIds, setStartingIds] = useState<Set<number>>(new Set());
+  const pendingStarts = useRef(new Set<number>());
   const requestSequence = useRef(0);
   const filterKey = `${debouncedQuery}\n${year ?? 'all'}`;
   const filterKeyRef = useRef(filterKey);
@@ -34,15 +40,22 @@ export default function WishlistView({ disabled, refreshVersion, onSyncStarted, 
 
     async function loadWishlist() {
       const sequence = ++requestSequence.current;
+      const startingAtRequest = new Set(pendingStarts.current);
       setLoading(true);
+      setLoadError(null);
       try {
         const result = await getWishlist(debouncedQuery, year);
         if (sequence === requestSequence.current) {
-          commitWithMotion(() => setData(result));
+          commitWithMotion(() => setData({
+            ...result,
+            items: result.items.filter((item) => !pendingStarts.current.has(item.id) && !startingAtRequest.has(item.id))
+          }));
         }
       } catch (error) {
         if (sequence === requestSequence.current) {
-          onError(error instanceof Error ? error.message : String(error));
+          const message = error instanceof Error ? error.message : String(error);
+          setLoadError(message);
+          onError(message);
         }
       } finally {
         if (sequence === requestSequence.current) {
@@ -50,13 +63,16 @@ export default function WishlistView({ disabled, refreshVersion, onSyncStarted, 
         }
       }
     }
-  }, [debouncedQuery, onError, refreshVersion, year]);
+    return () => { requestSequence.current += 1; };
+  }, [debouncedQuery, onError, refreshVersion, retryVersion, year]);
 
   async function start(subjectId: number) {
     const index = data.items.findIndex((item) => item.id === subjectId);
     const subject = data.items[index];
-    if (!subject) return;
+    if (!subject || disabled || subject.isUpcoming || pendingStarts.current.has(subjectId)) return;
     const actionFilterKey = filterKey;
+    pendingStarts.current.add(subjectId);
+    setStartingIds(new Set(pendingStarts.current));
     requestSequence.current += 1;
     setLoading(false);
     commitWithMotion(() => setData((current) => ({
@@ -69,21 +85,30 @@ export default function WishlistView({ disabled, refreshVersion, onSyncStarted, 
     } catch (error) {
       if (filterKeyRef.current === actionFilterKey) {
         commitWithMotion(() => setData((current) => {
-            if (current.items.some((item) => item.id === subjectId)) return current;
-            const items = [...current.items];
-            items.splice(Math.min(index, items.length), 0, subject);
-            return { ...current, items };
-          }));
+          if (current.items.some((item) => item.id === subjectId)) return current;
+          const items = [...current.items];
+          items.splice(Math.min(index, items.length), 0, subject);
+          return { ...current, items };
+        }));
+      } else {
+        setRetryVersion((value) => value + 1);
       }
       onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      pendingStarts.current.delete(subjectId);
+      setStartingIds(new Set(pendingStarts.current));
+      if (filterKeyRef.current === actionFilterKey) {
+        requestSequence.current += 1;
+        setLoading(false);
+      }
     }
   }
 
   return (
-    <section className="wishlist-panel" aria-label="想看">
+    <section className="wishlist-panel secondary-page" aria-label="想看" aria-busy={loading}>
       <header className="wishlist-hero">
         <div>
-          <span className="panel-eyebrow">我的片单</span>
+
           <h1>想看</h1>
         </div>
         <strong aria-live="polite"><MotionValue value={data.items.length} className="wishlist-count">{data.items.length} 部</MotionValue></strong>
@@ -109,17 +134,18 @@ export default function WishlistView({ disabled, refreshVersion, onSyncStarted, 
         </label>
       </div>
 
-      {loading && data.items.length === 0 ? <div className="empty">正在加载想看列表。</div> : null}
-      {!loading && data.items.length === 0 ? <div className="empty">没有符合条件的想看动画。</div> : null}
+      {loadError ? <div className="notice error secondary-notice" role="alert"><span>{loadError}</span><button type="button" className="secondary" onClick={() => setRetryVersion((value) => value + 1)}>重试想看列表</button></div> : null}
+      {loading ? <div className={data.items.length ? 'secondary-status' : 'empty'} role="status">正在加载想看列表。</div> : null}
+      {!loading && !loadError && data.items.length === 0 ? <div className="empty" role={startingIds.size ? 'status' : undefined}>{startingIds.size ? '正在加入在看…' : '没有符合条件的想看动画。'}</div> : null}
       {data.items.length > 0 ? (
         <div className="wishlist-list">
           {data.items.map((subject, index) => (
             <article key={subject.id} className="wishlist-item motion-item" style={motionStyle(index, `wishlist-subject-${subject.id}`)}>
               <a className="wishlist-cover" href={subject.url} target="_blank" rel="noreferrer" aria-label={displaySubjectName(subject.name, subject.nameCn)}>
-                {subject.image ? <img src={subject.image} alt="" /> : <span>暂无封面</span>}
+                <CoverImage src={subject.image} fallback="暂无封面" />
               </a>
               <div className="wishlist-details">
-                <a className="wishlist-title" href={subject.url} target="_blank" rel="noreferrer">{displaySubjectName(subject.name, subject.nameCn)}</a>
+                <a className="wishlist-title" href={subject.url} target="_blank" rel="noreferrer" title={displaySubjectName(subject.name, subject.nameCn)}>{displaySubjectName(subject.name, subject.nameCn)}</a>
                 <p className="wishlist-meta">
                   <span className={subject.isCurrentSeason && !subject.isUpcoming ? 'wishlist-season is-current' : 'wishlist-season'}>
                     {subject.isUpcoming ? '未播出' : subject.isCurrentSeason ? '本季度' : '旧番'}

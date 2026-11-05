@@ -22,7 +22,7 @@ describe('runReminderCheck', () => {
     cronState.stop.mockClear();
   });
 
-  it('syncs and replans before loading one combined notification', async () => {
+  it('syncs before loading a seasonal notification without reading backlog tasks', async () => {
     const events: string[] = [];
     const dashboard = dashboardService({
       syncNow: vi.fn(async () => { events.push('sync'); return { subjectsSynced: 1, episodesSynced: 2 }; }),
@@ -43,10 +43,10 @@ describe('runReminderCheck', () => {
       clock: () => now
     });
 
-    expect(events).toEqual(['sync', 'dashboard', 'backlog', 'marker read', 'notify', 'marker write']);
+    expect(events).toEqual(['sync', 'dashboard', 'marker read', 'notify', 'marker write']);
     expect(notifier.notify).toHaveBeenCalledWith(
       '今日追番计划',
-      '今日新番待看：测试新番 第 3 集\n今日补番计划：旧番 第 2 集'
+      '今日新番待看：测试新番 第 3 集'
     );
     expect(repository.setLastNotificationDate).toHaveBeenCalledWith('2026-07-19');
   });

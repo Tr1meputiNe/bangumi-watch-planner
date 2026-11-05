@@ -175,24 +175,8 @@ export function pauseBacklog(subjectId: number): Promise<void> {
   return api<void>(`/api/backlog/${subjectId}/pause`, { method: 'POST' });
 }
 
-export function resumeBacklog(subjectId: number): Promise<void> {
-  return api<void>(`/api/backlog/${subjectId}/resume`, { method: 'POST' });
-}
-
 export function completeBacklog(subjectId: number): Promise<void> {
   return api<void>(`/api/backlog/${subjectId}/complete`, { method: 'POST' });
-}
-
-export function swapBacklogTask(episodeId: number): Promise<void> {
-  return api<void>(`/api/backlog/tasks/${episodeId}/swap`, { method: 'POST' });
-}
-
-export function skipBacklogToday(): Promise<void> {
-  return api<void>('/api/backlog/today/skip', { method: 'POST' });
-}
-
-export function replanBacklogToday(): Promise<void> {
-  return api<void>('/api/backlog/today/replan', { method: 'POST' });
 }
 
 export function dismissReminder(episodeId: number): Promise<void> {

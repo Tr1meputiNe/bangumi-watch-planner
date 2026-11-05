@@ -1,0 +1,174 @@
+.secondary-page {
+  min-width: 0;
+}
+
+.secondary-page .secondary-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-block: 16px;
+}
+
+.secondary-page .secondary-notice > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.secondary-page .secondary-status {
+  margin-block: 12px;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.secondary-page .wishlist-filters label {
+  min-width: 0;
+}
+
+.secondary-page .wishlist-filters :is(input, select) {
+  width: 100%;
+  min-width: 0;
+}
+
+.secondary-page .wishlist-list {
+  align-items: stretch;
+}
+
+.secondary-page .wishlist-item {
+  min-width: 0;
+  gap: 0;
+}
+
+.secondary-page .wishlist-cover {
+  flex: 0 0 auto;
+}
+
+.secondary-page .wishlist-details {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: stretch;
+  padding-bottom: 12px;
+}
+
+.secondary-page .wishlist-title {
+  overflow-wrap: anywhere;
+}
+
+.secondary-page .wishlist-meta {
+  align-items: baseline;
+  overflow-wrap: anywhere;
+}
+
+.secondary-page .wishlist-item > button {
+  flex: 0 0 auto;
+  min-height: 44px;
+  margin-top: auto;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.secondary-page .calendar-overview > div,
+.secondary-page .wishlist-hero > div {
+  min-width: 0;
+}
+
+.secondary-page .calendar-overview-actions {
+  flex-wrap: wrap;
+}
+
+.secondary-page .calendar-day-heading,
+.secondary-page .calendar-day-summary {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.secondary-page .calendar-air {
+  min-width: 0;
+}
+
+.secondary-page .calendar-air span {
+  overflow-wrap: anywhere;
+}
+
+.secondary-page .calendar-subject {
+  align-content: start;
+}
+
+.secondary-page .calendar-subject-main > a {
+  overflow-wrap: anywhere;
+}
+
+.secondary-page .calendar-source {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.secondary-page .calendar-correction-form {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.secondary-page .calendar-correction-form :is(label, input) {
+  min-width: 0;
+}
+
+.secondary-page .calendar-correction-form > div {
+  flex-wrap: wrap;
+}
+
+.secondary-page .calendar-edit-button {
+  min-height: 36px;
+  padding-inline: 8px;
+}
+
+.secondary-page .calendar-day-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 20px 16px;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.secondary-page .held-subject-row .subject-heading > a,
+.secondary-page .held-subject-row .subject-detail > p {
+  overflow-wrap: anywhere;
+}
+
+.secondary-page .held-subject-row .backlog-subject-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 39.999rem) {
+  .secondary-page .wishlist-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px 12px;
+  }
+
+  .secondary-page .calendar-subject {
+    grid-template-columns: 64px 40px minmax(0, 1fr);
+    column-gap: 10px;
+  }
+
+  .secondary-page .calendar-cover {
+    width: 40px;
+  }
+
+  .secondary-page .held-subject-row {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .secondary-page .held-subject-row .subject-cover {
+    width: 56px;
+  }
+}
+
+@media (max-width: 22.499rem) {
+  .secondary-page .calendar-correction-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

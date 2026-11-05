@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 
 const HOLD_DURATION_MS = 1_500;
@@ -11,11 +11,16 @@ export default function LongPressButton({ subjectTitle, disabled, onCommit }: {
   const [pressing, setPressing] = useState(false);
   const timerRef = useRef<number | null>(null);
 
-  function cancel() {
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
+
+  const cancel = useCallback(() => {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     timerRef.current = null;
     setPressing(false);
-  }
+  }, []);
 
   function start() {
     if (disabled || timerRef.current !== null) return;
@@ -23,15 +28,24 @@ export default function LongPressButton({ subjectTitle, disabled, onCommit }: {
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
       setPressing(false);
-      onCommit();
+      if (!disabledRef.current) commitRef.current();
     }, HOLD_DURATION_MS);
   }
 
   useEffect(() => {
     if (!pressing) return;
     window.addEventListener('scroll', cancel, { capture: true, passive: true });
-    return () => window.removeEventListener('scroll', cancel, { capture: true });
-  }, [pressing]);
+    window.addEventListener('blur', cancel);
+    const cancelWhenHidden = () => { if (document.hidden) cancel(); };
+    document.addEventListener('visibilitychange', cancelWhenHidden);
+    return () => {
+      window.removeEventListener('scroll', cancel, { capture: true });
+      window.removeEventListener('blur', cancel);
+      document.removeEventListener('visibilitychange', cancelWhenHidden);
+    };
+  }, [cancel, pressing]);
+
+  useEffect(() => { cancel(); }, [cancel, disabled, subjectTitle]);
 
   useEffect(() => () => {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);

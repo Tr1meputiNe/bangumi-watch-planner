@@ -23,7 +23,7 @@ export function loadConfig(cwd = process.cwd()): AppConfig {
     clientId: process.env.BANGUMI_CLIENT_ID || '',
     clientSecret: process.env.BANGUMI_CLIENT_SECRET || '',
     baseUrl,
-    host: process.env.HOST || '0.0.0.0',
+    host: process.env.HOST || '127.0.0.1',
     port: Number(process.env.PORT || '3777'),
     dbPath: resolve(cwd, process.env.DB_PATH || './data/bangumi-watch-planner.sqlite'),
     notificationsEnabled: (process.env.NOTIFICATIONS_ENABLED || 'true') === 'true',

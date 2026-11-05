@@ -5,10 +5,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
-    environmentMatchGlobs: [
-      ['tests/client/**', 'jsdom'],
-      ['tests/server/**', 'node']
-    ],
+    environment: 'node',
     setupFiles: ['tests/setup.ts'],
     restoreMocks: true
   }

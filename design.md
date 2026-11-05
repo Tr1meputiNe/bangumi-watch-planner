@@ -68,3 +68,14 @@ science-fiction chrome, or decorative character art.
 - App views use no hero enrichment. Function and current data carry the page.
 - Preserve all existing API calls, routes, labels, and task interactions.
 - Light and dark modes share hierarchy, spacing, and state semantics.
+
+## 2026-11-05 · ConardLi preserve redesign
+
+The user chose to preserve pink and the anime character while refining layout,
+cards, and detail. `brand-spec.md` records the design read and exact decisions.
+The canonical visual prototype is `.omx/design-v0.html`. Keep the original sakura
+primary, pale-blue secondary, Bricolage/Noto pairing, warm paper/dark surfaces,
+compact icon rail, 8px card radius, and true anime imagery. Operational UI uses
+short feedback animations, equal action baselines, and progressive disclosure.
+Progress expands inline with motion, never a modal. Preserve direct episode-grid
+clicks; do not add batch recording controls. Backlog has no daily tasks or deadlines.

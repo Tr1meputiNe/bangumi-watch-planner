@@ -1,7 +1,6 @@
 import { buildReminderCandidates } from './reminders.js';
 import { todayInShanghai, weekdayFromDate } from '../shared/date.js';
 import { episodeProgress } from '../shared/format.js';
-import { capacityForSeasonalLoad, countSeasonalLoad, estimateBacklogCompletionDate } from './backlog-planner.js';
 import { shiftAirDate } from './broadcast-schedule.js';
 import { nextSeasonKey, seasonKeyForDate } from './season-window.js';
 import { parseAutoWatchQueue, queueAutoWatchSubject, rebuildBacklogPlan, syncAnimeCollections } from './sync.js';
@@ -44,8 +43,7 @@ export function createDashboardService({
   client,
   repository,
   clock = () => new Date(),
-  syncCollections = syncAnimeCollections,
-  rebuildPlan = rebuildBacklogPlan
+  syncCollections = syncAnimeCollections
 }: DashboardDeps): DashboardService {
   let syncInFlight: Promise<SyncResult> | null = null;
   let syncInFlightMode: SyncMode | null = null;
@@ -86,10 +84,6 @@ export function createDashboardService({
       await repository.setSetting('last_error', message);
       throw Object.assign(new Error(message), { statusCode: 502, expose: true, cause: error });
     }
-  }
-
-  function replan(includeToday: boolean, now = clock()): Promise<void> {
-    return rebuildPlan({ repository, today: todayInShanghai(now), includeToday });
   }
 
   function publish(event: DashboardEvent): void {
@@ -166,27 +160,8 @@ export function createDashboardService({
     });
   }
 
-  async function replanAfterEpisodeMutation(mutation: () => Promise<void>, now: Date, includeToday = false): Promise<void> {
-    let failure: { error: unknown } | null = null;
-    try {
-      await mutation();
-    } catch (error) {
-      failure = { error };
-    }
-    try {
-      await replan(includeToday, now);
-    } catch (error) {
-      if (!failure) throw error;
-    }
-    if (failure) throw failure.error;
-  }
-
   async function markEpisodesWatched(subjectId: number, episodeIds: number[], now: Date): Promise<void> {
-    const today = todayInShanghai(now);
     const watchedIds = new Set(episodeIds);
-    const todayTaskIds = (await repository.listBacklogTasks(today, today))
-      .map((task) => task.episodeId)
-      .filter((episodeId) => watchedIds.has(episodeId));
     if (operationQueue) {
       const [subject, episodes] = await Promise.all([
         repository.getSubject(subjectId),
@@ -200,14 +175,14 @@ export function createDashboardService({
       await operationQueue.enqueue({
         resourceKey: `subject:${subjectId}`,
         kind: 'episodes_watched',
-        payload: JSON.stringify({ subjectId, episodeIds, completesSubject }),
+        payload: JSON.stringify({ subjectId, episodeIds, completesSubject, watchedAt: now.toISOString() }),
         rollback: JSON.stringify({
           subject: subject ? subjectState(subject) : null,
           episodes: changedEpisodes.map((episode) => ({ id: episode.id, collectionType: episode.collectionType }))
         })
       }, async () => {
         for (const episodeId of episodeIds) await repository.markEpisodeWatched(episodeId);
-        for (const episodeId of todayTaskIds) await repository.deleteBacklogTask(episodeId);
+        await repository.recordSubjectWatchedAt(subjectId, now.toISOString());
         if (completesSubject && subject) {
           await repository.setSubjectState(subjectId, {
             collectionType: 2,
@@ -215,7 +190,6 @@ export function createDashboardService({
             completedAt: now.toISOString()
           });
         }
-        await replan(false, now);
       });
       publish({ type: 'data', subjectIds: [subjectId], scopes: ['dashboard', 'backlog'] });
       return;
@@ -224,29 +198,8 @@ export function createDashboardService({
     for (const episodeId of episodeIds) {
       await repository.markEpisodeWatched(episodeId);
     }
-    for (const episodeId of todayTaskIds) {
-      await repository.deleteBacklogTask(episodeId);
-    }
-    await replanAfterEpisodeMutation(() => completeIfEligible(subjectId, now), now);
-  }
-
-  async function clearTodayTasks(today: string): Promise<void> {
-    await repository.replaceBacklogTasks({
-      fromDate: today,
-      throughDate: today,
-      preserveLocked: false,
-      tasks: []
-    });
-  }
-
-  async function removeTodayTasksForSubject(subjectId: number, now: Date): Promise<boolean> {
-    const today = todayInShanghai(now);
-    const tasks = (await repository.listBacklogTasks(today, today))
-      .filter((task) => task.subjectId === subjectId);
-    for (const task of tasks) {
-      await repository.deleteBacklogTask(task.episodeId);
-    }
-    return tasks.length > 0;
+    await repository.recordSubjectWatchedAt(subjectId, now.toISOString());
+    await completeIfEligible(subjectId, now);
   }
 
   async function enqueueCollectionOperation(
@@ -296,6 +249,7 @@ export function createDashboardService({
       episodeIds?: number[];
       completesSubject?: boolean;
       reopensSubject?: boolean;
+      watchedAt?: string;
     };
     if (!Number.isSafeInteger(payload.subjectId) || payload.subjectId <= 0) throw new Error('Invalid queued subject id');
     if (operation.kind === 'add_watching') return client.addSubjectToWatching(payload.subjectId);
@@ -324,6 +278,7 @@ export function createDashboardService({
       episodeIds?: number[];
       completesSubject?: boolean;
       reopensSubject?: boolean;
+      watchedAt?: string;
     };
     const subject = await repository.getSubject(payload.subjectId);
     if (operation.kind === 'set_collection' && payload.type && subject) {
@@ -334,10 +289,11 @@ export function createDashboardService({
           : subject.plannerMode,
         completedAt: payload.type === 2 ? subject.completedAt ?? clock().toISOString() : null
       });
-      await replan(false);
     }
     if (operation.kind === 'episodes_watched' && payload.episodeIds) {
       for (const episodeId of payload.episodeIds) await repository.markEpisodeWatched(episodeId);
+      const watchedAt = payload.watchedAt ?? operation.createdAt;
+      await repository.recordSubjectWatchedAt(payload.subjectId, watchedAt);
       if (payload.completesSubject && subject) {
         await repository.setSubjectState(subject.id, {
           collectionType: 2,
@@ -345,7 +301,6 @@ export function createDashboardService({
           completedAt: subject.completedAt ?? clock().toISOString()
         });
       }
-      await replan(false);
     }
     if (operation.kind === 'episodes_unwatched' && payload.episodeIds) {
       for (const episodeId of payload.episodeIds) await repository.markEpisodeUnwatched(episodeId);
@@ -356,7 +311,6 @@ export function createDashboardService({
           completedAt: null
         });
       }
-      await replan(false);
     }
   }
 
@@ -371,8 +325,13 @@ export function createDashboardService({
     }
     if (rollback.subject) {
       await repository.setSubjectState(rollback.subject.id, rollback.subject);
+      if (operation.kind === 'episodes_watched') {
+        const { watchedAt } = JSON.parse(operation.payload) as { watchedAt?: string };
+        if (watchedAt) {
+          await repository.setSubjectLastWatchedAt(rollback.subject.id, rollback.subject.lastWatchedAt ?? null, watchedAt);
+        }
+      }
     }
-    await replan(false).catch(() => undefined);
     await repository.setSetting('last_error', `${getSafeCollectionActionError(new Error(error))} 可在设置中重新校准。`);
     syncStatus = {
       ...syncStatus,
@@ -433,36 +392,24 @@ export function createDashboardService({
     },
 
     async getBacklog(): Promise<BacklogData> {
-      const today = todayInShanghai(clock());
-      const dates = Array.from({ length: 7 }, (_, offset) => shiftAirDate(today, offset));
-      const throughDate = dates[6];
-      const [tasks, seasonal, active, held, completed] = await Promise.all([
-        repository.listBacklogTasks(today, throughDate),
-        repository.listSubjectsByMode('seasonal', [3]),
+      const [active, held, completed] = await Promise.all([
         repository.listSubjectsByMode('backlog', [3]),
         repository.listSubjectsByMode('backlog', [4]),
         repository.listSubjectsByMode('backlog', [2])
       ]);
-      const seasonalEpisodes = seasonal.flatMap((subject) => subject.mainEpisodes);
-      const seasonalLoads = dates.map((date) => countSeasonalLoad(seasonalEpisodes, date));
-
+      const recent = active
+        .filter((subject) => subject.lastWatchedAt && Number.isFinite(Date.parse(subject.lastWatchedAt)))
+        .sort((a, b) => Date.parse(b.lastWatchedAt!) - Date.parse(a.lastWatchedAt!) || a.id - b.id)
+        .slice(0, 6);
       return {
-        today,
-        todayTasks: tasks.filter((task) => task.plannedDate === today),
-        futureDays: dates.slice(1).map((date, index) => ({
-          date,
-          seasonalLoad: seasonalLoads[index + 1],
-          capacity: capacityForSeasonalLoad(seasonalLoads[index + 1]),
-          tasks: tasks.filter((task) => task.plannedDate === date)
-        })),
+        today: todayInShanghai(clock()),
+        todayTasks: [],
+        futureDays: [],
+        estimatedCompletionDate: null,
+        recent,
         active,
         held,
-        completed,
-        estimatedCompletionDate: estimateBacklogCompletionDate(
-          today,
-          active.reduce((total, subject) => total + subject.unwatchedMainEpisodeCount, 0),
-          seasonalLoads
-        )
+        completed
       };
     },
 
@@ -662,6 +609,7 @@ export function createDashboardService({
       if (!episode) {
         throw new Error(`Episode ${episodeId} was not found`);
       }
+      if (episode.collectionType === 2) return;
       await markEpisodesWatched(episode.subjectId, [episodeId], clock());
     },
 
@@ -671,7 +619,6 @@ export function createDashboardService({
         throw new Error(`Episode ${episodeId} was not found`);
       }
       const subject = await repository.getSubject(episode.subjectId);
-      const now = clock();
       if (operationQueue) {
         const reopensSubject = subject?.collectionType === 2;
         await operationQueue.enqueue({
@@ -691,23 +638,20 @@ export function createDashboardService({
               completedAt: null
             });
           }
-          await replan(false, now);
         });
         publish({ type: 'data', subjectIds: [episode.subjectId], scopes: ['dashboard', 'backlog'] });
         return;
       }
       await client.markEpisodesUnwatched(episode.subjectId, [episodeId]);
       await repository.markEpisodeUnwatched(episodeId);
-      await replanAfterEpisodeMutation(async () => {
-        if (subject?.collectionType === 2) {
-          await client.setSubjectCollectionType(subject.id, 3);
-          await repository.setSubjectState(subject.id, {
-            collectionType: 3,
-            plannerMode: subject.plannerMode,
-            completedAt: null
-          });
-        }
-      }, now);
+      if (subject?.collectionType === 2) {
+        await client.setSubjectCollectionType(subject.id, 3);
+        await repository.setSubjectState(subject.id, {
+          collectionType: 3,
+          plannerMode: subject.plannerMode,
+          completedAt: null
+        });
+      }
     },
 
     async markSubjectEpisodesWatchedThrough(subjectId, episodeId) {
@@ -795,8 +739,7 @@ export function createDashboardService({
             plannerMode: subject.seasonKey ? 'seasonal' : 'backlog',
             completedAt: null
           });
-          await replan(false);
-        });
+            });
       }
       return startCollectionAction(() => client.setSubjectCollectionType(subjectId, 3));
     },
@@ -806,15 +749,12 @@ export function createDashboardService({
       if (!subject.plannerMode || subject.collectionType !== 3) {
         throw Object.assign(new Error('Only active planning subjects can be held'), { statusCode: 400 });
       }
-      const queuedAt = operationQueue ? clock() : null;
       await updateCollection(subject, 4, async () => {
         await repository.setSubjectState(subjectId, {
           collectionType: 4,
           plannerMode: subject.plannerMode,
           completedAt: null
         });
-        const now = queuedAt ?? clock();
-        await replan(await removeTodayTasksForSubject(subjectId, now), now);
       });
     },
 
@@ -829,8 +769,7 @@ export function createDashboardService({
           plannerMode: subject.plannerMode,
           completedAt: null
         });
-        await replan(false);
-      });
+        });
     },
 
     async dropSubject(subjectId) {
@@ -838,15 +777,12 @@ export function createDashboardService({
       if (!subject.plannerMode || ![3, 4].includes(subject.collectionType)) {
         throw Object.assign(new Error('Only active or held planning subjects can be dropped'), { statusCode: 400 });
       }
-      const queuedAt = operationQueue ? clock() : null;
       await updateCollection(subject, 5, async () => {
         await repository.setSubjectState(subjectId, {
           collectionType: 5,
           plannerMode: subject.plannerMode,
           completedAt: null
         });
-        const now = queuedAt ?? clock();
-        await replan(await removeTodayTasksForSubject(subjectId, now), now);
       });
     },
 
@@ -881,41 +817,19 @@ export function createDashboardService({
           plannerMode: subject.plannerMode,
           completedAt: now.toISOString()
         });
-        await replan(await removeTodayTasksForSubject(subjectId, now), now);
       });
     },
 
-    async swapBacklogTask(episodeId) {
-      const now = clock();
-      const today = todayInShanghai(now);
-      const todayTasks = await repository.listBacklogTasks(today, today);
-      if (!todayTasks.some((task) => task.episodeId === episodeId)) {
-        throw Object.assign(new Error(`Episode ${episodeId} is not in today's backlog plan`), { statusCode: 404 });
-      }
-      await repository.deleteBacklogTask(episodeId);
-      await repository.excludeEpisodeOnDate(today, episodeId);
-      await replan(true, now);
-      publish({ type: 'data', subjectIds: [...new Set(todayTasks.map((task) => task.subjectId))], scopes: ['backlog'] });
+    async swapBacklogTask() {
+      throw retiredBacklogPlanError();
     },
 
     async skipBacklogToday() {
-      const now = clock();
-      const today = todayInShanghai(now);
-      const subjectIds = [...new Set((await repository.listBacklogTasks(today, today)).map((task) => task.subjectId))];
-      await repository.skipBacklogDate(today);
-      await clearTodayTasks(today);
-      await replan(true, now);
-      publish({ type: 'data', subjectIds, scopes: ['backlog'] });
+      throw retiredBacklogPlanError();
     },
 
     async replanBacklogToday() {
-      const now = clock();
-      const today = todayInShanghai(now);
-      await repository.clearBacklogDateOverrides(today);
-      await clearTodayTasks(today);
-      await replan(true, now);
-      const subjectIds = [...new Set((await repository.listBacklogTasks(today, today)).map((task) => task.subjectId))];
-      publish({ type: 'data', subjectIds, scopes: ['backlog'] });
+      throw retiredBacklogPlanError();
     },
 
     async searchAnimeSubjects(keyword) {
@@ -1000,7 +914,8 @@ function subjectState(subject: SubjectRow) {
     id: subject.id,
     collectionType: subject.collectionType,
     plannerMode: subject.plannerMode,
-    completedAt: subject.completedAt
+    completedAt: subject.completedAt,
+    lastWatchedAt: subject.lastWatchedAt ?? null
   };
 }
 
@@ -1130,4 +1045,8 @@ function getSafeCollectionActionError(error: unknown): string {
     return 'Bangumi 收藏更新失败，请稍后再试';
   }
   return error instanceof Error ? error.message : 'Bangumi 收藏更新失败，请稍后再试';
+}
+
+function retiredBacklogPlanError() {
+  return Object.assign(new Error('补番已改为自由观看，无需安排每日任务。'), { statusCode: 410, expose: true });
 }

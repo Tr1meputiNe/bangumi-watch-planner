@@ -393,8 +393,19 @@ describe('syncAnimeCollections', () => {
   });
 });
 
+describe('parseAutoWatchQueue', () => {
+  it('keeps valid entries and ignores malformed saved entries', () => {
+    expect(parseAutoWatchQueue(JSON.stringify([
+      { subjectId: 501, seasonKey: '2026Q4' },
+      { subjectId: '502', seasonKey: '2026Q4' },
+      { subjectId: 503, seasonKey: ['2026Q4'] }
+    ]))).toEqual([{ subjectId: 501, seasonKey: '2026Q4' }]);
+    expect(parseAutoWatchQueue('{broken')).toEqual([]);
+  });
+});
+
 describe('rebuildBacklogPlan', () => {
-  it('does not advance the rotation cursor when task replacement fails', async () => {
+  it('keeps retired planner calls inert without writing tasks or a rotation cursor', async () => {
     const setSetting = vi.fn();
     const repository = syncRepository({
       replaceBacklogTasks: vi.fn(async () => { throw new Error('replace failed'); }),
@@ -402,8 +413,9 @@ describe('rebuildBacklogPlan', () => {
     });
 
     await expect(rebuildBacklogPlan({ repository: repository as Repository, today: '2026-07-19', includeToday: false }))
-      .rejects.toThrow('replace failed');
+      .resolves.toBeUndefined();
 
+    expect(repository.replaceBacklogTasks).not.toHaveBeenCalled();
     expect(setSetting).not.toHaveBeenCalledWith('backlog_rotation_cursor', expect.anything());
   });
 });
@@ -434,6 +446,9 @@ function syncRepository(overrides: Partial<SyncRepository> = {}): SyncRepository
     getSubject: vi.fn(async () => null),
     deleteSubject: vi.fn(async () => undefined),
     upsertSubject: vi.fn(),
+    listSubjectProgressEpisodes: vi.fn(async () => []),
+    setSubjectLastWatchedAt: vi.fn(async () => undefined),
+    recordSubjectWatchedAt: vi.fn(async () => undefined),
     replaceSubjectEpisodes: vi.fn(),
     getSetting: vi.fn(async () => null),
     setSetting: vi.fn(),

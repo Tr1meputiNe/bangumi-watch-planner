@@ -5,6 +5,18 @@ import HeldView from '../../src/client/views/HeldView.js';
 import type { DashboardSubject } from '../../src/server/types.js';
 
 describe('HeldView', () => {
+  it('does not announce an empty library while the last title is being restored', async () => {
+    let resolveRestore!: (response: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { resolveRestore = resolve; })));
+    render(<HeldView subjects={[subject(1, '旧番', 'backlog')]} disabled={false} onChanged={vi.fn()} onError={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '恢复在看' }));
+    expect(screen.queryByText('没有搁置的动画。')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('正在更新收藏');
+    resolveRestore(new Response(null, { status: 204 }));
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  });
+
   it('shows both origins and restores a title through the unified endpoint', async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
     vi.stubGlobal('fetch', fetchMock);

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { commitWithMotion, MotionValue, motionStyle } from '../../src/client/motion.js';
 
 afterEach(() => {
-  delete (document as Document & { startViewTransition?: unknown }).startViewTransition;
+  Reflect.deleteProperty(document, 'startViewTransition');
   vi.unstubAllGlobals();
 });
 

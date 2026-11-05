@@ -98,8 +98,8 @@ describe('Bangumi client', () => {
       overlapThrough: '2026-07-17'
     });
     expect([...catalog.seasonWindow.activeSubjectIds]).toEqual([101, 202]);
-    expect(catalog.schedules.get(101)).toMatchObject({ airDate: '2026-07-04', airTime: '20:00' });
-    expect(catalog.schedules.get(202)).toMatchObject({ airDate: '2026-04-04', airTime: '20:00' });
+    expect(catalog.schedules.get(101)).toMatchObject({ airDate: '2026-07-04', airTime: '21:00' });
+    expect(catalog.schedules.get(202)).toMatchObject({ airDate: '2026-04-04', airTime: '21:00' });
     expect(fetch.mock.calls.map(([url]) => url)).toEqual(expect.arrayContaining([
       'http://yuc.wiki/202607/',
       'http://yuc.wiki/202604/'

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { addUpcomingToWishlist, getUpcomingSeason } from '../api.js';
+import CoverImage from '../CoverImage.js';
 import type { SyncStatus, UpcomingSeasonData, UpcomingSeasonItem } from '../../server/types.js';
 import { displaySubjectName } from '../../shared/format.js';
 import { commitWithMotion, MotionValue, motionStyle } from '../motion.js';
+import '../secondary-views.css';
 
 type UpcomingSeasonViewProps = {
   disabled: boolean;
@@ -16,8 +18,10 @@ const emptyData: UpcomingSeasonData = { seasonKey: '', available: true, items: [
 export default function UpcomingSeasonView({ disabled, refreshVersion, onSyncStarted, onError }: UpcomingSeasonViewProps) {
   const [data, setData] = useState<UpcomingSeasonData>(emptyData);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryVersion, setRetryVersion] = useState(0);
   const requestSequence = useRef(0);
-  const pendingMutations = useRef(new Set<number>());
+  const pendingMutations = useRef(new Map<number, UpcomingSeasonItem>());
 
   useEffect(() => {
     void loadUpcoming();
@@ -25,35 +29,37 @@ export default function UpcomingSeasonView({ disabled, refreshVersion, onSyncSta
     async function loadUpcoming() {
       const sequence = ++requestSequence.current;
       setLoading(true);
+      setLoadError(null);
       try {
         const result = await getUpcomingSeason();
         if (sequence === requestSequence.current) {
-          pendingMutations.current.clear();
-          commitWithMotion(() => setData(result));
+          commitWithMotion(() => setData({
+            ...result,
+            items: result.items.map((item) => pendingMutations.current.has(item.id) ? scheduledItem(item) : item)
+          }));
         }
       } catch (error) {
-        if (sequence === requestSequence.current) onError(error instanceof Error ? error.message : String(error));
+        if (sequence === requestSequence.current) {
+          const message = error instanceof Error ? error.message : String(error);
+          setLoadError(message);
+          onError(message);
+        }
       } finally {
         if (sequence === requestSequence.current) setLoading(false);
       }
     }
-  }, [onError, refreshVersion]);
+    return () => { requestSequence.current += 1; };
+  }, [onError, refreshVersion, retryVersion]);
 
   async function schedule(item: UpcomingSeasonItem) {
-    if (!item.action) return;
+    if (!item.action || disabled || pendingMutations.current.has(item.id)) return;
     const previous = item;
     requestSequence.current += 1;
-    pendingMutations.current.add(item.id);
+    pendingMutations.current.set(item.id, item);
     setLoading(false);
     commitWithMotion(() => setData((current) => ({
       ...current,
-      items: current.items.map((candidate) => candidate.id === item.id ? {
-        ...candidate,
-        collectionType: 1,
-        action: null,
-        actionLabel: '已安排开季在看',
-        autoWatch: true
-      } : candidate)
+      items: current.items.map((candidate) => candidate.id === item.id ? scheduledItem(candidate) : candidate)
     })));
 
     try {
@@ -68,14 +74,16 @@ export default function UpcomingSeasonView({ disabled, refreshVersion, onSyncSta
       onError(error instanceof Error ? error.message : String(error));
     } finally {
       pendingMutations.current.delete(item.id);
+      requestSequence.current += 1;
+      setLoading(false);
     }
   }
 
   return (
-    <section className="wishlist-panel upcoming-season-panel" aria-label="下季新番">
+    <section className="wishlist-panel upcoming-season-panel secondary-page" aria-label="下季新番" aria-busy={loading}>
       <header className="wishlist-hero">
         <div>
-          <span className="panel-eyebrow">Yuc 新番站 · Bangumi 已确认</span>
+
           <h1>{seasonLabel(data.seasonKey)}新番</h1>
         </div>
         <strong aria-live="polite">
@@ -83,9 +91,10 @@ export default function UpcomingSeasonView({ disabled, refreshVersion, onSyncSta
         </strong>
       </header>
 
-      {loading && data.items.length === 0 ? <div className="empty">正在核对下季度新番。</div> : null}
-      {!loading && !data.available ? <div className="empty">Yuc 新番列表暂时不可用，请稍后重试。</div> : null}
-      {!loading && data.available && data.items.length === 0 ? <div className="empty">暂时没有由 Bangumi 确认的下季度新番。</div> : null}
+      {loadError ? <div className="notice error secondary-notice" role="alert"><span>{loadError}</span><button type="button" className="secondary" onClick={() => setRetryVersion((value) => value + 1)}>重试下季新番</button></div> : null}
+      {loading ? <div className={data.items.length ? 'secondary-status' : 'empty'} role="status">正在核对下季度新番。</div> : null}
+      {!loading && !loadError && !data.available ? <div className="empty secondary-notice"><span>Yuc 新番列表暂时不可用，请稍后重试。</span><button type="button" className="secondary" onClick={() => setRetryVersion((value) => value + 1)}>重试下季新番</button></div> : null}
+      {!loading && !loadError && data.available && data.items.length === 0 ? <div className="empty">暂时没有由 Bangumi 确认的下季度新番。</div> : null}
       {data.items.length > 0 ? (
         <div className="upcoming-day-groups">
           {groupByWeekday(data.items).map((group) => (
@@ -98,10 +107,10 @@ export default function UpcomingSeasonView({ disabled, refreshVersion, onSyncSta
                 {group.items.map((item, index) => (
                   <article key={item.id} className="wishlist-item motion-item" style={motionStyle(index, `upcoming-subject-${item.id}`)}>
                     <a className="wishlist-cover" href={item.url} target="_blank" rel="noreferrer" aria-label={displaySubjectName(item.name, item.nameCn)}>
-                      {item.image ? <img src={item.image} alt="" referrerPolicy="no-referrer" /> : <span>暂无封面</span>}
+                      <CoverImage src={item.image} fallback="暂无封面" />
                     </a>
                     <div className="wishlist-details">
-                      <a className="wishlist-title" href={item.url} target="_blank" rel="noreferrer">{displaySubjectName(item.name, item.nameCn)}</a>
+                      <a className="wishlist-title" href={item.url} target="_blank" rel="noreferrer" title={displaySubjectName(item.name, item.nameCn)}>{displaySubjectName(item.name, item.nameCn)}</a>
                       <p className="wishlist-meta">
                         <span className="wishlist-season is-current">{item.sourceType || '类型未定'}</span>
                         <span>{formatPremiere(item)}</span>
@@ -127,6 +136,10 @@ export default function UpcomingSeasonView({ disabled, refreshVersion, onSyncSta
 
 const weekdayLabels = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
 
+function scheduledItem(item: UpcomingSeasonItem): UpcomingSeasonItem {
+  return { ...item, collectionType: 1, action: null, actionLabel: '已安排开季在看', autoWatch: true };
+}
+
 function groupByWeekday(items: UpcomingSeasonItem[]) {
   const groups = new Map<number, UpcomingSeasonItem[]>();
   for (const item of items) {
@@ -140,8 +153,8 @@ function groupByWeekday(items: UpcomingSeasonItem[]) {
 
 function formatPremiere(item: UpcomingSeasonItem): string {
   const [, month, day] = item.normalPremiereDate.match(/^\d{4}-(\d{2})-(\d{2})$/) ?? [];
-  if (!month || !day || !item.airTime) return '常规播出时间待定';
-  return `首播 ${Number(month)}月${Number(day)}日 · ${item.airTime}`;
+  if (!month || !day) return item.airTime ? `首播日期待定 · ${item.airTime}` : '常规播出时间待定';
+  return `首播 ${Number(month)}月${Number(day)}日 · ${item.airTime || '时间待定'}`;
 }
 
 function seasonLabel(seasonKey: string): string {

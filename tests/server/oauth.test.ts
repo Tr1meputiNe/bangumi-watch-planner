@@ -28,6 +28,7 @@ describe('OAuth manager', () => {
     expect(url.searchParams.get('client_id')).toBe('client-id');
     expect(url.searchParams.get('response_type')).toBe('code');
     expect(url.searchParams.get('redirect_uri')).toBe('http://127.0.0.1:3777/auth/callback');
+    expect(url.searchParams.has('scope')).toBe(false);
     expect(url.searchParams.get('state')).toBe('state-123');
     expect(settings.get('oauth_state')).toBe('state-123');
   });
@@ -256,6 +257,32 @@ describe('OAuth manager', () => {
     } finally {
       timeout.mockRestore();
     }
+  });
+
+  it('does not report an expired access token as logged in without a refresh token', async () => {
+    const settings = new Map<string, string>([
+      ['username', 'sai'],
+      ['access_token', 'old-access'],
+      ['access_token_expires_at', String(Date.now() - 1000)]
+    ]);
+    const manager = createOAuthManager({
+      clientId: 'client-id',
+      clientSecret: 'client-secret',
+      baseUrl: 'http://127.0.0.1:3777',
+      settings: {
+        get: async (key) => settings.get(key) ?? null,
+        set: async (key, value) => settings.set(key, value)
+      },
+      tokenStore: {
+        getRefreshToken: async () => null,
+        setRefreshToken: async () => undefined,
+        deleteRefreshToken: async () => undefined
+      }
+    });
+
+    await expect(manager.getAuthStatus()).resolves.toMatchObject({ authenticated: false });
+    settings.set('access_token_expires_at', String(Date.now() + 60_000));
+    await expect(manager.getAuthStatus()).resolves.toMatchObject({ authenticated: true });
   });
 
   it('clears OAuth state after a successful callback', async () => {

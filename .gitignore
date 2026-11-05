@@ -8,3 +8,4 @@ coverage/
 release/
 .worktrees/
 .hallmark/
+.omx/

@@ -100,6 +100,7 @@ export type SubjectRow = {
   airYear: number | null;
   totalEpisodesKnown: boolean;
   completedAt: string | null;
+  lastWatchedAt?: string | null;
 };
 
 export type SubjectWrite = Omit<SubjectRow, 'collectionType' | 'plannerMode' | 'seasonKey' | 'seasonKind' | 'airYear' | 'totalEpisodesKnown' | 'completedAt'>
@@ -203,6 +204,7 @@ export type BacklogTaskRow = {
 };
 
 export type BacklogData = {
+  recent?: DashboardSubject[];
   today: string;
   todayTasks: BacklogTaskRow[];
   futureDays: Array<{ date: string; seasonalLoad: number; capacity: number; tasks: BacklogTaskRow[] }>;
@@ -410,6 +412,9 @@ export type BangumiClient = {
 };
 
 export type SyncRepository = {
+  listSubjectProgressEpisodes(subjectId: number): Promise<EpisodeRow[]>;
+  recordSubjectWatchedAt(subjectId: number, watchedAt: string): Promise<void>;
+  setSubjectLastWatchedAt(subjectId: number, watchedAt: string | null, expectedCurrent?: string): Promise<void>;
   upsertSubject(subject: SubjectWrite): Promise<void>;
   replaceSubjectEpisodes(subjectId: number, episodes: EpisodeRow[]): Promise<void>;
   getSetting(key: string): Promise<string | null>;
