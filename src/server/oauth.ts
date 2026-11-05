@@ -35,6 +35,7 @@ type TokenResponse = {
 
 const ACCESS_TOKEN = 'access_token';
 const ACCESS_TOKEN_EXPIRES_AT = 'access_token_expires_at';
+const AUTH_MODE = 'auth_mode';
 const OAUTH_STATE = 'oauth_state';
 const USERNAME = 'username';
 const NICKNAME = 'nickname';
@@ -96,11 +97,15 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
     await deps.settings.set(ACCESS_TOKEN, token.access_token);
     const expiresAt = Date.now() + token.expires_in * 1000 - 60_000;
     await deps.settings.set(ACCESS_TOKEN_EXPIRES_AT, String(expiresAt));
+    await deps.settings.set(AUTH_MODE, 'oauth');
   }
 
   async function loadAccessToken(): Promise<string> {
     const accessToken = await getCachedAccessToken();
     if (accessToken) return accessToken;
+    if (await deps.settings.get(AUTH_MODE) === 'personal') {
+      throw oauthError('个人令牌已失效，请重新连接 Bangumi', 401);
+    }
 
     const refreshToken = await deps.tokenStore.getRefreshToken();
     if (!refreshToken) {
@@ -129,6 +134,53 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
   }
 
   return {
+    async setPersonalAccessToken(value) {
+      const accessToken = value.trim();
+      if (!/^[\x21-\x7e]{8,2048}$/.test(accessToken)) {
+        throw oauthError('请粘贴完整的个人令牌', 400);
+      }
+      const signal = AbortSignal.timeout(15_000);
+      try {
+        const [userResponse, tokenResponse] = await Promise.all([
+          fetchImpl('https://api.bgm.tv/v0/me', {
+            headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'bangumi-watch-planner/1.4.0' },
+            redirect: 'error', signal
+          }),
+          fetchImpl('https://bgm.tv/oauth/token_status', {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ access_token: accessToken }), redirect: 'error', signal
+          })
+        ]);
+        if (!userResponse.ok || !tokenResponse.ok) {
+          const invalid = [userResponse.status, tokenResponse.status].some((status) => status === 400 || status === 401 || status === 403);
+          throw oauthError(invalid ? '个人令牌无效或已过期，请重新生成' : 'Bangumi 暂时无法连接，请稍后重试', invalid ? 400 : 502);
+        }
+        const user = await userResponse.json() as { id?: unknown; username?: unknown; nickname?: unknown };
+        const token = await tokenResponse.json() as { expires?: unknown; user_id?: unknown };
+        const expires = Number(token.expires);
+        if (!Number.isSafeInteger(user.id) || Number(user.id) <= 0 || typeof user.username !== 'string' || !user.username.trim()
+          || !Number.isFinite(expires) || expires * 1000 <= Date.now() || Number(token.user_id) !== user.id) {
+          throw oauthError('个人令牌无效或已过期，请重新生成', 400);
+        }
+        // Only persist after both identity and the real remote expiry are verified.
+        await deps.settings.set(ACCESS_TOKEN, accessToken);
+        await deps.settings.set(ACCESS_TOKEN_EXPIRES_AT, String(expires * 1000));
+        await deps.settings.set(AUTH_MODE, 'personal');
+        await deps.settings.set(USERNAME, user.username);
+        await deps.settings.set(NICKNAME, typeof user.nickname === 'string' ? user.nickname : user.username);
+      } catch (error) {
+        if (error instanceof Error && 'expose' in error) throw error;
+        throw oauthError(signal.aborted ? 'Bangumi 连接超时，请稍后重试' : 'Bangumi 暂时无法连接，请稍后重试', 502);
+      }
+    },
+
+    async invalidateAccessToken(rejectedToken) {
+      const current = await deps.settings.get(ACCESS_TOKEN);
+      if (rejectedToken && rejectedToken !== current) return;
+      await deps.settings.set(ACCESS_TOKEN, '');
+      await deps.settings.set(ACCESS_TOKEN_EXPIRES_AT, '');
+    },
+
     async createAuthorizationUrl() {
       const credentials = await assertConfigured();
       const state = randomState();
@@ -167,7 +219,7 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
     },
 
     async getAuthStatus() {
-      const [username, nickname, lastSyncAt, refreshToken, accessToken, launchAgentInstalled, notificationsEnabled, credentials] = await Promise.all([
+      const [username, nickname, lastSyncAt, refreshToken, accessToken, launchAgentInstalled, notificationsEnabled, credentials, mode] = await Promise.all([
         deps.settings.get(USERNAME),
         deps.settings.get(NICKNAME),
         deps.settings.get(LAST_SYNC_AT),
@@ -175,11 +227,12 @@ export function createOAuthManager(deps: OAuthDeps): OAuthManager {
         getCachedAccessToken(),
         deps.getLaunchAgentInstalled?.() ?? Promise.resolve(false),
         deps.notificationsEnabled?.() ?? Promise.resolve(true),
-        getCredentials()
+        getCredentials(),
+        deps.settings.get(AUTH_MODE)
       ]);
 
       return {
-        authenticated: Boolean(username && (refreshToken || accessToken)),
+        authenticated: Boolean(username && (accessToken || (mode !== 'personal' && refreshToken))),
         username,
         nickname,
         lastSyncAt,

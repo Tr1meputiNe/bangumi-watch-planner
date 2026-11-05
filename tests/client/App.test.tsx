@@ -1684,11 +1684,43 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '登录 Bangumi' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '连接 Bangumi' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '获取个人令牌' })).toHaveAttribute('href', 'https://next.bgm.tv/demo/access-token');
+    await userEvent.click(screen.getByText('使用 OAuth 登录'));
     expect(screen.getByRole('link', { name: '使用 Bangumi 登录' })).toHaveAttribute('href', '/auth/login');
     expect(screen.queryByLabelText('访问密码')).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: '追番提醒' })).not.toBeInTheDocument();
     expect(dashboardRequests).toBe(0);
+  });
+
+  it('connects with a personal token without developer credentials and clears the secret while submitting', async () => {
+    let connected = false;
+    let finish!: () => void;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === '/api/auth/status') return Response.json({ authenticated: connected, username: connected ? 'token-user' : null, nickname: null, lastSyncAt: null, configured: false });
+      if (url === '/api/settings/token' && init?.method === 'POST') {
+        await new Promise<void>((resolve) => { finish = resolve; });
+        connected = true;
+        return new Response(null, { status: 204 });
+      }
+      if (url === '/api/dashboard') return Response.json({ ...dashboard, subjects: [] });
+      if (url === '/api/backlog') return Response.json({ today: '2026-11-05', recent: [], active: [], held: [], completed: [], todayTasks: [], futureDays: [], estimatedCompletionDate: null });
+      if (url === '/api/sync/status') return Response.json({ state: 'idle' });
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+    const input = await screen.findByLabelText('个人令牌');
+    expect(input).toHaveAttribute('type', 'password');
+    await userEvent.type(input, 'personal-test-token');
+    await userEvent.click(screen.getByRole('button', { name: /^连接$/ }));
+    expect(input).toHaveValue('');
+    expect(input).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledWith('/api/settings/token', expect.objectContaining({ body: JSON.stringify({ accessToken: 'personal-test-token' }) }));
+    await act(async () => finish());
+    expect(await screen.findByRole('tab', { name: '今日' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('个人令牌')).not.toBeInTheDocument();
   });
 
   it('lets the user configure OAuth before opening Bangumi login', async () => {
@@ -1721,7 +1753,9 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '配置 Bangumi 登录' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '连接 Bangumi' })).toBeInTheDocument();
+    expect(screen.getByText('使用 OAuth 登录').closest('details')).not.toHaveAttribute('open');
+    await userEvent.click(screen.getByText('使用 OAuth 登录'));
     expect(await screen.findByRole('link', { name: '打开 Bangumi 开发者平台' })).toHaveAttribute('href', 'https://bgm.tv/dev');
     expect(screen.getByText('http://127.0.0.1:3777/auth/callback')).toBeInTheDocument();
 

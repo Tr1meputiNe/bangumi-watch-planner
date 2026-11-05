@@ -27,6 +27,7 @@ import {
   retryOperation,
   resumeHeldSubject,
   saveOAuthConfig,
+  savePersonalAccessToken,
   searchAnime,
   startSync,
   startFullSync,
@@ -55,7 +56,7 @@ type BacklogState = {
 };
 
 type ActiveView = 'today' | 'watching' | 'backlog' | 'held' | 'wishlist' | 'upcoming' | 'calendar';
-type PendingAction = 'search' | 'oauth';
+type PendingAction = 'search' | 'oauth' | 'token';
 type SearchDestination = 'backlog' | 'wishlist';
 
 const secondaryViewLabels: Partial<Record<ActiveView, string>> = {
@@ -103,7 +104,7 @@ export default function App() {
     resultKeyword: null,
     results: []
   });
-  const isPending = pendingAction === 'oauth';
+  const isPending = pendingAction === 'oauth' || pendingAction === 'token';
   const isSyncing = syncStatus?.state === 'running';
 
   useEffect(() => {
@@ -484,6 +485,11 @@ export default function App() {
     await runAction('oauth', () => saveOAuthConfig(oauthForm.clientId, oauthForm.clientSecret));
   }
 
+  async function connectPersonalToken(accessToken: string) {
+    if (isPending) return;
+    await runAction('token', () => savePersonalAccessToken(accessToken));
+  }
+
   async function startManualSync(full = false) {
     if (syncStartingRef.current || isSyncing) return;
     syncStartingRef.current = true;
@@ -529,6 +535,7 @@ export default function App() {
         setOauthForm={setOauthForm}
         pendingAction={pendingAction}
         onSaveOAuth={saveOAuthSettings}
+        onSaveToken={connectPersonalToken}
       />
     );
   }
@@ -789,7 +796,8 @@ function BangumiLogin({
   oauthForm,
   setOauthForm,
   pendingAction,
-  onSaveOAuth
+  onSaveOAuth,
+  onSaveToken
 }: {
   auth: AuthStatus;
   error: string | null;
@@ -798,7 +806,9 @@ function BangumiLogin({
   setOauthForm: React.Dispatch<React.SetStateAction<{ clientId: string; clientSecret: string }>>;
   pendingAction: PendingAction | null;
   onSaveOAuth(event: React.FormEvent<HTMLFormElement>): Promise<void>;
+  onSaveToken(accessToken: string): Promise<void>;
 }) {
+  const [personalToken, setPersonalToken] = useState('');
   return (
     <main className="bangumi-login-shell">
       <section className="panel bangumi-login-card" aria-label="Bangumi 登录">
@@ -806,16 +816,33 @@ function BangumiLogin({
           <span className="bangumi-login-mark" aria-hidden="true">番</span>
           <div>
             <span className="panel-eyebrow">Bangumi Watch Planner</span>
-            <h1>{auth.configured === false ? '配置 Bangumi 登录' : '登录 Bangumi'}</h1>
+            <h1>连接 Bangumi</h1>
           </div>
         </header>
         <p className="bangumi-login-description">
-          {auth.configured === false
-            ? '先填写 Bangumi 开发者应用信息，再使用你的 Bangumi 账号授权。'
-            : '使用 Bangumi 账号授权后进入追番计划。'}
+          获取个人令牌，粘贴后即可连接。
         </p>
         {error ? <p className="search-error" role="alert">{error}</p> : null}
-        {auth.configured === false ? (
+        <a href="https://next.bgm.tv/demo/access-token" target="_blank" rel="noreferrer">获取个人令牌</a>
+        <form className="oauth-form" onSubmit={(event) => {
+          event.preventDefault();
+          if (disabled || !personalToken.trim()) return;
+          const accessToken = personalToken.trim();
+          setPersonalToken('');
+          void onSaveToken(accessToken);
+        }}>
+          <label>
+            <span>个人令牌</span>
+            <input type="password" autoComplete="off" placeholder="粘贴 Access Token" value={personalToken}
+              disabled={disabled} onChange={(event) => setPersonalToken(event.target.value)} />
+          </label>
+          <button type="submit" disabled={disabled || !personalToken.trim()} aria-busy={pendingAction === 'token'}>
+            {pendingAction === 'token' ? '正在连接' : '连接'}
+          </button>
+        </form>
+        <details className="bangumi-login-options">
+          <summary>使用 OAuth 登录</summary>
+          {auth.configured === false ? (
           <>
             <div className="oauth-guide">
               <a href="https://bgm.tv/dev" target="_blank" rel="noreferrer">打开 Bangumi 开发者平台</a>
@@ -830,6 +857,7 @@ function BangumiLogin({
                   onChange={(event) => setOauthForm((current) => ({ ...current, clientId: event.target.value }))}
                   placeholder="App ID"
                   autoComplete="off"
+                  disabled={disabled}
                 />
               </label>
               <label>
@@ -840,6 +868,7 @@ function BangumiLogin({
                   placeholder="App Secret"
                   type="password"
                   autoComplete="off"
+                  disabled={disabled}
                 />
               </label>
               <button
@@ -853,7 +882,8 @@ function BangumiLogin({
           </>
         ) : (
           <a className="button-link bangumi-login-action" href="/auth/login">使用 Bangumi 登录</a>
-        )}
+          )}
+        </details>
       </section>
     </main>
   );

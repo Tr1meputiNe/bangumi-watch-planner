@@ -6,13 +6,13 @@
 
 把今天要追的新番、想补的旧番和观看进度放在一起。本地运行，连接 Bangumi 收藏，跟随新番放送时间，自由选择想补的旧番。
 
-**[下载 v1.3.1](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.3.1)** · [启动与配置](#下载和启动) · [补番与进度](#补番与进度) · [历史版本](#保留的发行版)
+**[下载 v1.4.0](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.4.0)** · [启动与配置](#下载和启动) · [补番与进度](#补番与进度) · [历史版本](#保留的发行版)
 
 ![重新设计后的今日安排：精简侧栏、同步状态与追番卡片](./assets/readme/today.png)
 
-*截图为当前本地开发版界面，已发布的 v1.3.1 布局可能不同。*
+*界面示意，实际布局以下载版本为准。*
 
-> 需要自己的 Bangumi OAuth 应用。后台提醒依赖运行主机保持开机且服务运行，不是云端托管服务。数据缓存在本地 SQLite，收藏和分集进度同步到 Bangumi。
+> 下载、解压、双击启动；不需要安装 Node.js、Git 或运行命令。首次连接只需粘贴 Bangumi 个人令牌，不必创建开发者应用。数据保存在本机，收藏和分集进度同步到 Bangumi。
 
 ## 主要功能
 
@@ -25,33 +25,39 @@
 
 ## 下载和启动
 
+打开 [v1.4.0 下载页](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.4.0)，按电脑选择安装包，不要下载自动生成的 `Source code`。
+
+| 电脑 | 下载文件结尾 |
+| --- | --- |
+| Windows 10 / 11，Intel 或 AMD 处理器 | `windows-x64.zip` |
+| Mac，Apple 芯片（M 系列） | `macos-arm64.zip` |
+| Mac，Intel 处理器 | `macos-x64.zip` |
+
 ### Windows 10 / 11
 
-1. 打开 [v1.3.1 下载页](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.3.1)，下载名称以 `-windows-x64.zip` 结尾的文件，不要选择 GitHub 自动生成的 `Source code`。
-2. 解压到一个固定目录，不要只在压缩包预览中运行。
-3. 双击 `Start Bangumi Watch Planner.cmd`。脚本会启动本地服务并打开 `http://127.0.0.1:3777/`。
-4. 需要开机后继续提醒时，再双击 `Install Startup.cmd`；`Uninstall Startup.cmd` 可以移除启动项。
+1. 解压到固定目录，不要在压缩包预览里运行。
+2. 双击 `Start Bangumi Watch Planner.cmd`，网页会自动打开。
+3. 首次使用按页面指引连接 Bangumi；以后双击启动即可。
+
+需要开机后继续提醒时，可双击 `Install Startup.cmd`；`Uninstall Startup.cmd` 移除启动项。
 
 便携包中的 `Bangumi-Watch-Planner.exe` 是服务本体，旁边的 `node_modules` 和 `dist` 目录必须保留。当前版本没有商业代码签名，Windows SmartScreen 可能在首次运行时提示确认；Release 同时提供 `SHA256SUMS.txt` 用于核对下载文件。
 
 ### macOS
 
-安装 [Node.js 22 或更高版本](https://nodejs.org/) 后，在项目目录运行：
+需要 macOS 13.5 或更高版本。
 
-```bash
-npm ci
-```
+1. 解压，把 `Bangumi Watch Planner.app` 放到“应用程序”或其他固定目录。
+2. 双击应用，网页会自动打开。
+3. 首次使用按页面指引连接 Bangumi；以后双击应用即可。
 
-Finder 中双击 `Start Bangumi Watch Planner.command`，它会完成构建、安装 LaunchAgent 并打开页面。也可以手动运行：
+应用内置运行环境，数据保存在 `~/Library/Application Support/BangumiWatchPlanner`。升级时替换 `.app` 即可，数据目录不用移动。关闭网页后，本地服务会继续运行；重新登录电脑后再双击应用启动。
 
-```bash
-npm run build
-npm start
-```
+目前安装包未经过商业签名或 Apple 公证，首次打开可能出现系统来源确认。已有源码部署可以继续使用原目录；请保留原来的 `data/` 数据目录和配置。
 
 ### 自行部署
 
-克隆本仓库后运行：
+仅供开发或服务器部署：安装 Node.js 22 或更高版本，克隆本仓库后运行：
 
 ```bash
 npm ci
@@ -61,7 +67,19 @@ npm start
 
 生产服务默认只监听 `127.0.0.1:3777`。需要局域网访问时，在 `.env.local` 中设置 `HOST=0.0.0.0`。
 
-## 配置 Bangumi OAuth
+## 连接 Bangumi
+
+推荐使用个人令牌，不需要 App ID、App Secret 或回调地址：
+
+1. 在应用首页点击“获取个人令牌”，打开 [Bangumi 官方令牌页面](https://next.bgm.tv/demo/access-token)。
+2. 登录 Bangumi，创建令牌并选择有效期。
+3. 把令牌粘贴回应用，点击连接。验证后会自动同步。
+
+令牌只保存在你的本机服务中；过期或撤销后重新生成并粘贴即可。不要把令牌发给别人。
+
+### 使用 OAuth（可选）
+
+已有开发者应用可展开首页的高级选项，继续使用 OAuth：
 
 1. 在 [Bangumi 开发者平台](https://bgm.tv/dev)创建应用。
 2. 本机使用时，把回调地址填写为：
@@ -176,15 +194,16 @@ npm run build
 git diff --check
 ```
 
-Windows 便携包由 `.github/workflows/release.yml` 在推送 `v*` 标签后自动构建并发布。
+Windows、Apple 芯片 Mac 和 Intel Mac 安装包由 `.github/workflows/release.yml` 在推送 `v*` 标签后分别构建。每个平台都会实际启动打包产物，检查 SQLite 和网页资源；三种产物全部通过后才发布 Release。
 
 ## 保留的发行版
 
-日常使用请选择 **v1.3.1**。以下旧版保留供回退，功能与修复以各版本说明为准。
+日常使用请选择 **v1.4.0**。以下旧版保留供回退，功能与修复以各版本说明为准。
 
 | 版本 | 用途 |
 | --- | --- |
-| [v1.3.1](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.3.1) | 当前推荐版本 |
+| [v1.4.0](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.4.0) | 当前推荐版本，免运行环境与个人令牌连接 |
+| [v1.3.1](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.3.1) | 历史版本 |
 | [v1.2.1](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.2.1) | 历史版本 |
 | [v1.1.3](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.1.3) | 历史版本 |
 | [v1.0.0](https://github.com/Tr1meputiNe/bangumi-watch-planner/releases/tag/v1.0.0) | 初始版本 |

@@ -37,6 +37,7 @@ const auth = createOAuthManager({
 
 const client = createBangumiClient({
   getAccessToken: () => auth.getAccessToken(),
+  onUnauthorized: async (token) => { await auth.invalidateAccessToken?.(token); },
   userAgent: config.userAgent
 });
 

@@ -46,6 +46,7 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
   });
 
   app.get('/api/auth/status', async (_request, reply) => {
+    reply.header('x-bwp-app', 'bangumi-watch-planner');
     const status = await auth.getAuthStatus();
     if (apiToken) {
       reply.header('set-cookie', serializeLocalApiTokenCookie(apiToken));
@@ -154,6 +155,17 @@ export function buildApp({ auth, dashboard, settings, staticRoot, afterOAuthUser
       clientId: request.body.clientId.trim(),
       clientSecret: request.body.clientSecret.trim()
     });
+    return reply.code(204).send();
+  });
+
+  app.post<{ Body: { accessToken: string } }>('/api/settings/token', {
+    bodyLimit: 4096,
+    schema: { body: { type: 'object', required: ['accessToken'], additionalProperties: false,
+      properties: { accessToken: { type: 'string', minLength: 8, maxLength: 2048 } } } }
+  }, async (request, reply) => {
+    if (!auth.setPersonalAccessToken) return reply.code(503).send({ error: '个人令牌登录暂不可用' });
+    await auth.setPersonalAccessToken(request.body.accessToken);
+    dashboard.startSync('full');
     return reply.code(204).send();
   });
 

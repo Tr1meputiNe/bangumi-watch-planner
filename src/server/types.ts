@@ -467,6 +467,8 @@ export type OAuthManager = {
   handleCallback(code: string, state: string): Promise<void>;
   getAccessToken(): Promise<string>;
   getAuthStatus(): Promise<AuthStatus>;
+  setPersonalAccessToken?(accessToken: string): Promise<void>;
+  invalidateAccessToken?(rejectedToken?: string): Promise<void>;
 };
 
 export type DashboardService = {

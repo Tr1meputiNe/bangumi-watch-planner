@@ -14,6 +14,7 @@ import { todayInShanghai, weekdayFromDate } from '../shared/date.js';
 type BangumiClientDeps = {
   fetch?: typeof fetch;
   getAccessToken: () => Promise<string>;
+  onUnauthorized?: (rejectedToken: string) => Promise<void>;
   userAgent: string;
   maxRetries?: number;
   retryDelayMs?: number;
@@ -72,6 +73,7 @@ export function createBangumiClient(deps: BangumiClientDeps): BangumiClient {
         });
 
         if (!response.ok) {
+          if (response.status === 401 && token) await deps.onUnauthorized?.(token);
           if (TRANSIENT_STATUS_CODES.has(response.status) && attempt < maxRetries) {
             await delay(retryDelayMs * (attempt + 1));
             continue;

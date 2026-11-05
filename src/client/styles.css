@@ -275,6 +275,7 @@ button.watch-episode-button.is-unaired { color: var(--muted); }
 .oauth-guide code { display: block; margin-top: 6px; font-size: 11px; overflow-wrap: anywhere; }
 .oauth-form { display: grid; gap: 16px; margin-top: 22px; }
 .bangumi-login-action { width: 100%; margin-top: 24px; }
+.bangumi-login-options { margin-top: 22px; }
 
 button.long-press-button { color: var(--color-error); gap: 7px; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .long-press-icon { display: grid; place-items: center; position: relative; width: 22px; height: 22px; flex: 0 0 22px; }

@@ -2,6 +2,32 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../../src/server/app.js';
 
 describe('HTTP API', () => {
+  it('validates a personal token and starts background sync without returning credentials', async () => {
+    const setPersonalAccessToken = vi.fn(async () => undefined);
+    const startSync = vi.fn();
+    const app = buildApp({ auth: { setPersonalAccessToken } as never, dashboard: { startSync } as never, staticRoot: null, apiToken: 'local-token' });
+    const denied = await app.inject({ method: 'POST', url: '/api/settings/token', payload: { accessToken: 'personal-secret' } });
+    expect(denied.statusCode).toBe(403);
+    expect(setPersonalAccessToken).not.toHaveBeenCalled();
+    const response = await app.inject({ method: 'POST', url: '/api/settings/token', headers: { 'x-bwp-token': 'local-token' }, payload: { accessToken: 'personal-secret' } });
+    expect(response.statusCode).toBe(204);
+    expect(response.body).toBe('');
+    expect(setPersonalAccessToken).toHaveBeenCalledWith('personal-secret');
+    expect(startSync).toHaveBeenCalledExactlyOnceWith('full');
+    await app.close();
+  });
+
+  it('rejects malformed personal token payloads before calling authentication', async () => {
+    const setPersonalAccessToken = vi.fn();
+    const app = buildApp({ auth: { setPersonalAccessToken } as never, dashboard: {} as never, staticRoot: null });
+    for (const payload of [{}, { accessToken: '' }, { accessToken: 123 }, { accessToken: 'a'.repeat(2049) }]) {
+      const response = await app.inject({ method: 'POST', url: '/api/settings/token', payload });
+      expect(response.statusCode).toBe(400);
+    }
+    expect(setPersonalAccessToken).not.toHaveBeenCalled();
+    await app.close();
+  });
+
   it('returns auth status and dashboard data', async () => {
     const app = buildApp({
       auth: {
@@ -45,6 +71,7 @@ describe('HTTP API', () => {
     expect(authResponse.headers['set-cookie']).toContain('bwp_token=test-token');
     expect(authResponse.headers['set-cookie']).toContain('HttpOnly');
     expect(authResponse.headers['set-cookie']).toContain('SameSite=Strict');
+    expect(authResponse.headers['x-bwp-app']).toBe('bangumi-watch-planner');
     expect(dashboardResponse.json()).toEqual({
       pendingEpisodes: [],
       subjects: [],

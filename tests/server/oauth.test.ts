@@ -1,6 +1,91 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createOAuthManager } from '../../src/server/oauth.js';
 
+describe('personal token connection', () => {
+  function setup(fetcher: typeof fetch, initial: Record<string, string> = {}) {
+    const values = new Map(Object.entries(initial));
+    const refresh = vi.fn(async () => 'previous-oauth-refresh');
+    const manager = createOAuthManager({ clientId: '', clientSecret: '', baseUrl: 'http://127.0.0.1:3777', fetch: fetcher,
+      settings: { get: async (key) => values.get(key) ?? null, set: async (key, value) => { values.set(key, value); } },
+      tokenStore: { getRefreshToken: refresh, setRefreshToken: vi.fn(), deleteRefreshToken: vi.fn() } });
+    return { manager, values, refresh };
+  }
+
+  function validResponses(expires = Math.floor(Date.now() / 1000) + 3600) {
+    return vi.fn(async (url: RequestInfo | URL) => url.toString() === 'https://api.bgm.tv/v0/me'
+      ? Response.json({ id: 123, username: 'token-user', nickname: '令牌用户' })
+      : Response.json({ user_id: 123, expires }));
+  }
+
+  it('validates identity and real expiry before persisting a token, without needing OAuth credentials', async () => {
+    const expires = Math.floor(Date.now() / 1000) + 3600;
+    const fetcher = validResponses(expires);
+    const { manager, values } = setup(fetcher);
+    await manager.setPersonalAccessToken!('  personal-token  ');
+    expect(values.get('access_token')).toBe('personal-token');
+    expect(values.get('access_token_expires_at')).toBe(String(expires * 1000));
+    expect(values.get('auth_mode')).toBe('personal');
+    expect(await manager.getAccessToken()).toBe('personal-token');
+    expect(await manager.getAuthStatus()).toMatchObject({ authenticated: true, configured: false, username: 'token-user', nickname: '令牌用户' });
+    expect(fetcher).toHaveBeenCalledWith('https://api.bgm.tv/v0/me', expect.objectContaining({ redirect: 'error', headers: expect.objectContaining({ Authorization: 'Bearer personal-token' }) }));
+    expect(fetcher).toHaveBeenCalledWith('https://bgm.tv/oauth/token_status', expect.objectContaining({ method: 'POST', body: expect.any(URLSearchParams) }));
+    expect(JSON.stringify(await manager.getAuthStatus())).not.toContain('personal-token');
+  });
+
+  it('does not replace a working login when a submitted token is invalid', async () => {
+    const original = { access_token: 'working-token', access_token_expires_at: String(Date.now() + 3600000), username: 'existing', auth_mode: 'oauth' };
+    const fetcher = vi.fn(async () => new Response(null, { status: 401 }));
+    const { manager, values } = setup(fetcher, original);
+    await expect(manager.setPersonalAccessToken!('invalid-token')).rejects.toMatchObject({ statusCode: 400 });
+    expect(Object.fromEntries(values)).toEqual(original);
+  });
+
+  it('rejects expired or mismatched token metadata before making any local changes', async () => {
+    const { manager, values } = setup(validResponses(Math.floor(Date.now() / 1000) - 1));
+    await expect(manager.setPersonalAccessToken!('expired-token')).rejects.toMatchObject({ statusCode: 400 });
+    expect(values.size).toBe(0);
+  });
+
+  it('reports validation timeouts without storing or exposing the submitted token', async () => {
+    const signal = AbortSignal.abort(new DOMException('Timeout', 'TimeoutError'));
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(signal);
+    const { manager, values } = setup(vi.fn(async () => { throw signal.reason; }));
+    try {
+      await expect(manager.setPersonalAccessToken!('secret-test-token')).rejects.toMatchObject({ statusCode: 502, message: 'Bangumi 连接超时，请稍后重试' });
+      expect(values.size).toBe(0);
+    } finally { timeout.mockRestore(); }
+  });
+
+  it('does not fall back to another account refresh token after personal token expiry', async () => {
+    const fetcher = validResponses();
+    const { manager } = setup(fetcher);
+    await manager.setPersonalAccessToken!('personal-token');
+    await manager.invalidateAccessToken!('personal-token');
+    expect(await manager.getAuthStatus()).toMatchObject({ authenticated: false });
+    await expect(manager.getAccessToken()).rejects.toMatchObject({ statusCode: 401 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores a delayed 401 for the replaced token', async () => {
+    const { manager } = setup(validResponses());
+    await manager.setPersonalAccessToken!('new-personal-token');
+    await manager.invalidateAccessToken!('previous-personal-token');
+    expect(await manager.getAccessToken()).toBe('new-personal-token');
+    expect(await manager.getAuthStatus()).toMatchObject({ authenticated: true });
+  });
+
+  it('reports an elapsed personal token expiry as logged out even if an older OAuth refresh exists', async () => {
+    const expires = Math.floor(Date.now() / 1000) + 3600;
+    const { manager } = setup(validResponses(expires));
+    await manager.setPersonalAccessToken!('personal-token');
+    const now = vi.spyOn(Date, 'now').mockReturnValue((expires + 1) * 1000);
+    try {
+      expect(await manager.getAuthStatus()).toMatchObject({ authenticated: false });
+      await expect(manager.getAccessToken()).rejects.toMatchObject({ statusCode: 401 });
+    } finally { now.mockRestore(); }
+  });
+});
+
 describe('OAuth manager', () => {
   it('builds a Bangumi authorization URL and persists state', async () => {
     const settings = new Map<string, string>();

@@ -18,6 +18,22 @@ function yucSeason(title: string, subjectTitle: string, cover: string, premiere:
 }
 
 describe('Bangumi client', () => {
+  it('invalidates the rejected authenticated token without retrying a 401', async () => {
+    const fetcher = vi.fn(async () => new Response('Unauthorized', { status: 401 }));
+    const onUnauthorized = vi.fn(async () => undefined);
+    const client = createBangumiClient({ fetch: fetcher, getAccessToken: async () => 'expired-token', onUnauthorized, userAgent: 'test' });
+    await expect(client.getMe()).rejects.toMatchObject({ statusCode: 401 });
+    expect(onUnauthorized).toHaveBeenCalledExactlyOnceWith('expired-token');
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('does not invalidate a saved token when a public request returns 401', async () => {
+    const onUnauthorized = vi.fn(async () => undefined);
+    const client = createBangumiClient({ fetch: vi.fn(async () => new Response('', { status: 401 })), getAccessToken: async () => 'valid-token', onUnauthorized, userAgent: 'test' });
+    await expect(client.getCalendar()).rejects.toMatchObject({ statusCode: 401 });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
   it('keeps collection write results void even when Bangumi returns JSON', async () => {
     const client = createBangumiClient({
       fetch: vi.fn(async () => Response.json({ ok: true })),

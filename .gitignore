@@ -9,3 +9,5 @@ release/
 .worktrees/
 .hallmark/
 .omx/
+/bangumi-watch-planner-v*.zip
+/SHA256SUMS.txt

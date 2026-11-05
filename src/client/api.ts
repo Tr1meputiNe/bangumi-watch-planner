@@ -120,6 +120,14 @@ export function saveOAuthConfig(clientId: string, clientSecret: string): Promise
   });
 }
 
+export function savePersonalAccessToken(accessToken: string): Promise<void> {
+  return api<void>('/api/settings/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ accessToken })
+  });
+}
+
 export function markWatched(episodeId: number): Promise<void> {
   return api<void>(`/api/episodes/${episodeId}/watched`, { method: 'POST' });
 }
